@@ -80,13 +80,19 @@ class DeepOcSort(BoxTracker):
         self.alpha_fixed_emb = config.alpha_fixed_emb
         self.aw_param = config.aw_param
         self.use_embeddings = config.use_embeddings
-        self.cmc_off = config.cmc_off
         self.aw_off = config.aw_off
         # "similarity transforms using feature point extraction, optical flow, and RANSAC"
-        self.cmc = create_cmc("sof", enabled=not self.cmc_off)
+        self.cmc = create_cmc(config.cmc_method, enabled=config.use_cmc)
         self._requires_frame = self._requires_frame or self.cmc is not None
         if self.cmc is not None:
             self._requires_frame_dimensions_only = False
+
+    def cmc_detection_boxes(self, dets: np.ndarray) -> np.ndarray:
+        """Keep original high-score masking unless calibration fixes a threshold."""
+        if self.config.cmc_min_conf is None:
+            accepted = self.detection_layout.confidences(dets) > self.det_thresh
+            return self.detection_layout.boxes(dets[accepted])
+        return super().cmc_detection_boxes(dets)
 
     def _track_detections(
         self,
@@ -115,6 +121,7 @@ class DeepOcSort(BoxTracker):
         # dets, s, c = dets.data
         # print(dets, s, c)
         self.frame_count += 1
+        cmc_dets = dets
 
         batch = self._make_detection_batch(dets, embs=embs, masks=masks)
         batch = batch.select(batch.confs > self.det_thresh)
@@ -126,10 +133,6 @@ class DeepOcSort(BoxTracker):
             enabled=self.use_embeddings,
             placeholder_value=1.0,
         )
-
-        # CMC
-        if not self.cmc_off:
-            self.apply_cmc(img, dets, self.active_tracks)
 
         # From [self.alpha_fixed_emb, 1], goes to 1 as detector is less confident.
         dets_alpha = confidence_aware_alpha(
@@ -144,6 +147,9 @@ class DeepOcSort(BoxTracker):
         to_del = []
         ret = []
         predictions = predict_tracks(self.active_tracks, dt=self._prediction_dt)
+        if self.cmc is not None:
+            self.apply_cmc(img, cmc_dets, self.active_tracks)
+            predictions = [track.get_state() for track in self.active_tracks]
         for t, trk in enumerate(trks):
             pos = predictions[t][0]
             trk[:] = [*pos[: self.detection_layout.box_cols], 0]
@@ -261,6 +267,7 @@ class DeepOcSort(BoxTracker):
                 max_obs=self.max_obs,
                 id_allocator=self.id_allocator,
                 noise_config=self.kalman_noise_config,
+                kalman_type=self.kalman_config.type,
             )
             self.active_tracks.append(trk)
         i = len(self.active_tracks)

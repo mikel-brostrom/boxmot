@@ -49,7 +49,6 @@ from boxmot.trackers.common.association.iou import AssociationFunction
 from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runtime_options
 from boxmot.trackers.common.motion.batching import predict_tracks
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
-from boxmot.trackers.common.motion.kalman_filters.xyhr import KalmanFilterXYHR
 from boxmot.trackers.common.tracking.track import TrackState, sync_track_meta
 from boxmot.trackers.occluboost.config import OccluBoostConfig
 
@@ -93,6 +92,10 @@ class OccluBoost(BoostTrack):
             **kwargs,
         )
         self.config = config
+        if config.use_cmc and config.cmc_method == "sof":
+            from boxmot.trackers.common.motion.cmc.registry import create_cmc, sof_options
+
+            self.cmc = create_cmc("sof", **sof_options(config))
         self.recovery_appearance_thresh = config.recovery_appearance_thresh
         self.recovery_iou_thresh = config.recovery_iou_thresh
         self.recovery_max_age = config.recovery_max_age
@@ -148,12 +151,12 @@ class OccluBoost(BoostTrack):
         dets = batch.as_indexed_detections(dtype=det_dtype)
         self.frame_count += 1
 
-        if self.cmc is not None:
-            self.apply_cmc(img, dets, self.trackers)
-
         trks = []
         confs = []
         predictions = predict_tracks(self.trackers, dt=self._prediction_dt)
+        if self.cmc is not None:
+            self.apply_cmc(img, dets, self.trackers)
+            predictions = [track.get_state() for track in self.trackers]
         for trk, prediction in zip(self.trackers, predictions, strict=True):
             pos = prediction[0]
             conf = trk.get_confidence()
@@ -356,6 +359,7 @@ class OccluBoost(BoostTrack):
                     adaptive_kf=self.kalman_config.adaptive_kf,
                     id_allocator=self.id_allocator,
                     noise_config=self.kalman_noise_config,
+                kalman_type=self.kalman_config.type,
                 )
                 # Tentative until confirmed; high-conf detections skip the
                 # confirmation period so first-frame appearances still emit.
@@ -493,7 +497,7 @@ class OccluBoost(BoostTrack):
         alpha = self._compute_ams_alpha(trk, det[:4])
         trk.time_since_update = 0
         trk.hit_streak += 1
-        trk.kf.update(trk.motion_model.to_measurement(det[:4], column=False), alpha=alpha)
+        trk.motion_model.update_filter(trk.kf, trk.motion_model.to_measurement(det[:5], column=False), alpha=alpha)
         trk.conf = float(det[4])
         trk.cls = int(det[5])
         trk.det_ind = int(det[6])
@@ -516,7 +520,7 @@ class OccluBoost(BoostTrack):
             return
         alphas = [self._compute_ams_alpha(track, det[:4]) for track, det in zip(tracks, detections)]
         measurements = [track._prepare_update(det) for track, det in zip(tracks, detections)]
-        KalmanFilterXYHR.update_many([track.kf for track in tracks], measurements, alpha=alphas)
+        tracks[0].motion_model.update_filters([track.kf for track in tracks], measurements, alpha=alphas)
         for track, measurement in zip(tracks, measurements):
             track._finish_update(measurement)
 
@@ -597,13 +601,13 @@ class OccluBoost(BoostTrack):
         dets = batch.as_indexed_detections(dtype=det_dtype)
         self.frame_count += 1
 
-        if self.cmc is not None:
-            self.apply_cmc(img, dets, self.trackers)
-
         # Predict all current trackers
         trks_xywha = []
         confs = []
         predictions = predict_tracks(self.trackers, dt=self._prediction_dt)
+        if self.cmc is not None:
+            self.apply_cmc(img, dets, self.trackers)
+            predictions = [track.get_state() for track in self.trackers]
         for trk, prediction in zip(self.trackers, predictions, strict=True):
             pos = prediction[0]  # [cx, cy, w, h, angle]
             trks_xywha.append(pos)
@@ -791,6 +795,7 @@ class OccluBoost(BoostTrack):
                     adaptive_kf=self.kalman_config.adaptive_kf,
                     id_allocator=self.id_allocator,
                     noise_config=self.kalman_noise_config,
+                kalman_type=self.kalman_config.type,
                 )
                 new_trk.is_activated = bool(det_conf >= self.obb_instant_confirm_thresh or self.confirm_hits <= 1)
                 self.trackers.append(new_trk)

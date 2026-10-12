@@ -62,7 +62,7 @@ def test_cli_calibrates_once_and_reuses_class_specific_noise(
 ) -> None:
     """Fit orchestration, real tracking, and real Optuna preserve all fixed settings."""
     from boxmot.engine.calibration import kalman_sensor
-    from boxmot.engine.calibration.kalman import KalmanCalibrationResult
+    from boxmot.engine.calibration.kalman_artifacts import KalmanCalibrationResult
 
     optuna = pytest.importorskip("optuna")
     data = _fixture(tmp_path)

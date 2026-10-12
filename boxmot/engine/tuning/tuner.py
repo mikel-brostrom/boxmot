@@ -173,6 +173,8 @@ class Tuner:
         self._minimize: list[str] = []
         self._calibrated_fixed_options: dict[str, Any] = {}
         self._calibration_config_path: Path | None = None
+        self._selected_kalman_type: str | None = None
+        self._selected_cmc_policy: str | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -181,6 +183,20 @@ class Tuner:
     def fit(self):
         """Run the full tuning pipeline. Returns (result_grid, tune_dir, maximize, minimize)."""
         self._resolve_metrics()
+        if getattr(self.args, "select_cmc", False):
+            from boxmot.engine.config.cmc import validate_joint_cmc_selection
+
+            validate_joint_cmc_selection(
+                self.args.tracker,
+                getattr(self.args, "tracker_backend", "python"),
+                select_kf=bool(getattr(self.args, "select_kf", False)),
+            )
+        if getattr(self.args, "select_kf", False):
+            from boxmot.engine.calibration.kalman_selection import validate_kf_selection
+
+            validate_kf_selection(self.args.tracker, getattr(self.args, "tracker_backend", "python"))
+            if getattr(self.args, "resume_tune", None):
+                raise ValueError("--select-kf cannot be combined with --resume-tune; resume the saved KF selection.")
         refined = selected_kalman_options(getattr(self.args, "tune_kf", ()))
         if refined:
             validate_kalman_refinement(self.args.tracker, getattr(self.args, "tracker_backend", "python"))
@@ -306,6 +322,7 @@ class Tuner:
                         args.project = str(inferred_project)
 
                 runtime_config = self._prepare_kalman_calibration(runtime_config, tune_dir, pipeline)
+                runtime_config = self._prepare_camera_setup(runtime_config, tune_dir, pipeline)
                 refined_options = prepare_kalman_refinement(args, runtime_config, tune_dir)
                 self._calibrated_fixed_options = {
                     key: value for key, value in self._calibrated_fixed_options.items() if key not in refined_options
@@ -467,6 +484,12 @@ class Tuner:
             record_tuning_calibration,
         )
 
+        if getattr(self.args, "select_kf", False) or (
+            getattr(self.args, "resume_tune", None)
+            and any((tune_dir / "kf-tuning" / name).exists() for name in ("filters.json", "selection.json"))
+        ):
+            return self._prepare_kalman_selection(runtime_config, tune_dir, pipeline)
+
         if getattr(self.args, "calibrate_kf", False):
             from boxmot.engine.calibration.kalman import calibrate_kalman
 
@@ -501,6 +524,95 @@ class Tuner:
                 pipeline.update(f"Restored fixed KF calibration: {self._calibration_config_path}")
         return runtime_config
 
+    def _prepare_kalman_selection(self, runtime_config: dict, tune_dir: Path, pipeline: Any) -> dict:
+        """Fit eligible filters, optionally select one, or restore the saved choice."""
+        from boxmot.engine.tuning.calibration_bank import create_calibration_bank, load_calibration_bank
+
+        bank = None
+        select_best = bool(getattr(self.args, "select_kf", False))
+        if select_best:
+            from boxmot.trackers.common.motion.models import resolve_motion_model_kind, supported_motion_model_kinds
+
+            # A fresh calibration replaces any supplied profile's signature.
+            # Policy constraints (such as adaptive XYHR) still restrict choices.
+            unbound = {key: value for key, value in runtime_config.items() if not key.startswith("calibration.")}
+            unbound["kalman.type"] = resolve_motion_model_kind(
+                self.args.tracker, unbound.get("kalman.type"), is_obb=self.args.geometry == "obb"
+            ).value
+            baseline_type = unbound["kalman.type"]
+            kinds = [kind.value for kind in supported_motion_model_kinds(is_obb=self.args.geometry == "obb")]
+            if unbound.get("kalman.adaptive_kf", False):
+                kinds = ["xyhr"]
+            kinds = [baseline_type, *(kind for kind in kinds if kind != baseline_type)]
+            bank = create_calibration_bank(
+                self.args,
+                tune_dir,
+                runtime_config=unbound,
+                kinds=kinds,
+                progress=pipeline.update,
+                select_best=True,
+                select_cmc=bool(getattr(self.args, "select_cmc", False)),
+            )
+        elif getattr(self.args, "resume_tune", None):
+            bank = load_calibration_bank(self.args, tune_dir, overrides=self.baseline_config)
+        if bank is not None:
+            self._selected_kalman_type = bank.selected_type
+            self._selected_cmc_policy = bank.selected_cmc
+            if bank.selected_type is None:
+                raise ValueError("Saved KF selection is missing its winning filter; start a new tuning run.")
+            runtime_config = dict(bank.profiles[bank.selected_type])
+            # Trial profiles include all authored runtime settings. Loading the
+            # original scalar file again could reintroduce another KF's priors.
+            self.args.tracker_config = None
+            self._calibrated_fixed_options = {
+                key: value for key, value in runtime_config.items() if is_kalman_option(key)
+            }
+            self._calibrated_fixed_options.update(
+                {key: runtime_config[key] for key in ("kalman.type", "use_cmc", "cmc_method", "cmc_min_conf")}
+            )
+            self._calibration_config_path = bank.selection_path
+            action = "Restored" if getattr(self.args, "resume_tune", None) else "Saved"
+            pipeline.update(
+                f"{action} KF selection: {bank.selected_type}, {bank.selected_profile} noise "
+                + (f"and CMC {bank.selected_cmc} " if bank.selected_cmc is not None else "")
+                + f"({bank.selection_path})\n"
+                "Tracker tuning holds this filter/profile fixed; --tune-kf refines only requested scales."
+            )
+        return runtime_config
+
+    def _prepare_camera_setup(self, runtime_config: dict, tune_dir: Path, pipeline: Any) -> dict:
+        """Decide camera behavior once in Setup and pass it to every trial actor."""
+        # Each driver owns its handoff. Matching saved evidence can supply its
+        # decisions without repeating camera estimation for the same build.
+        if hasattr(self.args, "_cmc_setup"):
+            delattr(self.args, "_cmc_setup")
+        if getattr(self.args, "cmc_policy", None) is None and runtime_config.get("calibration.cmc_policy") is None:
+            return runtime_config
+
+        from boxmot.engine.config.cmc import resolve_cmc_policy
+        from boxmot.engine.eval.cmc import prepare_tuning_cmc
+        from boxmot.engine.eval.evaluator import _tracker_spec
+        from boxmot.trackers.common.motion.cmc.integration import resolve_cmc_min_conf
+
+        spec = _tracker_spec(self.args, runtime_config)
+        policy = resolve_cmc_policy(self.args, spec)
+        if policy is None:
+            return runtime_config
+        camera_options = {"use_cmc": False, "cmc_method": "sof" if policy == "auto" else policy.method}
+        if policy == "auto":
+            camera_options["cmc_min_conf"] = resolve_cmc_min_conf(spec.option_dict)
+        runtime_config = {**runtime_config, **camera_options}
+        self._calibrated_fixed_options.update(camera_options)
+        spec = _tracker_spec(self.args, runtime_config)
+        self.args._cmc_setup = prepare_tuning_cmc(
+            self.args,
+            spec,
+            tune_dir,
+            analysis_dir=tune_dir / "kf-tuning" / "cmc" if self._selected_cmc_policy is not None else None,
+            progress=pipeline.update,
+        )
+        return runtime_config
+
     def _freeze_calibrated_schema(self, schema: dict) -> dict:
         """Remove calibrated parameters from all search backends' local schema."""
         if not self._calibrated_fixed_options:
@@ -509,10 +621,15 @@ class Tuner:
         for key, entry in expand_yaml_groups(schema).items():
             if key in self._calibrated_fixed_options:
                 fixed_schema[key] = {"default": self._calibrated_fixed_options[key]}
-            elif isinstance(entry, dict) and isinstance(entry.get("activates"), dict):
-                fixed_schema[key] = {**entry, "activates": self._freeze_calibrated_schema(entry["activates"])}
             else:
                 fixed_schema[key] = entry
+            if isinstance(entry, dict) and isinstance(entry.get("activates"), dict):
+                # Retain fixed children when freezing their parent; conditioning
+                # later promotes inactive values into the recorded trial config.
+                fixed_schema[key] = {
+                    **fixed_schema[key],
+                    "activates": self._freeze_calibrated_schema(entry["activates"]),
+                }
         return fixed_schema
 
     def _validate_resumed_timing(self, results) -> None:
@@ -1300,6 +1417,10 @@ def _run_sensor_tuning(
     if path is None:
         return None
 
+    for option in ("select_kf", "select_cmc"):
+        if getattr(args, option, False):
+            flag = option.replace("_", "-")
+            raise ValueError(f"--{flag} requires an image dataset and a Python 2D Kalman tracker.")
     for option in ("eval_3d", "eval_ap"):
         if getattr(args, option, False):
             raise ValueError(f"{option} is available on eval only; sensor tuning optimizes mask HOTA.")

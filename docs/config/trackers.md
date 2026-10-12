@@ -95,8 +95,20 @@ unit. Timing and the reference interval remain fixed during tuning.
 OccluBoost. `kalman.is_angular` selects EagerMOT's object yaw-velocity state.
 OccluBoost's `kalman.ams` group holds `enabled`, `alpha0`, `threshold`,
 `buffer_size`, and `shrink_ratio` for its AABB gain-suppression policy. Other
-trackers reject these policy groups. Filter implementation and dimensions follow
-the tracker and box geometry automatically.
+trackers reject these policy groups. `kalman.type` selects a compatible Python
+2D filter (`xyah`, `xywh`, `xysr`, `xyhr`, or `xyscr`); omitting it preserves
+the original filter for the tracker and geometry. Use
+[`tune --select-kf`](../modes/tune.md#select-the-kf-before-tracker-tuning) to
+compare types and noise profiles before tuning tracker thresholds.
+
+For 2D calibration, the five covariance groups also support coordinate vectors:
+`process_position_diagonal`, `process_velocity_diagonal`,
+`measurement_noise_diagonal`, `initial_position_diagonal`, and
+`initial_velocity_diagonal`. Their lengths match the selected filter's
+measurement coordinates. Calibration fits these vectors and saves the global
+`*_scale` multipliers as `1.0`; explicit `--tune-kf` options refine those
+multipliers while preserving the fitted coordinate ratios. EagerMOT's 3D
+calibration continues to use five scalar scales.
 
 With per-class tracking, `kalman.noise.by_class` maps detector class IDs to
 complete noise profiles. Unlisted classes use the global profile. Calibration

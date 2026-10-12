@@ -26,9 +26,8 @@ from boxmot.trackers.common.box.base import BoxTracker
 from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runtime_options
 from boxmot.trackers.common.geometry.obb import xywha_to_xyxy
 from boxmot.trackers.common.motion.batching import predict_tracks, update_tracks
-from boxmot.trackers.common.motion.cmc.registry import create_cmc
+from boxmot.trackers.common.motion.cmc.registry import create_cmc, sof_options
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
-from boxmot.trackers.common.motion.models import MotionModelKind, create_motion_model
 
 
 class BoostTrack(BoxTracker):
@@ -104,7 +103,8 @@ class BoostTrack(BoxTracker):
 
         self.use_embeddings = config.use_embeddings
 
-        self.cmc = create_cmc(config.cmc_method, enabled=self.use_cmc)
+        cmc_options = sof_options(config) if config.cmc_method == "sof" else {}
+        self.cmc = create_cmc(config.cmc_method, enabled=self.use_cmc, **cmc_options)
         self._requires_frame = self._requires_frame or self.cmc is not None
         if self.cmc is not None:
             self._requires_frame_dimensions_only = False
@@ -134,14 +134,14 @@ class BoostTrack(BoxTracker):
 
         self.frame_count += 1
 
-        if self.cmc is not None:
-            self.apply_cmc(img, indexed_dets, self.trackers)
-
         trks = []
         trks_obb = []
         confs = []
 
         predictions = predict_tracks(self.trackers, dt=self._prediction_dt)
+        if self.cmc is not None:
+            self.apply_cmc(img, indexed_dets, self.trackers)
+            predictions = [track.get_state() for track in self.trackers]
         for trk, prediction in zip(self.trackers, predictions, strict=True):
             pos = prediction[0]
             conf = trk.get_confidence()
@@ -235,6 +235,7 @@ class BoostTrack(BoxTracker):
                         adaptive_kf=self.kalman_config.adaptive_kf,
                         id_allocator=self.id_allocator,
                         noise_config=self.kalman_noise_config,
+                kalman_type=self.kalman_config.type,
                     )
                 )
 
@@ -281,24 +282,20 @@ class BoostTrack(BoxTracker):
         )
 
     def get_mh_dist_matrix(self, detections: np.ndarray, n_dims: int | None = None) -> np.ndarray:
-        if len(self.trackers) == 0:
+        """Preserve host arithmetic unless an explicit policy selects aligned cues."""
+        if not self.trackers:
             return np.zeros((0, 0))
-        n_dims = self.detection_layout.box_cols if n_dims is None else n_dims
-        z = np.zeros((len(detections), n_dims), dtype=float)
-        x = np.zeros((len(self.trackers), n_dims), dtype=float)
-        sigma_inv = np.zeros((len(self.trackers), n_dims), dtype=float)
-        motion_model = create_motion_model(MotionModelKind.XYHR, is_obb=self.is_obb)
-
-        for i in range(len(detections)):
-            if self.is_obb:
-                z[i, :n_dims] = motion_model.to_measurement(detections[i, :5], column=False)[:n_dims]
-            else:
-                z[i, :n_dims] = motion_model.to_measurement(detections[i, :4], column=False)[:n_dims]
-        for i, trk in enumerate(self.trackers):
-            x[i] = trk.kf.x[:n_dims]
-            sigma_inv[i] = np.reciprocal(np.diag(trk.kf.covariance[:n_dims, :n_dims]))
+        model = self.trackers[0].motion_model
+        indices = np.asarray(model.geometry_measurement_indices)
+        if n_dims is not None:
+            indices = indices[:n_dims]
+        dimensions = len(indices)
+        measurements = model.to_measurements(detections)[:, indices]
+        means = np.asarray([np.asarray(track.kf.x).reshape(-1)[indices] for track in self.trackers])
+        inverse_variances = np.asarray([np.reciprocal(np.diag(track.kf.P)[indices]) for track in self.trackers])
         return (
-            (z.reshape((-1, 1, n_dims)) - x.reshape((1, -1, n_dims))) ** 2 * sigma_inv.reshape((1, -1, n_dims))
+            (measurements.reshape((-1, 1, dimensions)) - means.reshape((1, -1, dimensions))) ** 2
+            * inverse_variances.reshape((1, -1, dimensions))
         ).sum(axis=2)
 
     def duo_confidence_boost(self, detections: np.ndarray) -> np.ndarray:

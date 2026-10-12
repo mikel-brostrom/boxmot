@@ -73,7 +73,7 @@ def _ocsort(*, is_obb: bool = False, kalman: KalmanConfig | None = None, **kwarg
 def _deepocsort(*, is_obb: bool = False, kalman: KalmanConfig | None = None, **kwargs) -> DeepOcSort:
     return DeepOcSort(
         config=DeepOcSortConfig(
-            use_embeddings=False, cmc_off=True, min_hits=1, det_thresh=0.2, iou_threshold=0.1, **kwargs
+            use_embeddings=False, use_cmc=False, min_hits=1, det_thresh=0.2, iou_threshold=0.1, **kwargs
         ),
         is_obb=is_obb,
         kalman=kalman,

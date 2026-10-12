@@ -80,5 +80,7 @@ class OccluBoostConfig(BoostTrackConfig):
     obb_recovery_max_age: int = field(default=15, metadata={"ge": 0})
     obb_second_iou_thresh: float = 0.3
 
+    sof_target_width: int | None = field(default=None, metadata={"gt": 0})
+    sof_ransac_reproj_threshold: float = field(default=3.0, metadata={"gt": 0})
 
 __all__ = ("OccluBoostConfig",)

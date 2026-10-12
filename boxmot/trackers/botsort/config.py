@@ -43,6 +43,7 @@ class BotSortConfig(TrackerConfig):
     appearance_thresh: float = field(default=0.6188818853936099, metadata={"ge": 0})
     use_cmc: bool = True
     cmc_method: str = field(default="sof", metadata={"choices": ("ecc", "orb", "sof", "sift")})
+    cmc_min_conf: float | None = field(default=None, metadata={"ge": 0.0, "le": 1.0})
     frame_rate: int = field(default=30, metadata={"gt": 0})
     fuse_first_associate: bool = True
     use_embeddings: bool = True

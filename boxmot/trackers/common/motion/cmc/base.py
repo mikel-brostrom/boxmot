@@ -26,6 +26,8 @@ class BaseCMC(ABC):
 
     grayscale: bool = True
     scale: Scale = 0.15
+    target_width: int | None = None
+    resize_before_grayscale: bool = False
 
     @abstractmethod
     def apply(self, img: np.ndarray, dets: Optional[np.ndarray] = None) -> np.ndarray:
@@ -39,30 +41,34 @@ class BaseCMC(ABC):
     def preprocess(self, img: np.ndarray) -> np.ndarray:
         """
         Convert BGR->GRAY (optional) and resize (optional).
+
+        ``resize_before_grayscale`` avoids converting full-resolution pixels
+        that downsampling discards. The alternate order can change uint8
+        rounding, so estimators opt in explicitly and are evaluated with it.
         Supports:
           - scale as float (fx, fy)
           - scale as (W, H) target size
-          - None => no resize
+          - None => downsample to target_width, if set; otherwise no resize
         """
         if img is None or not hasattr(img, "shape"):
             raise ValueError("Expected img to be a valid numpy array.")
 
         out = img
         original_h, original_w = out.shape[:2]
-        if getattr(self, "grayscale", True):
+        grayscale = getattr(self, "grayscale", True)
+        resize_first = self.resize_before_grayscale
+        if grayscale and not resize_first:
             # assume BGR input
             out = cv2.cvtColor(out, cv2.COLOR_BGR2GRAY)
 
         sc = getattr(self, "scale", None)
-        if sc is None:
-            self._preprocess_scale = (1.0, 1.0)
-            return out
-
+        if sc is None and self.target_width is not None:
+            sc = min(1.0, self.target_width / original_w)
         if isinstance(sc, (int, float)):
             if sc <= 0:
                 raise ValueError(f"scale must be > 0, got {sc}")
             out = cv2.resize(out, (0, 0), fx=float(sc), fy=float(sc), interpolation=cv2.INTER_LINEAR)
-        else:
+        elif sc is not None:
             # treat as explicit size (W, H)
             w, h = int(sc[0]), int(sc[1])
             if w <= 0 or h <= 0:
@@ -70,6 +76,8 @@ class BaseCMC(ABC):
             out = cv2.resize(out, (w, h), interpolation=cv2.INTER_LINEAR)
 
         self._preprocess_scale = (out.shape[1] / original_w, out.shape[0] / original_h)
+        if grayscale and resize_first:
+            out = cv2.cvtColor(out, cv2.COLOR_BGR2GRAY)
         return out
 
     def restore_transform_scale(self, transform: np.ndarray) -> np.ndarray:

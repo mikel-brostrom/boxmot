@@ -18,7 +18,7 @@ from boxmot.trackers.common.box.base import BoxTracker
 from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runtime_options
 from boxmot.trackers.common.motion.cmc.registry import create_cmc
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
-from boxmot.trackers.common.motion.kalman_filters.xywh import KalmanFilterXYWH
+from boxmot.trackers.common.motion.models import create_motion_model, resolve_motion_model_kind
 from boxmot.trackers.common.tracking.lifecycle import joint_stracks, remove_duplicate_stracks, sub_stracks
 
 
@@ -84,7 +84,12 @@ class BotSort(BoxTracker):
 
         self.buffer_size = int(config.frame_rate / 30.0 * config.track_buffer)
         self.max_time_lost = self.buffer_size
-        self.kalman_filter = KalmanFilterXYWH(ndim=5 if self.is_obb else 4, noise_config=self.kalman_noise_config)
+        self.motion_model = create_motion_model(
+            resolve_motion_model_kind("botsort", self.kalman_config.type, is_obb=self.is_obb),
+            is_obb=self.is_obb,
+            max_obs=self.max_obs,
+        )
+        self.kalman_filter = self.motion_model.create_filter(noise_config=self.kalman_noise_config)
 
         self.proximity_thresh = config.proximity_thresh
         self.appearance_thresh = config.appearance_thresh
@@ -238,6 +243,7 @@ class BotSort(BoxTracker):
                         id_allocator=self.id_allocator,
                         max_obs=self.max_obs,
                         is_obb=self.is_obb,
+                        motion_model=self.motion_model,
                     )
                     for (det, f) in zip(dets_first, features_high)
                 ]
@@ -248,6 +254,7 @@ class BotSort(BoxTracker):
                         id_allocator=self.id_allocator,
                         max_obs=self.max_obs,
                         is_obb=self.is_obb,
+                        motion_model=self.motion_model,
                     )
                     for det in dets_first
                 ]
@@ -346,6 +353,7 @@ class BotSort(BoxTracker):
                     id_allocator=self.id_allocator,
                     max_obs=self.max_obs,
                     is_obb=self.is_obb,
+                    motion_model=self.motion_model,
                 )
                 for det in dets_second
             ]
@@ -505,4 +513,9 @@ class BotSort(BoxTracker):
 
     def reset(self) -> None:
         self._reset_common_state()
-        self.kalman_filter = KalmanFilterXYWH(ndim=5 if self.is_obb else 4, noise_config=self.kalman_noise_config)
+        self.motion_model = create_motion_model(
+            resolve_motion_model_kind("botsort", self.kalman_config.type, is_obb=self.is_obb),
+            is_obb=self.is_obb,
+            max_obs=self.max_obs,
+        )
+        self.kalman_filter = self.motion_model.create_filter(noise_config=self.kalman_noise_config)

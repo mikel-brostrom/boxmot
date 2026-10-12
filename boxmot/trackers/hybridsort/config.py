@@ -69,5 +69,7 @@ class HybridSortConfig(TrackerConfig):
     longterm_reid_correction_thresh_low: float = field(default=0.3479740001301599, metadata={"ge": 0})
     det_thresh: float = field(default=0.38633684113126876, metadata={"ge": 0.0, "le": 1.0})
 
+    use_cmc: bool = True
+    cmc_min_conf: float | None = field(default=None, metadata={"ge": 0.0, "le": 1.0})
 
 __all__ = ("HybridSortConfig",)

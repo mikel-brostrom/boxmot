@@ -95,8 +95,7 @@ class PerClassUpdateMixin:
                         # tracks retain the correct owner during batch updates.
                         state = self._ensure_class_track_state(cls_id)
                         if "kalman_filter" not in state.attrs:
-                            state.attrs["kalman_filter"] = type(pooled_filter)(
-                                ndim=pooled_filter.ndim,
+                            state.attrs["kalman_filter"] = self.motion_model.create_filter(
                                 noise_config=self.kalman_noise_config,
                             )
                         self.kalman_filter = state.attrs["kalman_filter"]
@@ -244,7 +243,8 @@ class PerClassUpdateMixin:
         return tracks
 
     def _precompute_per_frame_cmc(self, cmc, dets: np.ndarray, img: np.ndarray | None, class_count: int):
-        if cmc is None or class_count <= 1 or not callable(getattr(cmc, "apply", None)):
+        # Keep camera history current through empty frames before a class appears.
+        if cmc is None or class_count == 1 or not callable(getattr(cmc, "apply", None)):
             return None
         if img is None:
             raise ValueError("img is required when camera-motion compensation is enabled")

@@ -314,7 +314,6 @@ ENGINE_OWNERSHIP_LAYOUT = (
     "datasets/readers/poses.py",
     *ENGINE_COMMAND_LAYOUT,
     "engine/calibration/__init__.py",
-    "engine/calibration/ground_truth_noise.py",
     "engine/calibration/kalman.py",
     "engine/calibration/kalman_data.py",
     "engine/calibration/kalman_model.py",

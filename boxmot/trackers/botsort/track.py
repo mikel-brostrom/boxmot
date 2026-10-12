@@ -9,8 +9,8 @@ from boxmot.trackers.common.geometry import xywh2xyxy, xyxy2xywh
 from boxmot.trackers.common.geometry.obb import (
     xywha_to_corners,
 )
-from boxmot.trackers.common.motion.cmc.state import transform_aabb_kalman_states, transform_obb_kalman_states
 from boxmot.trackers.common.motion.kalman_filters.xywh import KalmanFilterXYWH
+from boxmot.trackers.common.motion.models import MotionModelAdapter, MotionModelKind, create_motion_model
 from boxmot.trackers.common.track_state import BoxTrack
 from boxmot.trackers.common.tracking.track import TrackIdAllocator
 
@@ -40,6 +40,8 @@ class BaseTrack(BoxTrack):
 
 
 class STrack(BaseTrack):
+    """One BoT-SORT identity with motion, appearance, and lifecycle state."""
+
     def __init__(
         self,
         det,
@@ -49,8 +51,11 @@ class STrack(BaseTrack):
         feat_history=50,
         max_obs=50,
         is_obb=False,
+        motion_model: MotionModelAdapter | None = None,
     ):
-        super().__init__(det, id_allocator=id_allocator, max_obs=max_obs, is_obb=is_obb)
+        if motion_model is None:
+            motion_model = create_motion_model(MotionModelKind.XYWH, is_obb=is_obb)
+        super().__init__(det, id_allocator=id_allocator, max_obs=max_obs, is_obb=is_obb, motion_model=motion_model)
 
         # Classification history and feature history
         self.cls_hist = []
@@ -93,9 +98,14 @@ class STrack(BaseTrack):
             self.cls = cls
 
     def _measurement_for_update(self, track: "STrack") -> np.ndarray:
-        return track.xywh
+        if self.motion_model.kind is MotionModelKind.XYWH:
+            return track.xywh
+        box = track.xywh if self.is_obb else xywh2xyxy(track.xywh)
+        return self.motion_model.to_measurement(np.r_[box, track.conf], column=False)
 
     def _current_aabb_xywh(self) -> np.ndarray:
+        if self.mean is not None and self.motion_model.kind is not MotionModelKind.XYWH:
+            return xyxy2xywh(self.motion_model.to_box(self.mean)[0])
         return self.mean[:4].copy() if self.mean is not None else self.xywh.copy()
 
     def _after_reactivate(self, new_track: "STrack") -> None:
@@ -118,16 +128,14 @@ class STrack(BaseTrack):
         tracks = [track for track in stracks if track.mean is not None and track.covariance is not None]
         if not tracks:
             return
-        means, covariances = transform_aabb_kalman_states(
+        means, covariances = tracks[0].motion_model.transform_states(
             np.asarray([track.mean for track in tracks]),
             np.asarray([track.covariance for track in tracks]),
             H,
-            measurement_to_box=xywh2xyxy,
-            box_to_measurement=xyxy2xywh,
-            velocity_measurement_indices=(0, 1, 2, 3),
         )
         for track, mean, covariance in zip(tracks, means, covariances):
             track.mean, track.covariance = mean, covariance
+
 
     @staticmethod
     def _warp_points(points: np.ndarray, H: np.ndarray) -> np.ndarray:
@@ -182,13 +190,10 @@ class STrack(BaseTrack):
         tracks = [track for track in stracks if track.mean is not None and track.covariance is not None]
         if not tracks:
             return
-        means, covariances = transform_obb_kalman_states(
+        means, covariances = tracks[0].motion_model.transform_states(
             np.asarray([track.mean for track in tracks]),
             np.asarray([track.covariance for track in tracks]),
             H,
-            measurement_to_box=lambda values: values,
-            box_to_measurement=lambda boxes: boxes,
-            velocity_measurement_indices=(0, 1, 2, 3, 4),
         )
         for track, mean, covariance in zip(tracks, means, covariances):
             track.mean, track.covariance = mean, covariance

@@ -35,5 +35,8 @@ class StrongSortConfig(TrackerConfig):
     ema_alpha: float = field(default=0.9, metadata={"ge": 0.0, "le": 1.0})
     det_thresh: float = field(default=0.3, metadata={"ge": 0.0, "le": 1.0})
 
+    use_cmc: bool = True
+    cmc_method: str = field(default="ecc", metadata={"choices": ("ecc", "orb", "sof", "sift")})
+    cmc_min_conf: float | None = field(default=None, metadata={"ge": 0.0, "le": 1.0})
 
 __all__ = ("StrongSortConfig",)

@@ -111,7 +111,7 @@ class HybridSort(BoxTracker):
         self.use_embeddings = config.use_embeddings
 
         # ECC CMC (BotSort-style)
-        self.cmc = create_cmc(config.cmc_method)
+        self.cmc = create_cmc(config.cmc_method, enabled=config.use_cmc)
 
         # container
         self.active_tracks: List[KalmanBoxTracker] = []
@@ -137,15 +137,12 @@ class HybridSort(BoxTracker):
         self.frame_count += 1
 
         batch = self._make_detection_batch(dets, embs=embs, masks=masks)
-        dets_indexed = batch.as_indexed_detections(dtype=dets.dtype)
 
         def _safe_cls(x: int) -> int:
             xi = int(x)
             self._validate_kernel_class_ids([xi])
             return xi
 
-        # ECC: compute warp using all current detections (BotSort pattern)
-        self.apply_cmc(img, dets_indexed, self.active_tracks)
 
         if self.use_embeddings:
             batch = batch.with_embs(
@@ -187,6 +184,12 @@ class HybridSort(BoxTracker):
         trks = np.zeros((len(self.active_tracks), 6))
         to_del = []
         predictions = predict_tracks(self.active_tracks, dt=self._prediction_dt)
+        if self.cmc is not None:
+            self.apply_cmc(img, dets, self.active_tracks)
+            predictions = [
+                (track.get_state(), prediction[1], prediction[2]) if not self.is_obb else track.get_state()
+                for track, prediction in zip(self.active_tracks, predictions, strict=True)
+            ]
         for t in range(len(trks)):
             pos, kal_score, simple_score = predictions[t]
             x1, y1, x2, y2 = pos[0].tolist()
@@ -380,6 +383,7 @@ class HybridSort(BoxTracker):
                 det_ind=int(det_inds_keep[i]) if len(det_inds_keep) else -1,
                 id_allocator=self.id_allocator,
                 noise_config=self.kalman_noise_config,
+                kalman_type=self.kalman_config.type,
             )
             self.active_tracks.append(trk)
 
@@ -416,8 +420,6 @@ class HybridSort(BoxTracker):
         """HybridSORT adaptation using oriented DIoU, ReID, and XYWHA motion state."""
         self.frame_count += 1
         batch = self._make_detection_batch(dets, embs=embs, masks=masks)
-        indexed_dets = batch.as_indexed_detections(dtype=dets.dtype)
-        self.apply_cmc(img, indexed_dets, self.active_tracks)
         high, low = batch.split_by_confidence(high_thresh=self.det_thresh, low_thresh=self.low_thresh)
         high_dets = high.as_indexed_detections(dtype=dets.dtype)
         low_dets = low.as_indexed_detections(dtype=dets.dtype)
@@ -426,6 +428,12 @@ class HybridSort(BoxTracker):
         predicted = []
         valid_tracks = []
         predictions = predict_tracks(self.active_tracks, dt=self._prediction_dt)
+        if self.cmc is not None:
+            self.apply_cmc(img, dets, self.active_tracks)
+            predictions = [
+                (track.get_state(), prediction[1], prediction[2]) if not self.is_obb else track.get_state()
+                for track, prediction in zip(self.active_tracks, predictions, strict=True)
+            ]
         for track, state in zip(self.active_tracks, predictions, strict=True):
             prediction = np.asarray(state[0][:5], dtype=np.float32)
             if np.isfinite(prediction).all():
@@ -494,6 +502,7 @@ class HybridSort(BoxTracker):
                 is_obb=True,
                 id_allocator=self.id_allocator,
                 noise_config=self.kalman_noise_config,
+                kalman_type=self.kalman_config.type,
             )
             track.smooth_feat = high_embs[det_index]
             self.active_tracks.append(track)

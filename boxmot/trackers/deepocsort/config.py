@@ -22,7 +22,6 @@ class DeepOcSortConfig(TrackerConfig):
         aw_param: Similarity-ratio cutoff for reducing ambiguous appearance weights.
         use_embeddings: Use supplied appearance embeddings, generating missing
             embeddings from image frames with the configured ReID backend.
-        cmc_off: Disable sparse-optical-flow camera-motion compensation.
         aw_off: Disable adaptive weighting of appearance similarity.
         det_thresh: Minimum detection confidence for the shared tracking kernel.
     """
@@ -33,9 +32,11 @@ class DeepOcSortConfig(TrackerConfig):
     alpha_fixed_emb: float = field(default=0.95, metadata={"ge": 0.0, "le": 1.0})
     aw_param: float = field(default=0.5, metadata={"ge": 0})
     use_embeddings: bool = True
-    cmc_off: bool = False
     aw_off: bool = False
     det_thresh: float = field(default=0.5, metadata={"ge": 0.0, "le": 1.0})
 
+    use_cmc: bool = True
+    cmc_method: str = field(default="sof", metadata={"choices": ("ecc", "orb", "sof", "sift")})
+    cmc_min_conf: float | None = field(default=None, metadata={"ge": 0.0, "le": 1.0})
 
 __all__ = ("DeepOcSortConfig",)

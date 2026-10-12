@@ -20,6 +20,7 @@ from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runti
 from boxmot.trackers.common.geometry import xyxy2tlwh
 from boxmot.trackers.common.motion.cmc.registry import create_cmc
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
+from boxmot.trackers.common.motion.models import create_motion_model, resolve_motion_model_kind
 from boxmot.trackers.strongsort.config import StrongSortConfig
 from boxmot.trackers.strongsort.track import Track
 
@@ -82,9 +83,7 @@ class StrongSort(BoxTracker):
 
     supports_variable_dt = True
     requires_embeddings = True
-    requires_frame = True
     use_embeddings = True
-    _requires_frame = True
 
     def __init__(
         self,
@@ -125,6 +124,11 @@ class StrongSort(BoxTracker):
             **kwargs,
         )
 
+        self.motion_model = create_motion_model(
+            resolve_motion_model_kind("strongsort", self.kalman_config.type, is_obb=self.is_obb),
+            is_obb=self.is_obb,
+            max_obs=self.max_obs,
+        )
         self.min_conf = config.min_conf
         self._max_cos_dist = float(config.max_cos_dist)
         self._nn_budget = int(config.nn_budget) if config.nn_budget is not None else None
@@ -135,7 +139,16 @@ class StrongSort(BoxTracker):
         self.ema_alpha = config.ema_alpha
         self.tracks: list[Track] = []
         self.active_tracks = self.tracks
-        self.cmc = create_cmc("ecc")
+        self.cmc = create_cmc(config.cmc_method, enabled=config.use_cmc)
+        self._requires_frame = self._requires_frame or self.cmc is not None
+        if self.cmc is not None:
+            self._requires_frame_dimensions_only = False
+
+    def cmc_detection_boxes(self, dets: np.ndarray) -> np.ndarray:
+        """Keep the native mask threshold unless selection fixes it separately."""
+        if self.config.cmc_min_conf is None:
+            dets = dets[self.detection_layout.confidences(dets) >= self.min_conf]
+        return super().cmc_detection_boxes(dets)
 
     def _new_metric(self) -> NearestNeighborDistanceMetric:
         """Create an empty appearance gallery with this tracker's settings."""
@@ -168,12 +181,6 @@ class StrongSort(BoxTracker):
     ) -> np.ndarray:
         batch = self._make_detection_batch(dets, embs=embs, masks=masks)
         batch = batch.select(batch.confs >= self.min_conf)
-        indexed_dets = batch.as_indexed_detections(dtype=dets.dtype)
-
-        # Advance the estimator on every frame, including initialization and
-        # trackless gaps, so the next live track never receives a stale warp.
-        self.apply_cmc(img, indexed_dets, self.tracks)
-
         features = resolve_batch_embeddings(
             batch,
         )
@@ -191,6 +198,7 @@ class StrongSort(BoxTracker):
         ]
 
         self._predict_tracks()
+        self.apply_cmc(img, dets, self.tracks)
         self._update_tracks(detections)
 
         outputs = []
@@ -341,9 +349,10 @@ class StrongSort(BoxTracker):
                 self.n_init,
                 self.max_age,
                 self.max_obs,
-                self.ema_alpha,
+                ema_alpha=self.ema_alpha,
                 is_obb=detection.is_obb,
                 noise_config=self.kalman_noise_config,
+                motion_model=self.motion_model,
             )
         )
 

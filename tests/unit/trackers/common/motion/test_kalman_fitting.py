@@ -7,9 +7,47 @@ import pytest
 
 from boxmot.trackers.common.motion.kalman_filters.fitting import (
     MIN_COVARIANCE_SCALE,
+    DiagonalNoiseMoments,
+    DiagonalProcessNoiseMoments,
     ProcessNoiseMoments,
     ScalarNoiseMoments,
 )
+
+
+def test_diagonal_noise_recovers_distinct_scales_without_cross_coordinate_contamination() -> None:
+    reference = np.array([4.0, 9.0, 1e10, 1e-8])
+    expected = np.array([0.1, 3.0, 1e6, 0.01])
+    moments = DiagonalNoiseMoments(4)
+    for sign in (-1, 1):
+        moments.add(sign * np.sqrt(reference * expected), reference)
+    assert [item.estimate(1.0)["value"] for item in moments.moments] == pytest.approx(expected)
+
+
+def test_diagonal_process_recovers_distinct_position_and_velocity_rates_per_axis() -> None:
+    expected_position = np.array([0.2, 8.0, 2e6])
+    expected_velocity = np.array([7.0, 0.04, 5e7])
+    moments = DiagonalProcessNoiseMoments(3)
+    # Actual continuous CV position variances at different elapsed times identify
+    # both diffusion coefficients separately for all three independent axes.
+    for dt in (0.03, 0.1, 0.4):
+        position, velocity = np.full(3, dt), np.full(3, dt**3 / 3)
+        residual = np.sqrt(expected_position * position + expected_velocity * velocity)
+        moments.add(residual, position, velocity)
+        moments.add(-residual, position, velocity)
+    estimates = [item.estimate((1.0, 1.0)) for item in moments.moments]
+    assert [item[0]["value"] for item in estimates] == pytest.approx(expected_position)
+    assert [item[1]["value"] for item in estimates] == pytest.approx(expected_velocity)
+    assert moments.events == 6
+
+
+def test_process_without_velocity_fits_the_single_identifiable_diffusion() -> None:
+    moments = ProcessNoiseMoments()
+    for dt in (0.1, 0.4):
+        moments.add(np.array([np.sqrt(7 * dt)]), np.array([dt]), np.zeros(1))
+    position, velocity = moments.estimate((2.0, 1.0), has_velocity=False)
+    assert position["value"] == pytest.approx(7.0)
+    assert position["status"] == "fitted"
+    assert velocity["status"] == "excluded"
 
 
 def test_scalar_fit_recovers_known_covariance_scale_across_measurement_units() -> None:

@@ -15,11 +15,16 @@ import yaml
 import boxmot.engine.calibration.kalman as kalman_module
 import boxmot.engine.tuning.tuner as tuner_module
 from boxmot.engine.calibration.kalman import calibrate_kalman
+from boxmot.engine.calibration.kalman_artifacts import KalmanCalibrationResult
 from boxmot.engine.config.trackers import resolve_tracker_options
 from boxmot.engine.tuning.search_space import flatten_yaml_config, load_yaml_config
 from boxmot.trackers.common.config import load_tracker_config, nest_tracker_options
 from boxmot.trackers.common.mask_guidance import MASK_GUIDANCE_OPTIONS
-from boxmot.trackers.common.motion.kalman_filters.noise import DEFAULT_REFERENCE_DT_S, KALMAN_NOISE_OPTIONS
+from boxmot.trackers.common.motion.kalman_filters.noise import (
+    DEFAULT_REFERENCE_DT_S,
+    KALMAN_DIAGONAL_OPTIONS,
+    KALMAN_NOISE_OPTIONS,
+)
 from tests.unit.engine.calibration.test_kalman import _data, _load_fixture
 
 
@@ -82,7 +87,7 @@ def fake_tuning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamesp
         output_dir: Path,
         progress: object = None,
         tracker_options: dict | None = None,
-    ) -> kalman_module.KalmanCalibrationResult:
+    ) -> KalmanCalibrationResult:
         del progress
         captured["events"].append("calibrate")
         baseline = resolve_tracker_options(args, tracker_options, include_defaults=True, stamp_timing=True)
@@ -122,7 +127,7 @@ def fake_tuning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamesp
         captured["calibrated_config"] = config
         captured["config_path"] = config_path
         captured["report_path"] = report_path
-        return kalman_module.KalmanCalibrationResult(config_path, report_path, 20, 15, KALMAN_NOISE_OPTIONS)
+        return KalmanCalibrationResult(config_path, report_path, 20, 15, KALMAN_NOISE_OPTIONS)
 
     monkeypatch.setattr(kalman_module, "calibrate_kalman", calibrate)
 
@@ -358,7 +363,7 @@ def test_occluboost_guidance_runs_real_calibration_before_tuning(
     checkpoint = tmp_path / "edgetam.pt"
     checkpoint.write_bytes(b"checkpoint identity only; no inference during calibration")
 
-    def calibrate(*args: object, **kwargs: object) -> kalman_module.KalmanCalibrationResult:
+    def calibrate(*args: object, **kwargs: object) -> KalmanCalibrationResult:
         captured["events"].append("calibrate")
         result = calibrate_kalman(*args, **kwargs)
         captured["calibration"] = result
@@ -383,7 +388,8 @@ def test_occluboost_guidance_runs_real_calibration_before_tuning(
     assert captured["events"].index("calibrate") < captured["events"].index("ray_init")
     calibration = captured["calibration"]
     assert calibration.matched_detections == 12
-    assert set(calibration.fitted_parameters) == set(KALMAN_NOISE_OPTIONS)
+    assert calibration.fitted_parameters
+    assert {name.split("[", 1)[0] for name in calibration.fitted_parameters} == set(KALMAN_DIAGONAL_OPTIONS)
     saved = load_tracker_config("occluboost", calibration.config_path)
     defaults = load_tracker_config("occluboost")
     assert {key: saved[key] for key in MASK_GUIDANCE_OPTIONS} == {
@@ -396,8 +402,8 @@ def test_occluboost_guidance_runs_real_calibration_before_tuning(
     for config in captured["trial_configs"]:
         assert config["asso_func"] == "iou"
         assert config["edgetam.max_objects"] == 64
-        assert {key: config[key] for key in KALMAN_NOISE_OPTIONS} == {
-            key: saved[key] for key in KALMAN_NOISE_OPTIONS
+        assert {key: config[key] for key in (*KALMAN_NOISE_OPTIONS, *KALMAN_DIAGONAL_OPTIONS)} == {
+            key: saved[key] for key in (*KALMAN_NOISE_OPTIONS, *KALMAN_DIAGONAL_OPTIONS)
         }
     schema = flatten_yaml_config(driver._yaml_cfg)
     assert schema["edgetam.max_objects"] == {"default": 64}

@@ -258,6 +258,12 @@ boxmot eval \
 See the [evaluation guide](docs/guides/evaluation.md) for `--fps` and
 `--calibrate-kf` usage.
 
+Python 2D Kalman trackers can select compatible filter types and noise profiles
+with `tune --select-kf`. Add `--select-cmc` to jointly compare CMC off and
+automatic SOF before tuning tracker parameters. See
+[Kalman calibration](docs/guides/kalman-calibration.md) for examples and saved
+profile reuse.
+
 For saved KITTI predictions, choose the inputs your tracker needs:
 
 ```bash

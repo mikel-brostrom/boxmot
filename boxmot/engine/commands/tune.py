@@ -230,6 +230,23 @@ class TuneCommand(click.Command):
 def _tune_options(func):
     options = (
         click.option(
+            "--select-cmc",
+            is_flag=True,
+            help=(
+                "Jointly select CMC off/automatic SOF, KF type and noise profile with --select-kf. "
+                "Fits each candidate under its camera behavior; Python 2D Kalman trackers only."
+            ),
+        ),
+        click.option(
+            "--select-kf",
+            is_flag=True,
+            help=(
+                "Compare default, partial and full KF calibration across compatible filter types on "
+                "held-out detection/GT predictions, then tune with the winning type and noise fixed. "
+                "CMC stays off unless --select-cmc is used. Requires a Python 2D Kalman tracker."
+            ),
+        ),
+        click.option(
             "--tune-kf",
             type=click.Choice(
                 (
@@ -383,6 +400,28 @@ def tune(
     """Resolve dataset inputs, then tune tracker parameters."""
 
     _require_replay_input(experiment, dataset, "tune")
+    if kwargs.get("select_cmc"):
+        from boxmot.engine.config.cmc import validate_joint_cmc_selection
+
+        try:
+            validate_joint_cmc_selection(
+                kwargs["tracker"], kwargs["tracker_backend"], select_kf=bool(kwargs.get("select_kf"))
+            )
+        except ValueError as exc:
+            raise click.UsageError(str(exc)) from exc
+    if kwargs.get("select_kf"):
+        from boxmot.engine.calibration.kalman_selection import validate_kf_selection
+        from boxmot.trackers.common.specs import parse_tracker_spec
+
+        if kwargs.get("resume_tune"):
+            raise click.UsageError(
+                "--select-kf cannot be combined with --resume-tune; resume reuses the saved KF selection."
+            )
+        try:
+            tracker_spec = parse_tracker_spec(kwargs["tracker"], default_backend=kwargs["tracker_backend"])
+            validate_kf_selection(tracker_spec.name, tracker_spec.backend)
+        except (TypeError, ValueError) as exc:
+            raise click.UsageError(str(exc)) from exc
     sensor_payload = _prepare_sensor_tuning(
         ctx,
         {
@@ -446,6 +485,7 @@ def tune(
         )
     if (
         calibrate_kf
+        or kwargs.get("select_kf")
         or kwargs.get("tune_kf")
         or kwargs.get("tracker_config") is not None
         or kwargs.get("variable_dt") is not None

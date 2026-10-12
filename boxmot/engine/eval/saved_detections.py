@@ -16,6 +16,7 @@ from typing import Any
 import torch
 
 from boxmot import __version__, create_tracker
+from boxmot.components.resolution import component_options
 from boxmot.datasets.cached import DatasetSample
 from boxmot.datasets.inputs import DatasetInputs, SequenceInputs
 from boxmot.datasets.readers.boxes2d import read_kitti_tracking_labels_2d
@@ -293,6 +294,8 @@ def _tracking_inputs(dataset: DatasetInputs) -> DatasetInputs:
 
 def run_saved_detections(args: Any, *, pipeline: Any | None = None) -> ValidationResult:
     """Replay native 2D predictions, enrich their appearance, and score KITTI tracks."""
+    if getattr(args, "cmc_policy", None) is not None:
+        raise ValueError("--cmc-policy requires a materialized image build; saved 2D evaluation is unsupported.")
     if getattr(args, "postprocessing", None):
         raise ValueError("--postprocessing requires an AABB perception build; saved 2D evaluation is unsupported.")
     if pipeline is not None:
@@ -313,7 +316,7 @@ def run_saved_detections(args: Any, *, pipeline: Any | None = None) -> Validatio
         args.tracker,
         backend=getattr(args, "tracker_backend", "python"),
         per_class=bool(getattr(args, "per_class", False)),
-        options=tuple(sorted(options.items())),
+        options=component_options(options),
     )
     with ExitStack() as resources:
         tracker = create_tracker(spec)

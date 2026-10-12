@@ -17,6 +17,7 @@ from boxmot.trackers.common.association.velocity import associate
 from boxmot.trackers.common.box.base import BoxTracker
 from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runtime_options
 from boxmot.trackers.common.motion.batching import predict_tracks, update_tracks
+from boxmot.trackers.common.motion.cmc.registry import create_cmc
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
 from boxmot.trackers.common.tracking.observations import k_previous_obs
 from boxmot.trackers.ocsort.config import OcSortConfig
@@ -74,6 +75,10 @@ class OcSort(BoxTracker):
         self.inertia: float = config.inertia
         self.use_byte: bool = config.use_byte
         self.frame_count: int = 0
+        self.cmc = create_cmc(config.cmc_method, enabled=config.use_cmc)
+        self._requires_frame = self._requires_frame or self.cmc is not None
+        if self.cmc is not None:
+            self._requires_frame_dimensions_only = False
 
         # Initialize tracker collections
         self.active_tracks: list = []
@@ -104,6 +109,7 @@ class OcSort(BoxTracker):
         """
 
         self.frame_count += 1
+        cmc_dets = dets
 
         batch = self._make_detection_batch(dets, embs=embs, masks=masks)
         high_batch, second_batch = batch.split_by_confidence(
@@ -118,6 +124,9 @@ class OcSort(BoxTracker):
         to_del = []
         ret = []
         predictions = predict_tracks(self.active_tracks, dt=self._prediction_dt)
+        if self.cmc is not None:
+            self.apply_cmc(img, cmc_dets, self.active_tracks)
+            predictions = [track.get_state() for track in self.active_tracks]
         for t, trk in enumerate(trks):
             pos = predictions[t][0]
             trk[:] = [pos[i] for i in range(self.detection_layout.box_cols)] + [0]
@@ -249,6 +258,7 @@ class OcSort(BoxTracker):
                 is_obb=self.is_obb,
                 id_allocator=self.id_allocator,
                 noise_config=self.kalman_noise_config,
+                kalman_type=self.kalman_config.type,
             )
             self.active_tracks.append(trk)
         i = len(self.active_tracks)

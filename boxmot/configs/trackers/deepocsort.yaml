@@ -45,7 +45,7 @@ use_embeddings:
   type: choice
   options: [True, False]
 
-cmc_off:
+use_cmc:
   type: choice
   options: [True, False]
 

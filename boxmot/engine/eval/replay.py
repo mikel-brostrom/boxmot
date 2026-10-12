@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import json
 import logging
 import os
 import queue
@@ -22,6 +23,7 @@ from boxmot.datasets import CachedVisionDataset, DatasetManifest, DatasetSample
 from boxmot.datasets.config import validate_sequence_names
 from boxmot.datasets.schema import SAMPLES_ARTIFACT
 from boxmot.datasets.storage import read_parquet_artifact, resolve_artifact_path
+from boxmot.engine.config.cmc import SequenceCMCPolicy
 from boxmot.engine.config.runtime import resolve_sequence_workers
 from boxmot.engine.config.trackers import validate_image_tracker
 from boxmot.engine.eval.mots_io import prepare_mots_tracks, tracks_to_mots_rows, write_mots_rows
@@ -40,6 +42,7 @@ if TYPE_CHECKING:
 
     from boxmot.engine.eval.session import ReplaySession
     from boxmot.trackers.common.mask_guidance import MaskGuidanceConfig
+    from boxmot.trackers.common.protocols import TrackerRequirements
 
 ReplayProgressStatus = Literal["queued", "running", "completed", "failed"]
 ReplayProgressCallback = Callable[["ReplayProgressEvent"], None]
@@ -527,7 +530,7 @@ def _replay_sequence_task(
             needs_masks = requirements.masks or task.output_format == "mots"
             dataset = _worker_inputs(
                 task,
-                load_images=requirements.frame_pixels,
+                load_images=requirements.frame_pixels or frame_callback is not None,
                 load_masks=needs_masks,
                 load_embeddings=requirements.embeddings,
             )
@@ -1096,6 +1099,32 @@ def _validated_sequence_frame_counts(
     return dict(sorted(normalized.items()))
 
 
+def _validated_tracker_requirements(
+    spec: TrackerSpec,
+    manifest: DatasetManifest,
+    *,
+    split: str | None,
+    output_format: str,
+    require_images: bool,
+) -> TrackerRequirements:
+    """Probe an effective configuration before scheduling replay workers."""
+    with _owned_tracker(spec) as probe:
+        requirements = probe.requirements
+        validate_build_compatibility(
+            manifest,
+            split=split,
+            geometry=spec.geometry,
+            require_masks=requirements.masks or output_format == "mots",
+            require_embeddings=requirements.embeddings,
+        )
+        if (requirements.frame_pixels or require_images) and not manifest.publish.image_references:
+            raise BuildCompatibilityError(
+                f"Build {manifest.build_id!r} is missing required image references. "
+                "Run `boxmot materialize ... --publish-image-refs` and pass the resulting --build."
+            )
+    return requirements
+
+
 def replay_build(
     build: str | Path,
     tracker_spec: TrackerSpec,
@@ -1115,6 +1144,7 @@ def replay_build(
     mask_guidance_weights: str | Path | None = None,
     mask_guidance_device: str = "cpu",
     mask_guidance_max_objects: int | None = None,
+    cmc_policy: SequenceCMCPolicy | None = None,
 ) -> ReplayResult:
     """Replay keyed detections, isolating each sequence in a spawned process.
 
@@ -1129,6 +1159,10 @@ def replay_build(
     ``output_format='mots'`` requires published detection masks and writes
     zero-based KITTI MOTS segmentation rows with deterministic, disjoint masks.
 
+    ``cmc_policy`` applies sequence-specific camera-motion settings to fresh
+    trackers while preserving the other options in ``tracker_spec``. Source
+    pixels are loaded only where required by the effective tracker or rendering.
+
     ``mask_guidance_weights`` enables the paper-inspired EdgeTAM association cue
     for Python AABB box trackers. Each sequence streams its decoded sample frames
     through a fresh temporal model on ``mask_guidance_device``. The default
@@ -1141,6 +1175,11 @@ def replay_build(
     _validate_output_format(output_format)
     if not isinstance(tracker_spec, TrackerSpec):
         raise TypeError("tracker_spec must be a TrackerSpec")
+    if cmc_policy is not None:
+        if not isinstance(cmc_policy, SequenceCMCPolicy):
+            raise TypeError("cmc_policy must be a SequenceCMCPolicy or None.")
+        if tracker is not None:
+            raise ValueError("A CMC policy requires sequence-local, worker-owned trackers.")
     if mask_guidance_weights is not None:
         from boxmot.engine.eval.mask_guidance import validate_mask_guidance_tracker
         from boxmot.segmentors.propagation.factory import mask_propagation_device
@@ -1188,8 +1227,8 @@ def replay_build(
     # directories between trials. Send and publish absolute destinations.
     destination = Path(output_dir).resolve()
     destination.mkdir(parents=True, exist_ok=True)
-    if frame_callback is not None and mask_guidance_weights is None:
-        return _replay_with_frame_callback(
+    if frame_callback is not None and mask_guidance_weights is None and cmc_policy is None:
+        replayed = _replay_with_frame_callback(
             build_path,
             tracker_spec,
             split=split,
@@ -1203,6 +1242,8 @@ def replay_build(
             output_format=output_format,
             cache_inputs=cache_inputs,
         )
+        (destination / "cmc-policy.json").unlink(missing_ok=True)
+        return replayed
     if tracker is not None:
         staging_context = (
             tempfile.TemporaryDirectory(prefix=".replay-", dir=destination)
@@ -1221,29 +1262,25 @@ def replay_build(
                 cache_inputs=cache_inputs,
             )
             if output_format == "mot":
+                (destination / "cmc-policy.json").unlink(missing_ok=True)
                 return replayed
             sequence_paths = []
             for staged in replayed.sequence_files:
                 path = destination / staged.name
                 os.replace(staged, path)
                 sequence_paths.append(path)
-        return ReplayResult(build_path, destination, tuple(sequence_paths), replayed.frames, replayed.track_rows)
+        (destination / "cmc-policy.json").unlink(missing_ok=True)
+        return replace(replayed, output_dir=destination, sequence_files=tuple(sequence_paths))
 
     manifest = DatasetManifest.load(build_path)
-    with _owned_tracker(tracker_spec) as probe:
-        requirements = probe.requirements
-        validate_build_compatibility(
-            manifest,
-            split=split,
-            geometry=tracker_spec.geometry,
-            require_masks=requirements.masks or output_format == "mots",
-            require_embeddings=requirements.embeddings,
+    require_images = mask_guidance_weights is not None or frame_callback is not None
+    probed_specs: list[tuple[TrackerSpec, TrackerRequirements]] = []
+    if cmc_policy is None:
+        # Preserve fail-fast input validation for the ordinary replay path.
+        requirements = _validated_tracker_requirements(
+            tracker_spec, manifest, split=split, output_format=output_format, require_images=require_images
         )
-        if (requirements.frame_pixels or mask_guidance_weights is not None) and not manifest.publish.image_references:
-            raise BuildCompatibilityError(
-                f"Build {manifest.build_id!r} is missing required image references. "
-                "Run `boxmot materialize ... --publish-image-refs` and pass the resulting --build."
-            )
+        probed_specs.append((tracker_spec, requirements))
     # Evaluation already derived these counts while validating the raw source
     # catalog. Reusing them avoids opening the samples Parquet a second time in
     # the coordinator. Each worker still verifies its sequence count against
@@ -1254,10 +1291,30 @@ def replay_build(
         else _validated_sequence_frame_counts(sequence_frame_counts)
     )
     selected = _select_sequence_ids(tuple(frame_counts), sequence_ids)
+    if cmc_policy is not None:
+        # Validate the complete policy even when the caller replays a subset.
+        # Counts supplied by an evaluation workflow may contain only that subset.
+        available = tuple(sequence for sequence, _ in _sequence_frame_counts(build_path, manifest, split=None))
+        cmc_policy.validate(tracker_spec, available)
+    sequence_specs = {
+        sequence: tracker_spec if cmc_policy is None else cmc_policy.apply(tracker_spec, sequence)
+        for sequence in selected
+    }
+    requirements_by_sequence: dict[str | None, TrackerRequirements] = {}
+    for sequence, effective_spec in sequence_specs.items() if selected else ((None, tracker_spec),):
+        requirements = next((requirements for spec, requirements in probed_specs if spec == effective_spec), None)
+        if requirements is None:
+            requirements = _validated_tracker_requirements(
+                effective_spec, manifest, split=split, output_format=output_format, require_images=require_images
+            )
+            probed_specs.append((effective_spec, requirements))
+        requirements_by_sequence[sequence] = requirements
     worker_count = resolve_sequence_workers(len(selected), 1 if frame_callback is not None else workers)
     if session is not None and worker_count != session.workers:
         raise ValueError("ReplaySession worker count must match the selected replay worker count.")
     if not selected:
+        if cmc_policy is None:
+            (destination / "cmc-policy.json").unlink(missing_ok=True)
         return ReplayResult(
             build=build_path,
             output_dir=destination,
@@ -1275,9 +1332,13 @@ def replay_build(
                 build_path,
                 sequence_id=sequence_id,
                 split=split,
-                load_embeddings=requirements.embeddings,
-                load_images=requirements.frame_pixels or mask_guidance_weights is not None,
-                load_masks=requirements.masks or output_format == "mots",
+                load_embeddings=requirements_by_sequence[sequence_id].embeddings,
+                load_images=(
+                    requirements_by_sequence[sequence_id].frame_pixels
+                    or mask_guidance_weights is not None
+                    or frame_callback is not None
+                ),
+                load_masks=requirements_by_sequence[sequence_id].masks or output_format == "mots",
             )
             for sequence_id in selected
         }
@@ -1286,7 +1347,7 @@ def replay_build(
         tasks = tuple(
             _SequenceReplayTask(
                 build=str(build_path),
-                tracker_spec=tracker_spec,
+                tracker_spec=sequence_specs[sequence_id],
                 split=split,
                 sequence_id=sequence_id,
                 frame_total=frame_counts[sequence_id],
@@ -1319,6 +1380,34 @@ def replay_build(
             os.replace(result.output_path, path)
             sequence_paths.append(path)
 
+        if cmc_policy is not None:
+            provenance = {
+                "build": manifest.build_id,
+                "split": split,
+                "policy": cmc_policy.to_dict(),
+                "tracker": {
+                    "name": tracker_spec.name,
+                    "backend": tracker_spec.backend,
+                    "geometry": tracker_spec.geometry,
+                    "per_class": tracker_spec.per_class,
+                    "class_ids": tracker_spec.class_ids,
+                    "class_names": tracker_spec.class_names,
+                    "options": tracker_spec.option_dict,
+                },
+                "sequences": {
+                    sequence: {
+                        "use_cmc": dict(cmc_policy.sequences).get(sequence, cmc_policy.default),
+                        "cmc_method": cmc_policy.method,
+                    }
+                    for sequence in sequence_specs
+                },
+            }
+            policy_path = staging / "cmc-policy.json"
+            policy_path.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
+            os.replace(policy_path, destination / policy_path.name)
+
+    if cmc_policy is None:
+        (destination / "cmc-policy.json").unlink(missing_ok=True)
     return ReplayResult(
         build=build_path,
         output_dir=destination,

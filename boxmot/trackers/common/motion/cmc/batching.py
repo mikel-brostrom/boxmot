@@ -8,11 +8,6 @@ from collections.abc import Callable, Sequence
 import numpy as np
 
 from boxmot.trackers.common.geometry.obb import transform_aabbs, transform_obbs, transform_points
-from boxmot.trackers.common.motion.cmc.state import (
-    transform_aabb_kalman_states,
-    transform_obb_kalman_states,
-    transform_xysr_kalman_centers,
-)
 from boxmot.trackers.common.motion.models import MotionModelAdapter
 
 
@@ -74,7 +69,9 @@ def transform_filter_histories(
             setattr(owner, name, result)
 
 
-def transform_observation_histories(tracks: Sequence, transform: np.ndarray, *, is_obb: bool) -> None:
+def transform_observation_histories(
+    tracks: Sequence, transform: np.ndarray, *, is_obb: bool, model: MotionModelAdapter | None = None
+) -> None:
     """Warp shared observation arrays once, preserving aliases and metadata."""
     observations = {}
     visits = {}
@@ -99,7 +96,9 @@ def transform_observation_histories(tracks: Sequence, transform: np.ndarray, *, 
     warp_boxes = transform_obbs if is_obb else transform_aabbs
     for visit in range(int(counts.max())):
         indices = np.flatnonzero(counts > visit)
-        warped = warp_boxes(rows[indices], transform)
+        warped = (
+            warp_boxes(rows[indices], transform) if model is None else model.transform_boxes(rows[indices], transform)
+        )
         for index, row in zip(indices, warped):
             arrays[index][:width] = row[:width]
             rows[index] = arrays[index][:width]
@@ -114,8 +113,14 @@ def transform_directions(
     step: float = 1.0,
     invalid_to_zero: bool = False,
     zero_input_to_zero: bool = False,
+    preserve_magnitude: bool = False,
 ) -> None:
-    """Warp cached ``[dy, dx]`` directions with each track's original policy."""
+    """Warp cached ``[dy, dx]`` directions with each track's original policy.
+
+    HybridSORT sums direction cues over multiple observations, so their
+    magnitudes carry association evidence and must survive camera correction.
+    Other trackers retain unit-direction normalization by default.
+    """
     owners, vectors, origins = [], [], []
     for track, center in zip(tracks, centers):
         for name in attributes:
@@ -140,6 +145,8 @@ def transform_directions(
     valid = active & np.isfinite(transformed).all(axis=1) & np.isfinite(norms) & (norms > 1e-12)
     normalized = np.zeros_like(transformed)
     normalized[valid] = transformed[valid] / norms[valid, None]
+    if preserve_magnitude:
+        normalized[valid] *= input_norms[valid, None]
     for index, (owner, name) in enumerate(owners):
         if (
             valid[index]
@@ -160,28 +167,19 @@ def transform_ocsort_tracks(
         return
     is_obb = model.is_obb
     means = np.asarray([np.asarray(track.kf.x).reshape(-1) for track in tracks])
-    centers = model.to_boxes(means)[:, :2]
-    transform_observation_histories(tracks, transform, is_obb=is_obb)
+    centers = means[:, :2]
+    transform_observation_histories(tracks, transform, is_obb=is_obb, model=model)
     transform_directions(tracks, centers, transform, step=1e-3 if is_obb else 1.0, zero_input_to_zero=is_obb)
-    box_transform = transform_obbs if is_obb else transform_aabbs
-    matrix = np.asarray(transform)
-    projective = matrix.shape == (3, 3) and not np.array_equal(matrix[2], [0.0, 0.0, 1.0])
 
-    def transform_states(means: np.ndarray, covariances: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        if not is_obb and not projective:
-            return transform_xysr_kalman_centers(means, covariances, transform)
-        state_transform = transform_obb_kalman_states if is_obb else transform_aabb_kalman_states
-        return state_transform(
-            means,
-            covariances,
-            transform,
-            measurement_to_box=model.to_boxes,
-            box_to_measurement=model.to_measurements,
-            velocity_measurement_indices=(0, 1, 2, 4) if is_obb else (0, 1, 2),
-        )
+    # Predictions are appended before camera compensation. Keep these boxes
+    # in the same frame as the live state and retained observations.
+    for track in tracks:
+        for box in track.history:
+            values = np.asarray(box).reshape(1, -1)
+            values[:] = model.transform_boxes(values, transform)
 
     transform_filter_histories(
         [track.kf for track in tracks],
-        transform_states,
-        lambda measurements: model.to_measurements(box_transform(model.to_boxes(measurements), transform)),
+        lambda means, covariances: model.transform_states(means, covariances, transform),
+        lambda measurements: model.transform_measurements(measurements, transform),
     )

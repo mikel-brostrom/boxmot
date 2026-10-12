@@ -7,15 +7,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-import yaml
 
 from boxmot.datasets.inputs import DatasetInputs
-from boxmot.engine.calibration.kalman import (
-    KalmanCalibrationResult,
-    _write_json,
-    apply_global_noise_fallback,
-    fit_kalman_noise,
-)
+from boxmot.engine.calibration.kalman_artifacts import KalmanCalibrationResult, write_json, write_yaml
+from boxmot.engine.calibration.kalman_fit import apply_global_noise_fallback, fit_kalman_noise
 from boxmot.engine.calibration.kalman_model_3d import CalibrationModel3D
 from boxmot.engine.calibration.kalman_sensor_data import load_sensor_calibration_data
 from boxmot.trackers.common.config import flatten_tracker_options, nest_tracker_options
@@ -169,13 +164,8 @@ def calibrate_sensor_kalman(
             "Calibration does not optimize HOTA or establish accuracy on held-out sequences.",
         ],
     }
-    temporary = config_path.with_suffix(".tmp")
-    temporary.write_text(
-        yaml.safe_dump({name: nest_tracker_options(profile) for name, profile in calibrated.items()}, sort_keys=False),
-        encoding="utf-8",
-    )
-    temporary.replace(config_path)
-    _write_json(report_path, report)
+    write_yaml(config_path, {name: nest_tracker_options(profile) for name, profile in calibrated.items()})
+    write_json(report_path, report)
     result = KalmanCalibrationResult(
         config_path,
         report_path,

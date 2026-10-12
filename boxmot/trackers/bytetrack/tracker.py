@@ -9,9 +9,9 @@ from boxmot.trackers.common.association import AssociationStage, run_association
 from boxmot.trackers.common.association.matching import fuse_score
 from boxmot.trackers.common.box.base import BoxTracker
 from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runtime_options
+from boxmot.trackers.common.motion.cmc.registry import create_cmc
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
-from boxmot.trackers.common.motion.kalman_filters.xyah import KalmanFilterXYAH
-from boxmot.trackers.common.motion.kalman_filters.xywh import KalmanFilterXYWH
+from boxmot.trackers.common.motion.models import create_motion_model, resolve_motion_model_kind
 from boxmot.trackers.common.tracking.lifecycle import joint_stracks, remove_duplicate_stracks, sub_stracks
 
 
@@ -76,15 +76,27 @@ class ByteTrack(BoxTracker):
         self.det_thresh = config.track_thresh  # Same as track_thresh
 
         # Motion model
-        self.kalman_filter = (
-            KalmanFilterXYWH(ndim=5, noise_config=self.kalman_noise_config)
-            if self.is_obb
-            else KalmanFilterXYAH(noise_config=self.kalman_noise_config)
+        self.motion_model = create_motion_model(
+            resolve_motion_model_kind("bytetrack", self.kalman_config.type, is_obb=self.is_obb),
+            is_obb=self.is_obb,
+            max_obs=self.max_obs,
         )
+        self.kalman_filter = self.motion_model.create_filter(noise_config=self.kalman_noise_config)
+
+        self.cmc = create_cmc(config.cmc_method, enabled=config.use_cmc)
+        self._requires_frame = self._requires_frame or self.cmc is not None
+        if self.cmc is not None:
+            self._requires_frame_dimensions_only = False
 
         self.active_tracks = []  # type: list[STrack]
         self.lost_stracks = []  # type: list[STrack]
         self.removed_stracks = []  # type: list[STrack]
+
+    def cmc_detection_boxes(self, dets: np.ndarray) -> np.ndarray:
+        """Mask accepted detection scores using the fixed calibration threshold."""
+        threshold = self.min_conf if self.config.cmc_min_conf is None else self.config.cmc_min_conf
+        accepted = self.detection_layout.confidences(dets) >= threshold
+        return self.detection_layout.boxes(dets[accepted])
 
     def _track_detections(
         self,
@@ -93,6 +105,7 @@ class ByteTrack(BoxTracker):
         embs: np.ndarray = None,
         masks: np.ndarray = None,
     ) -> np.ndarray:
+        cmc_dets = dets
         batch = self._make_detection_batch(dets, embs=embs, masks=masks)
         self.frame_count += 1
         activated_starcks = []
@@ -114,6 +127,7 @@ class ByteTrack(BoxTracker):
                     max_obs=self.max_obs,
                     id_allocator=self.id_allocator,
                     is_obb=self.is_obb,
+                    motion_model=self.motion_model,
                 )
                 for det in dets
             ]
@@ -133,6 +147,9 @@ class ByteTrack(BoxTracker):
         strack_pool = joint_stracks(tracked_stracks, self.lost_stracks)
         # Predict the current location with KF
         STrack.multi_predict(strack_pool, dt=self._prediction_dt)
+        if self.cmc is not None:
+            warp = self.cmc.apply(img, self.cmc_detection_boxes(cmc_dets))
+            STrack.multi_camera_update(strack_pool + unconfirmed, warp)
         first_stage = AssociationStage(
             name="bytetrack_high",
             cost=self._fused_association_cost,
@@ -167,6 +184,7 @@ class ByteTrack(BoxTracker):
                     max_obs=self.max_obs,
                     id_allocator=self.id_allocator,
                     is_obb=self.is_obb,
+                    motion_model=self.motion_model,
                 )
                 for det_second in dets_second
             ]
@@ -286,8 +304,9 @@ class ByteTrack(BoxTracker):
         """Reset tracks and temporal mask memory for a new pass over the source."""
         self._reset_common_state()
         self.frame_id = 0
-        self.kalman_filter = (
-            KalmanFilterXYWH(ndim=5, noise_config=self.kalman_noise_config)
-            if self.is_obb
-            else KalmanFilterXYAH(noise_config=self.kalman_noise_config)
+        self.motion_model = create_motion_model(
+            resolve_motion_model_kind("bytetrack", self.kalman_config.type, is_obb=self.is_obb),
+            is_obb=self.is_obb,
+            max_obs=self.max_obs,
         )
+        self.kalman_filter = self.motion_model.create_filter(noise_config=self.kalman_noise_config)

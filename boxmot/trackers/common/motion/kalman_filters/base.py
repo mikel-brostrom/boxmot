@@ -49,6 +49,7 @@ class BaseKalmanFilter:
         self.ndim = ndim
         self.dim_z = dim_z if dim_z is not None else ndim
         self.dim_x = dim_x if dim_x is not None else 2 * self.ndim
+        self.noise_config.validate_layout(self.dim_x, self.dim_z)
         self.dt = 1.0
 
         # Create Kalman filter model matrices.
@@ -426,22 +427,19 @@ class BaseKalmanFilter:
         """
         Project state distribution to measurement space.
         """
-        std = self._get_measurement_noise_std(mean, confidence)
-
-        # NSA Kalman algorithm from GIAOTracker, which proposes a formula to
-        # adaptively calculate the noise covariance Rek:
-        # Rk = (1 − ck) Rk
-        # where Rk is the preset constant measurement noise covariance
-        # and ck is the detection confidence score at state k. Intuitively,
-        # the detection has a higher score ck when it has less noise,
-        # which results in a low Re.
-        std = [(1 - confidence) * x for x in std]
-
-        innovation_cov = self.noise_config.measurement_covariance(np.diag(np.square(std)))
+        innovation_cov = self._measurement_covariance(mean, confidence)
 
         mean = np.dot(self._update_mat, mean)
         covariance = np.linalg.multi_dot((self._update_mat, covariance, self._update_mat.T))
         return mean, covariance + innovation_cov
+
+    def _measurement_covariance(self, mean: np.ndarray, confidence: float = 0.0) -> np.ndarray:
+        """Retain confidence scaling of standard deviations, so R scales quadratically."""
+        if self.noise_config.measurement_confidence_floor:
+            std = np.asarray(self._get_measurement_noise_std(mean, confidence))
+            return self.noise_config.measurement_covariance(np.diag(np.square(std)), confidence=confidence)
+        std = np.asarray(self._get_measurement_noise_std(mean, confidence)) * (1.0 - confidence)
+        return self.noise_config.measurement_covariance(np.diag(np.square(std)))
 
     def multi_predict(
         self, mean: np.ndarray, covariance: np.ndarray, *, dt: float | None = None
@@ -464,6 +462,8 @@ class BaseKalmanFilter:
         """Build independent confidence-scaled measurement covariances."""
         std = self._get_multi_measurement_noise_std(mean)
         confidence = np.broadcast_to(np.asarray(confidence, dtype=float), (len(mean),))
+        if self.noise_config.measurement_confidence_floor:
+            return self.noise_config.measurement_covariance(batch.diagonal(np.square(std)), confidence=confidence)
         return self.noise_config.measurement_covariance(batch.diagonal(np.square(std * (1.0 - confidence[:, None]))))
 
     def _get_multi_measurement_noise_std(self, mean: np.ndarray) -> np.ndarray:

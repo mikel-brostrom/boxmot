@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 import numpy as np
 
@@ -8,8 +9,23 @@ from boxmot.trackers.common.detections.layout import DetectionLayout
 from boxmot.trackers.common.motion.cmc.base import BaseCMC
 
 
-def cmc_detection_boxes(dets: np.ndarray, layout: DetectionLayout) -> np.ndarray:
+def resolve_cmc_min_conf(options: Mapping[str, Any]) -> float:
+    """Freeze the camera mask threshold independently of later tracker tuning."""
+    value = next(
+        (options[name] for name in ("cmc_min_conf", "min_conf", "det_thresh") if options.get(name) is not None), 0.1
+    )
+    if isinstance(value, (bool, np.bool_)):
+        raise ValueError("CMC masking confidence must be finite and in [0, 1].")
+    threshold = float(value)
+    if not np.isfinite(threshold) or not 0.0 <= threshold <= 1.0:
+        raise ValueError("CMC masking confidence must be finite and in [0, 1].")
+    return threshold
+
+
+def cmc_detection_boxes(dets: np.ndarray, layout: DetectionLayout, *, min_conf: float | None = None) -> np.ndarray:
     """Return native AABB or OBB geometry for CMC masking/estimation."""
+    if min_conf is not None:
+        dets = dets[layout.confidences(dets) >= min_conf]
     return layout.boxes(dets)
 
 
@@ -19,6 +35,8 @@ def apply_cmc_to_tracks(
     dets: np.ndarray,
     layout: DetectionLayout,
     tracks: Sequence,
+    *,
+    mask_boxes: np.ndarray | None = None,
 ) -> np.ndarray | None:
     """Apply CMC to tracks and return the estimated warp matrix."""
     if cmc is None:
@@ -26,7 +44,7 @@ def apply_cmc_to_tracks(
     if img is None:
         raise ValueError("img is required when camera-motion compensation is enabled")
 
-    warp = cmc.apply(img, cmc_detection_boxes(dets, layout))
+    warp = cmc.apply(img, cmc_detection_boxes(dets, layout) if mask_boxes is None else mask_boxes)
     groups = {}
     for track in tracks:
         groups.setdefault(type(track), []).append(track)

@@ -22,6 +22,25 @@ Direct construction accepts `reid=ReIDConfig(...)` or a prebuilt
 `AppearanceEncoder`, as described in the
 [Python API](../python/index.md#live-embeddings-in-reid-enabled-trackers).
 
+## Camera motion compensation
+
+DeepOCSORT enables sparse optical flow camera compensation by default through
+`DeepOcSortConfig(use_cmc=True, cmc_method="sof")`. Disable it with
+`DeepOcSortConfig(use_cmc=False)`, or save a runtime profile:
+
+```yaml
+tracker: deepocsort
+use_cmc: false
+```
+
+Pass the profile with `--tracker-config path/to/profile.yaml`. The canonical
+setting is `use_cmc`; replace an earlier `cmc_off` setting with its inverted
+boolean value. For example, `cmc_off: true` becomes `use_cmc: false`.
+
+For joint camera/filter selection, use
+`tune --tracker deepocsort --select-kf --select-cmc`; see
+[Kalman calibration](../guides/kalman-calibration.md).
+
 ## Python API
 
 Pass algorithm settings through `DeepOcSortConfig`, for example

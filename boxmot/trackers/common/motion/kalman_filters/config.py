@@ -13,6 +13,7 @@ from boxmot.trackers.common.motion.kalman_filters.noise import (
     KALMAN_TRACKER_NAMES,
     KalmanNoiseConfig,
 )
+from boxmot.trackers.common.motion.models import MotionModelKind, resolve_motion_model_kind
 
 _ADAPTIVE_TRACKERS = frozenset({"boosttrack", "occluboost"})
 _REMOVED_OPTIONS = frozenset(
@@ -71,11 +72,15 @@ class AbnormalMotionSuppressionConfig:
 class KalmanConfig:
     """Kalman settings shared by direct trackers, configuration files, and tuning.
 
-    Optional policies select the owning tracker's defaults when omitted. Filter
-    representation and dimensions follow tracker geometry; they are not arbitrary
-    interchangeable models. Per-class covariance profiles belong to ``noise``.
+    Optional policies select the owning tracker's defaults when omitted.
+    Per-class covariance profiles belong to ``noise``.
 
     Args:
+        type: Box-state representation.
+            None preserves the original filter for the tracker and geometry.
+            xyah, xywh, xysr, xyhr, and xyscr support AABB and OBB.
+            Native trackers accept their original
+            filter; choosing another type requires a Python 2D Kalman tracker.
         noise: Covariance multipliers, unit metadata, and optional class profiles.
         variable_dt: Predict using measured capture intervals in seconds; supported
             by the eight 2D Kalman trackers. False advances one reference frame.
@@ -87,6 +92,7 @@ class KalmanConfig:
             The existing AABB policy is bypassed for OBB tracking.
     """
 
+    type: str | None = None
     noise: KalmanNoiseConfig = field(default_factory=KalmanNoiseConfig)
     variable_dt: bool = False
     adaptive_kf: bool | None = None
@@ -94,6 +100,15 @@ class KalmanConfig:
     ams: AbnormalMotionSuppressionConfig | None = None
 
     def __post_init__(self) -> None:
+        if self.type is not None:
+            if not isinstance(self.type, str):
+                raise TypeError("kalman.type must be a filter name or None.")
+            try:
+                kind = MotionModelKind(self.type)
+            except ValueError as exc:
+                choices = ", ".join(kind.value for kind in MotionModelKind)
+                raise ValueError(f"Unknown kalman.type {self.type!r}; choose from: {choices}.") from exc
+            object.__setattr__(self, "type", kind.value)
         if not isinstance(self.noise, KalmanNoiseConfig):
             raise TypeError("kalman.noise must be a KalmanNoiseConfig object.")
         if not isinstance(self.variable_dt, bool):
@@ -108,6 +123,17 @@ class KalmanConfig:
         """Resolve tracker defaults and reject policies that its filter cannot use."""
         if tracker_name is not None and tracker_name not in KALMAN_NOISE_TRACKER_NAMES:
             raise ValueError(f"Tracker {tracker_name!r} does not support kalman settings.")
+        if self.type is not None:
+            if tracker_name not in KALMAN_TRACKER_NAMES | {None}:
+                raise ValueError("kalman.type selection requires a Python 2D Kalman tracker.")
+            if backend != "python" and not (
+                backend == "cpp"
+                and tracker_name in KALMAN_TRACKER_NAMES
+                and self.type == resolve_motion_model_kind(tracker_name).value
+            ):
+                raise ValueError("Selecting a different kalman.type requires a Python 2D Kalman tracker.")
+        if self.adaptive_kf and self.type not in {None, "xyhr"}:
+            raise ValueError("kalman.adaptive_kf=True requires kalman.type='xyhr' or the original XYHR filter.")
         if self.variable_dt and (backend != "python" or tracker_name not in KALMAN_TRACKER_NAMES | {None}):
             raise ValueError("kalman.variable_dt=True requires a Python 2D Kalman tracker.")
         noise = self.noise.resolve(variable_dt=self.variable_dt)
@@ -133,7 +159,7 @@ class KalmanConfig:
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize the grouped runtime configuration without implementation state."""
-        result: dict[str, Any] = {"noise": self.noise.to_dict(), "variable_dt": self.variable_dt}
+        result: dict[str, Any] = {"type": self.type, "noise": self.noise.to_dict(), "variable_dt": self.variable_dt}
         for name in ("adaptive_kf", "is_angular"):
             if getattr(self, name) is not None:
                 result[name] = getattr(self, name)

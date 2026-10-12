@@ -190,11 +190,13 @@ def gate_cost_matrix(
         Returns the modified cost matrix.
     """
 
-    measurements = np.asarray([detections[i].to_measurement() for i in detection_indices])
-    gating_threshold = chi2inv95[measurements.shape[1]]
     for row, track_idx in enumerate(track_indices):
         track = tracks[track_idx]
-        gating_distance = track.kf.gating_distance(track.mean, track.covariance, measurements, only_position)
+        measurements = np.asarray([track.measurement_for_detection(detections[i]) for i in detection_indices])
+        gating_threshold = chi2inv95[2 if only_position else len(track.motion_model.geometry_measurement_indices)]
+        gating_distance = track.motion_model.gating_distance(
+            track.kf, track.mean, track.covariance, measurements, only_position
+        )
         blocked = gating_distance > gating_threshold
         if gated_mask is not None:
             gated_mask[row] = blocked

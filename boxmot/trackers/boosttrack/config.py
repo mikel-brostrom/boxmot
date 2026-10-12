@@ -53,5 +53,6 @@ class BoostTrackConfig(TrackerConfig):
     use_embeddings: bool = True
     det_thresh: float = field(default=0.6, metadata={"ge": 0.0, "le": 1.0})
 
+    cmc_min_conf: float | None = field(default=None, metadata={"ge": 0.0, "le": 1.0})
 
 __all__ = ("BoostTrackConfig",)

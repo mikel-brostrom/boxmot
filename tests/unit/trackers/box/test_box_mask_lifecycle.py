@@ -86,7 +86,7 @@ def _tracker(name: str, *, guidance: MaskGuidance | None = None, min_hits: int =
     if name in {"botsort", "bytetrack"}:
         options["track_buffer"] = max_age
     if name == "deepocsort":
-        options.update(use_embeddings=False, cmc_off=True)
+        options.update(use_embeddings=False, use_cmc=False)
     if name == "hybridsort":
         options.update(use_embeddings=False, cmc_method=None)
     if name == "strongsort":

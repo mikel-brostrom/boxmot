@@ -97,7 +97,7 @@ def test_registered_capabilities_describe_every_tracker_family_and_input() -> No
     assert {name for name, item in definitions.items() if item.capabilities.accepts_ego_motion} == {"eagermot"}
     assert not any(item.capabilities.requires_ego_motion for item in definitions.values())
     assert all(item.capabilities.accepts_frame for item in definitions.values())
-    assert {name for name, item in definitions.items() if item.capabilities.requires_frame} == {"strongsort"}
+    assert not any(item.capabilities.requires_frame for item in definitions.values())
 
 
 def test_configurable_maf_frames_and_optional_ego_poses_match_static_requirements() -> None:

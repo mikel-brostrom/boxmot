@@ -17,8 +17,12 @@ from boxmot.trackers.common.appearance import (
     ema_update_embedding,
     normalize_embedding,
 )
-from boxmot.trackers.common.geometry.obb import transform_aabbs, transform_points
+from boxmot.trackers.common.geometry.obb import (
+    smooth_obb_corners,
+    xywha_to_xyxy,
+)
 from boxmot.trackers.common.motion.cmc.batching import transform_directions, transform_filter_histories
+from boxmot.trackers.common.motion.confidence import ConfidencePrediction
 from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
 from boxmot.trackers.common.motion.models import MotionModelKind, create_motion_model
 from boxmot.trackers.common.track_state import SortBoxTrack
@@ -59,9 +63,11 @@ def speed_direction_rb(bbox1, bbox2):
 
 class KalmanBoxTracker(SortBoxTrack):
     """
-    Single-object tracker with 9D custom KF (u,v,s,c,r, du,dv,ds,dc) by default.
+    One HybridSORT identity with confidence state and OBB angular motion.
     Stores `cls` and `det_ind` metadata from the most recent matched detection.
     """
+
+    observation_centric = True
 
     def __init__(
         self,
@@ -74,20 +80,35 @@ class KalmanBoxTracker(SortBoxTrack):
         alpha: float = 0.9,
         adapfs: bool = False,
         track_thresh: float = 0.5,
+        is_obb: bool = False,
         cls: int = 0,
         det_ind: int = -1,
         id_allocator: TrackIdAllocator | None = None,
         noise_config: KalmanNoiseConfig | None = None,
+        kalman_type: str | None = None,
     ):
-        self.motion_model = create_motion_model(MotionModelKind.XYSCR, max_obs=max_obs)
+        self.is_obb = bool(is_obb)
+        self.motion_model = create_motion_model(
+            kalman_type or MotionModelKind.XYSCR, is_obb=self.is_obb, max_obs=max_obs, cls_id=int(cls)
+        )
         self.kf = self.motion_model.create_filter(noise_config=noise_config)
-        self.kf.R[2:, 2:] *= 10.0
-        self.kf.P[5:, 5:] *= 1000.0
-        self.kf.P *= 10.0
-        self.kf.Q[-1, -1] *= 0.01
-        self.kf.Q[-2, -2] *= 0.01
-        self.kf.Q[5:, 5:] *= 0.01
-        self.kf.x[:5] = self.motion_model.to_measurement(bbox)
+        self.confidence_filter = None
+        if self.motion_model.kind is MotionModelKind.XYSCR:
+            measurement_size = self.motion_model.dim_z
+            self.kf.R[2:, 2:] *= 10.0
+            self.kf.P[measurement_size:, measurement_size:] *= 1000.0
+            self.kf.P *= 10.0
+            self.kf.Q[measurement_size + 3, measurement_size + 3] *= 0.01
+            self.kf.Q[measurement_size + 2, measurement_size + 2] *= 0.01
+            self.kf.Q[measurement_size:, measurement_size:] *= 0.01
+            if self.is_obb:
+                self.kf.Q[-1, -1] *= 0.01
+            self.kf.x[:measurement_size] = self.motion_model.to_measurement(bbox)
+        else:
+            self.motion_model.initialize_filter(
+                self.kf, self.motion_model.to_measurement(bbox), confidence=float(bbox[-1])
+            )
+            self.confidence_filter = ConfidencePrediction(float(bbox[-1]), noise_config=noise_config, max_obs=max_obs)
 
         # tracker state
         self._assign_sort_id(id_allocator=id_allocator)
@@ -95,8 +116,8 @@ class KalmanBoxTracker(SortBoxTrack):
         self.history = deque([], maxlen=self.max_obs)
 
         # observations
-        self.last_observation = np.array([-1, -1, -1, -1, -1])
-        self.last_observation_save = np.array([-1, -1, -1, -1, -1])
+        self.last_observation = np.full(6 if self.is_obb else 5, -1)
+        self.last_observation_save = self.last_observation.copy()
         self.observations = dict()
         self.history_observations = deque([], maxlen=self.max_obs)
 
@@ -124,12 +145,38 @@ class KalmanBoxTracker(SortBoxTrack):
 
         # first feature update
         self.update_features(temp_feat)
+        self._plot_angle = None
         self._append_current_history()
         self._sync_initial_sort_meta()
 
     def _append_current_history(self) -> None:
-        geometry = self.motion_model.to_box(self.kf.x)[0, :4]
+        geometry = self.get_state()[0]
+        if self.is_obb:
+            geometry, self._plot_angle = smooth_obb_corners(geometry, self._plot_angle)
         self.history_observations.append(np.asarray(geometry, dtype=np.float32).copy())
+
+    def get_state(self) -> np.ndarray:
+        """Return current geometry in the configured detection coordinates."""
+        return self.motion_model.to_box(self.kf.x)
+
+    @property
+    def xywha(self) -> np.ndarray:
+        """Expose oriented geometry to shared plotting and lifecycle consumers."""
+        if self.is_obb:
+            return self.get_state()[0]
+        x1, y1, x2, y2 = self.get_state()[0]
+        return np.array([(x1 + x2) / 2, (y1 + y2) / 2, x2 - x1, y2 - y1, 0.0])
+
+    @property
+    def xyxy(self) -> np.ndarray:
+        """Return the enclosing axis-aligned box for shared consumers."""
+        return xywha_to_xyxy(self.get_state())[0] if self.is_obb else self.get_state()[0]
+
+    def _motion_box(self, observation: np.ndarray) -> np.ndarray:
+        """Express corner-direction cues as enclosing image-space corners."""
+        if self.is_obb:
+            return xywha_to_xyxy(np.asarray(observation[:5]).reshape(1, 5))[0]
+        return observation
 
     def _prune_observations(self) -> None:
         cutoff = self.age - self.max_obs + 1
@@ -159,43 +206,6 @@ class KalmanBoxTracker(SortBoxTrack):
                 )
         self.features.append(feat)
 
-    @staticmethod
-    def _map_camera_states(states: np.ndarray, transform: np.ndarray, model) -> np.ndarray:
-        """Map XYSCR state rows, retaining confidence and velocity conventions."""
-        values = np.asarray(states, dtype=float)
-        boxes = model.to_boxes(values, include_score=True)
-        measurements = model.to_measurements(transform_aabbs(boxes, transform))
-        mapped = values.copy()
-        mapped[:, :5] = measurements
-        points = np.stack((values[:, :2], values[:, :2] + values[:, 5:7]), axis=1)
-        warped = transform_points(points, transform).reshape(-1, 2, 2)
-        mapped[:, 5:7] = warped[:, 1] - warped[:, 0]
-        mapped[:, 7] = values[:, 7] * (measurements[:, 2] / np.maximum(values[:, 2], 1e-6))
-        return mapped
-
-    @classmethod
-    def _map_camera_states_and_covariances(
-        cls,
-        states: np.ndarray,
-        covariances: np.ndarray,
-        transform: np.ndarray,
-        model,
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """Evaluate the full forward-difference XYSCR Jacobians in one batch."""
-        values = np.asarray(states, dtype=float)
-        count, dimension = values.shape
-        steps = 1e-5 * np.maximum(np.abs(values), 1.0)
-        samples = np.repeat(values[:, None, :], dimension + 1, axis=1)
-        indices = np.arange(dimension)
-        samples[:, indices + 1, indices] += steps
-        mapped = cls._map_camera_states(samples.reshape(-1, dimension), transform, model).reshape(
-            count, dimension + 1, dimension
-        )
-        jacobians = ((mapped[:, 1:] - mapped[:, :1]) / steps[:, :, None]).swapaxes(1, 2)
-        covariance = jacobians @ np.asarray(covariances, dtype=float) @ jacobians.swapaxes(1, 2)
-        covariance = 0.5 * (covariance + covariance.swapaxes(1, 2))
-        return mapped[:, 0].copy(), covariance
-
     def camera_update(self, warp_matrix: np.ndarray) -> None:
         """Move this track's motion and association state to the new frame."""
         self.multi_camera_update([self], warp_matrix)
@@ -209,13 +219,12 @@ class KalmanBoxTracker(SortBoxTrack):
         if not tracks:
             return
         model = tracks[0].motion_model
+        geometry_width = 5 if model.is_obb else 4
         centers = np.asarray([np.asarray(track.kf.x).reshape(-1)[:2] for track in tracks])
         transform_filter_histories(
             [track.kf for track in tracks],
-            lambda means, covariances: cls._map_camera_states_and_covariances(means, covariances, transform, model),
-            lambda measurements: model.to_measurements(
-                transform_aabbs(model.to_boxes(measurements, include_score=True), transform)
-            ),
+            lambda means, covariances: model.transform_states(means, covariances, transform),
+            lambda measurements: model.transform_measurements(measurements, transform),
         )
         # HybridSORT replaces observation arrays and containers, unlike the
         # in-place observation updates used by OC-SORT and DeepOC-SORT.
@@ -239,14 +248,14 @@ class KalmanBoxTracker(SortBoxTrack):
         if observations:
             # History rows may omit confidence; warp geometry in one batch and
             # restore each row's metadata and original shape during scattering.
-            geometry = transform_aabbs(np.asarray([row[:4] for row in observations]), transform)
+            geometry = model.transform_boxes(np.asarray([row[:geometry_width] for row in observations]), transform)
             warped = iter(geometry)
             for track, name, value in records:
 
                 def replace(row, *, preserve_shape=False):
                     shape = np.asarray(row).shape
                     result = np.asarray(row, dtype=float).reshape(-1).copy()
-                    result[:4] = next(warped)
+                    result[:geometry_width] = next(warped)
                     return result.reshape(shape) if preserve_shape else result
 
                 if isinstance(value, dict):
@@ -262,6 +271,7 @@ class KalmanBoxTracker(SortBoxTrack):
             transform,
             attributes=("velocity_lt", "velocity_rt", "velocity_lb", "velocity_rb"),
             invalid_to_zero=True,
+            preserve_magnitude=True,
         )
 
     def update(
@@ -275,7 +285,7 @@ class KalmanBoxTracker(SortBoxTrack):
     ):
         """Correct a box and its appearance using the track's own history."""
         measurement = self._prepare_update(bbox, id_feature, update_feature=update_feature, cls=cls, det_ind=det_ind)
-        self.kf.update(measurement)
+        self.motion_model.update_filter(self.kf, measurement, observation_centric=True, confidence=float(self.conf))
         self._finish_update(measurement)
 
     def _prepare_update(
@@ -290,27 +300,28 @@ class KalmanBoxTracker(SortBoxTrack):
         """Prepare observation and appearance state for a grouped correction."""
         vlt = vrt = vlb = vrb = None
         if bbox is not None:
+            motion_box = self._motion_box(bbox)
             if self.last_observation[-1] >= 0:
                 previous_box = None
                 for i in range(self.delta_t):
                     if self.age - i - 1 in self.observations:
-                        previous_box = self.observations[self.age - i - 1]
+                        previous_box = self._motion_box(self.observations[self.age - i - 1])
                         if vlt is not None:
-                            vlt += speed_direction_lt(previous_box, bbox)
-                            vrt += speed_direction_rt(previous_box, bbox)
-                            vlb += speed_direction_lb(previous_box, bbox)
-                            vrb += speed_direction_rb(previous_box, bbox)
+                            vlt += speed_direction_lt(previous_box, motion_box)
+                            vrt += speed_direction_rt(previous_box, motion_box)
+                            vlb += speed_direction_lb(previous_box, motion_box)
+                            vrb += speed_direction_rb(previous_box, motion_box)
                         else:
-                            vlt = speed_direction_lt(previous_box, bbox)
-                            vrt = speed_direction_rt(previous_box, bbox)
-                            vlb = speed_direction_lb(previous_box, bbox)
-                            vrb = speed_direction_rb(previous_box, bbox)
+                            vlt = speed_direction_lt(previous_box, motion_box)
+                            vrt = speed_direction_rt(previous_box, motion_box)
+                            vlb = speed_direction_lb(previous_box, motion_box)
+                            vrb = speed_direction_rb(previous_box, motion_box)
                 if previous_box is None:
-                    previous_box = self.last_observation
-                    self.velocity_lt = speed_direction_lt(previous_box, bbox)
-                    self.velocity_rt = speed_direction_rt(previous_box, bbox)
-                    self.velocity_lb = speed_direction_lb(previous_box, bbox)
-                    self.velocity_rb = speed_direction_rb(previous_box, bbox)
+                    previous_box = self._motion_box(self.last_observation)
+                    self.velocity_lt = speed_direction_lt(previous_box, motion_box)
+                    self.velocity_rt = speed_direction_rt(previous_box, motion_box)
+                    self.velocity_lb = speed_direction_lb(previous_box, motion_box)
+                    self.velocity_rb = speed_direction_rb(previous_box, motion_box)
                 else:
                     self.velocity_lt, self.velocity_rt = vlt, vrt
                     self.velocity_lb, self.velocity_rb = vlb, vrb
@@ -337,8 +348,12 @@ class KalmanBoxTracker(SortBoxTrack):
                     self.update_features(id_feature)
             self.confidence_pre = self.conf
             self.conf = float(bbox[-1])
+            if self.confidence_filter is not None:
+                self.confidence_filter.update(self.conf)
             return self.motion_model.to_measurement(bbox)
         self.confidence_pre = None
+        if self.confidence_filter is not None:
+            self.confidence_filter.update(None)
         return None
 
     def _finish_update(self, measurement: np.ndarray | None) -> None:
@@ -352,14 +367,14 @@ class KalmanBoxTracker(SortBoxTrack):
     def predict(self, *, dt: float | None = None) -> tuple[np.ndarray, float, float]:
         """Predict box and score over an optional elapsed time interval."""
         self._prepare_prediction(dt=dt)
-        self.kf.predict(dt=dt)
+        self.motion_model.predict_filter(self.kf, dt=dt, observation_centric=self.observation_centric)
         return self._finish_prediction()
 
     def _prepare_prediction(self, *, dt: float | None = None) -> None:
-        """Prevent the predicted area from becoming negative."""
-        interval = 1.0 if dt is None else dt
-        if (interval * self.kf.x[7] + self.kf.x[2]) <= 0:
-            self.kf.x[7] *= 0.0
+        """Predict confidence and prevent nonpositive box-size extrapolation."""
+        self.motion_model.prevent_invalid_size(self.kf, dt=dt)
+        if self.confidence_filter is not None:
+            self.confidence_filter.predict(dt=dt)
 
     def _finish_prediction(self) -> tuple[np.ndarray, float, float]:
         """Advance counters and expose box and confidence predictions."""
@@ -372,7 +387,9 @@ class KalmanBoxTracker(SortBoxTrack):
         sync_track_meta(self)
 
         # --- make scalars robustly ---
-        x3 = self.kf.x[3, 0] if self.kf.x.ndim == 2 else self.kf.x[3]
+        x3 = (
+            self.confidence_filter.value if self.confidence_filter is not None else np.asarray(self.kf.x).reshape(-1)[3]
+        )
         kalman_score = float(np.clip(x3, self.track_thresh, 1.0))
 
         if not self.confidence_pre:

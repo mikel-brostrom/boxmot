@@ -31,5 +31,8 @@ class ByteTrackConfig(TrackerConfig):
     track_buffer: int = field(default=30, metadata={"ge": 0})
     frame_rate: int = field(default=30, metadata={"gt": 0})
 
+    use_cmc: bool = False
+    cmc_method: str = field(default="sof", metadata={"choices": ("ecc", "orb", "sof", "sift")})
+    cmc_min_conf: float | None = field(default=None, metadata={"ge": 0.0, "le": 1.0})
 
 __all__ = ("ByteTrackConfig",)

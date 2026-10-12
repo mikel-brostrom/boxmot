@@ -16,6 +16,7 @@ from boxmot.trackers.common.motion.models import MotionModelKind, create_motion_
         (MotionModelKind.XYHR, False, 8, 4),
         (MotionModelKind.XYHR, True, 10, 5),
         (MotionModelKind.XYSCR, False, 9, 5),
+        (MotionModelKind.XYSCR, True, 11, 6),
     ),
 )
 def test_motion_model_adapter_dimensions_and_filter(kind, is_obb, dim_x, dim_z):
@@ -70,6 +71,12 @@ def test_motion_model_adapter_roundtrip_obb(kind):
     np.testing.assert_allclose(decoded[0], box, atol=1e-5)
 
 
-def test_xyscr_motion_model_rejects_obb():
-    with pytest.raises(ValueError, match="XYSCR does not support OBB"):
-        create_motion_model(MotionModelKind.XYSCR, is_obb=True)
+def test_xyscr_motion_model_roundtrip_obb_preserves_score_and_angle():
+    model = create_motion_model(MotionModelKind.XYSCR, is_obb=True)
+    box = np.array([32.0, 24.0, 20.0, 10.0, 0.25, 0.8])
+    state = model.to_measurement(box, column=False)
+    np.testing.assert_allclose(state, [32.0, 24.0, 200.0, 0.8, 2.0, 0.25])
+    np.testing.assert_allclose(model.to_box(state, score=0.8)[0], box)
+    assert model.angle_measurement_index == 5
+    assert model.velocity_measurement_indices == (0, 1, 2, 3, 5)
+    assert model.geometry_measurement_indices == (0, 1, 2, 4, 5)

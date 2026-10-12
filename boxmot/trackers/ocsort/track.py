@@ -28,9 +28,9 @@ def speed_direction_obb(bbox1, bbox2):
 
 
 class KalmanBoxTracker(SortBoxTrack):
-    """
-    This class represents the internal state of individual tracked objects observed as bbox.
-    """
+    """One OC-SORT identity with its filter, observations, and motion direction."""
+
+    observation_centric = True
 
     def __init__(
         self,
@@ -43,6 +43,7 @@ class KalmanBoxTracker(SortBoxTrack):
         id_allocator: TrackIdAllocator | None = None,
         *,
         noise_config: KalmanNoiseConfig | None = None,
+        kalman_type: str | None = None,
     ):
         """
         Initialises a tracker using initial bounding box.
@@ -53,12 +54,18 @@ class KalmanBoxTracker(SortBoxTrack):
 
         self.is_obb = is_obb
         self.motion_model = create_motion_model(
-            MotionModelKind.XYSR,
+            kalman_type or MotionModelKind.XYSR,
             is_obb=self.is_obb,
             max_obs=max_obs,
+            cls_id=int(cls),
         )
 
-        if self.is_obb:
+        if self.motion_model.kind is not MotionModelKind.XYSR:
+            self.kf = self.motion_model.create_filter(noise_config=noise_config)
+            self.motion_model.initialize_filter(
+                self.kf, self.motion_model.to_measurement(bbox), confidence=float(bbox[-1])
+            )
+        elif self.is_obb:
             self.kf = self.motion_model.create_filter(noise_config=noise_config)
             self.kf.F = np.array(
                 [
@@ -150,7 +157,7 @@ class KalmanBoxTracker(SortBoxTrack):
         Updates the state vector with observed bbox.
         """
         measurement = self._prepare_update(bbox, cls, det_ind)
-        self.kf.update(measurement)
+        self.motion_model.update_filter(self.kf, measurement, observation_centric=True, confidence=float(self.conf))
         self._finish_update(measurement)
 
     def _prepare_update(self, bbox, cls, det_ind) -> np.ndarray | None:
@@ -190,8 +197,6 @@ class KalmanBoxTracker(SortBoxTrack):
             self.time_since_update = 0
             self.hits += 1
             self.hit_streak += 1
-            if self.is_obb:
-                return self.motion_model.to_measurement(bbox[:5])
             return self.motion_model.to_measurement(bbox)
         return None
 
@@ -208,18 +213,12 @@ class KalmanBoxTracker(SortBoxTrack):
         Advances the state vector and returns the predicted bounding box estimate.
         """
         self._prepare_prediction(dt=dt)
-        self.kf.predict(dt=dt)
+        self.motion_model.predict_filter(self.kf, dt=dt, observation_centric=self.observation_centric)
         return self._finish_prediction()
 
     def _prepare_prediction(self, *, dt: float | None = None) -> None:
-        """Prevent area velocity from producing a negative predicted box."""
-        interval = 1.0 if dt is None else dt
-        if self.is_obb:
-            if (interval * self.kf.x[7] + self.kf.x[2]) <= 0:
-                self.kf.x[7] *= 0.0
-        else:
-            if (interval * self.kf.x[6] + self.kf.x[2]) <= 0:
-                self.kf.x[6] *= 0.0
+        """Prevent the selected model from extrapolating nonpositive sizes."""
+        self.motion_model.prevent_invalid_size(self.kf, dt=dt)
 
     def _finish_prediction(self) -> np.ndarray:
         """Advance frame counters and record the predicted box."""
@@ -235,14 +234,12 @@ class KalmanBoxTracker(SortBoxTrack):
         return self.history[-1]
 
     def camera_update(self, transform: np.ndarray) -> None:
-        """Transform this OBB track and its recovery histories."""
+        """Transform this track and its recovery histories to the current frame."""
         self.multi_camera_update([self], transform)
 
     @classmethod
     def multi_camera_update(cls, tracks, transform: np.ndarray) -> None:
-        """Transform complete OBB motion and association state in batches."""
-        if any(not track.is_obb for track in tracks):
-            raise ValueError("OcSort camera_update is only used by its OBB adapter")
+        """Transform complete AABB/OBB motion and association state in batches."""
         if tracks:
             transform_ocsort_tracks(tracks, transform, model=tracks[0].motion_model)
 

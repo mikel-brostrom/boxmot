@@ -38,16 +38,11 @@ def _metadata_selection(value: Any, *, key: str) -> tuple:
     return tuple(sorted(value))
 
 
-def _validate_metadata(args: Any, report: Mapping[str, Any]) -> None:
+def validate_calibration_metadata(args: Any, report: Mapping[str, Any]) -> None:
     """Require the same calibration inputs as the validated resumed evaluation."""
-    expected = {
-        "tracker": args.tracker,
-        "geometry": args.geometry,
-        "dataset": args.dataset_id,
-        "split": args.split,
-        "per_class": bool(getattr(args, "per_class", False)),
-    }
-    for name, value in expected.items():
+    expected = calibration_metadata(args)
+    for name in ("tracker", "geometry", "dataset", "split", "per_class"):
+        value = expected[name]
         recorded = report.get(name)
         if recorded != value or (name == "per_class" and not isinstance(recorded, bool)):
             raise ValueError(f"Saved tuning calibration {name} differs from this run; start a new tuning run.")
@@ -55,15 +50,11 @@ def _validate_metadata(args: Any, report: Mapping[str, Any]) -> None:
     if (
         not isinstance(recorded_build, str)
         or not recorded_build
-        or Path(recorded_build).resolve() != Path(args.build_path).resolve()
+        or Path(recorded_build).resolve() != Path(expected["build"])
     ):
         raise ValueError("Saved tuning calibration build differs from this run; start a new tuning run.")
-    selections = {
-        "class_ids": list(getattr(args, "tracker_class_ids", ()) or ()),
-        "sequences": list(getattr(args, "sequence_names", None) or args.seq_info),
-    }
-    for name, selection in selections.items():
-        if _metadata_selection(report.get(name), key=name) != _metadata_selection(selection, key=name):
+    for name in ("class_ids", "sequences"):
+        if _metadata_selection(report.get(name), key=name) != _metadata_selection(expected[name], key=name):
             raise ValueError(f"Saved tuning calibration {name} differs from this run; start a new tuning run.")
 
 
@@ -110,7 +101,7 @@ def load_tuning_calibration(
     if not isinstance(tuning, Mapping) or not isinstance(tuning.get("fixed_options"), Mapping):
         raise ValueError("Saved calibration is missing tuning.fixed_options; it is not a calibrated tuning run.")
     fixed = dict(tuning["fixed_options"])
-    _validate_metadata(args, report)
+    validate_calibration_metadata(args, report)
     try:
         saved_yaml = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     except (yaml.YAMLError, UnicodeDecodeError) as exc:
@@ -149,4 +140,36 @@ def load_tuning_calibration(
     return config, fixed
 
 
-__all__ = ("CALIBRATED_KF_OPTIONS", "load_tuning_calibration", "record_tuning_calibration")
+def fixed_calibration_options(config: Mapping[str, Any]) -> dict[str, Any]:
+    """Capture all calibrated priors, filter policies and any frozen camera mask."""
+    fixed = {name: value for name, value in config.items() if name == "kalman.type" or is_kalman_option(name)}
+    if config.get("cmc_min_conf") is not None:
+        fixed.update({name: config[name] for name in ("use_cmc", "cmc_method", "cmc_min_conf")})
+        fixed.update(
+            {name: config[name] for name in ("sof_target_width", "sof_ransac_reproj_threshold") if name in config}
+        )
+    return fixed
+
+
+def calibration_metadata(args: Any) -> dict[str, Any]:
+    """Describe the resolved input selection used to fit a tuning filter bank."""
+    return {
+        "tracker": args.tracker,
+        "geometry": args.geometry,
+        "dataset": args.dataset_id,
+        "split": args.split,
+        "build": str(Path(args.build_path).resolve()),
+        "sequences": list(getattr(args, "sequence_names", None) or args.seq_info),
+        "per_class": bool(getattr(args, "per_class", False)),
+        "class_ids": list(getattr(args, "tracker_class_ids", ()) or ()),
+    }
+
+
+__all__ = (
+    "CALIBRATED_KF_OPTIONS",
+    "calibration_metadata",
+    "fixed_calibration_options",
+    "load_tuning_calibration",
+    "record_tuning_calibration",
+    "validate_calibration_metadata",
+)
