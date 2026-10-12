@@ -44,14 +44,9 @@ occluboost::Config RecoveryConfig() {
     config.iou_threshold = 0.9F;
     config.new_track_thresh = 0.1F;
     config.instant_confirm_thresh = 0.1F;
-    config.obb_det_thresh = 0.1F;
-    config.obb_iou_threshold = 0.9F;
-    config.obb_new_track_thresh = 0.1F;
-    config.obb_instant_confirm_thresh = 0.1F;
     config.confirm_hits = 1;
     config.min_hits = 0;
     config.max_age = 30;
-    config.obb_max_age = 30;
     config.tentative_max_age = 30;
     config.min_box_area = 1;
     config.aspect_ratio_thresh = 20.0F;

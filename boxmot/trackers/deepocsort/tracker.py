@@ -69,6 +69,7 @@ class DeepOcSort(BoxTracker):
             min_hits=config.min_hits,
             iou_threshold=config.iou_threshold,
             asso_func=config.asso_func,
+            centroid_max_distance=config.centroid_max_distance,
             kalman=kalman,
             reid=reid,
             **kwargs,
@@ -199,6 +200,7 @@ class DeepOcSort(BoxTracker):
                 self.aw_off,
                 self.aw_param,
                 is_obb=self.is_obb,
+                gate_before_assignment=self._asso_func_base_name == "centroid",
                 similarity_conditioner=lambda similarity: self._condition_similarity(
                     similarity, _tracks, _detections, threshold=self.iou_threshold
                 ),
@@ -237,6 +239,7 @@ class DeepOcSort(BoxTracker):
                         similarity,
                         self.iou_threshold,
                         solve_assignment,
+                        gate_before_assignment=self._asso_func_base_name == "centroid",
                     ),
                 )
                 rematch_result = run_association_stage(rematch_stage, left_trks, left_dets)

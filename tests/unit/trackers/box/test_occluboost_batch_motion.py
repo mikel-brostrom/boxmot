@@ -24,16 +24,11 @@ def _tracker(*, is_obb: bool, adaptive: bool = False, ams: AbnormalMotionSuppres
             use_dlo_boost=False,
             use_duo_boost=False,
             det_thresh=0.5,
-            obb_det_thresh=0.5,
             min_hits=1,
             new_track_thresh=0.5,
             instant_confirm_thresh=0.5,
-            obb_new_track_thresh=0.5,
-            obb_instant_confirm_thresh=0.5,
             iou_threshold=0.1,
-            obb_iou_threshold=0.1,
             second_iou_thresh=0.0,
-            obb_second_iou_thresh=0.0,
             second_pass_min_hits=0,
             recovery_iou_thresh=0.0,
             recovery_appearance_thresh=0.9,
@@ -102,7 +97,6 @@ def test_each_association_stage_batches_the_same_updates_as_scalar(
             for tracker in (batched, scalar):
                 # Tight geometry gate sends all observations to recovery.
                 tracker.iou_threshold = 1.0
-                tracker.obb_iou_threshold = 1.0
         if frame and stage == "second":
             detections[:, 5 if is_obb else 4] = 0.2
         dimensions = 5 if is_obb else 4

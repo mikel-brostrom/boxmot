@@ -108,6 +108,7 @@ class MafHda(BaseTracker):
             min_hits=config.min_hits,
             iou_threshold=config.iou_threshold,
             asso_func=config.asso_func,
+            centroid_max_distance=config.centroid_max_distance,
             **kwargs,
         )
         self.velocity_alpha = config.velocity_alpha
@@ -191,6 +192,7 @@ class MafHda(BaseTracker):
         allowed = np.zeros(shape, dtype=bool)
         posteriors = []
         recovery = candidates is not None
+        gate_geometry = self._asso_func_base_name != "centroid"
         mode = self.t2ta_mode if recovery else self.s2ta_mode
         boxes = np.asarray([observation.bbox for observation in observations], dtype=np.float64).reshape(-1, 4)
         for row, track in enumerate(tracks):
@@ -205,7 +207,8 @@ class MafHda(BaseTracker):
                         continue
                     predicted = track.bbox + np.tile(velocity * gap, 2)
                     likelihood, _ = gaussian_affinity(
-                        candidate.first_bbox[None], predicted, track.covariance, recovery=True
+                        candidate.first_bbox[None], predicted, track.covariance, recovery=True,
+                        gate_geometry=gate_geometry,
                     )
                     motion[row, col] = track.weight * likelihood[0]
                     # The temporal bridge ends at the candidate's birth frame.
@@ -214,14 +217,15 @@ class MafHda(BaseTracker):
                     overlap[row, col] = np.clip(
                         self.asso_func(predicted[None], candidate.first_bbox[None])[0, 0], 0.0, 1.0
                     )
-                    allowed[row, col] = True
+                    allowed[row, col] = self.association_eligibility(predicted[None], candidate.first_bbox[None])[0, 0]
             else:
                 predicted = track.bbox + np.tile(track.velocity, 2)
                 covariance = predict_covariance(track.covariance)
-                likelihood, posterior = gaussian_affinity(boxes, predicted, covariance)
+                likelihood, posterior = gaussian_affinity(boxes, predicted, covariance, gate_geometry=gate_geometry)
                 motion[row] = track.weight * likelihood
                 overlap[row] = np.clip(self.asso_func(predicted[None], boxes)[0], 0.0, 1.0)
                 allowed[row] = [observation.cls == track.cls for observation in observations]
+                allowed[row] &= self.association_eligibility(predicted[None], boxes)[0]
             posteriors.append(posterior)
             if mode != "motion" and track.appearance is not None:
                 for col, observation in enumerate(observations):
@@ -237,9 +241,11 @@ class MafHda(BaseTracker):
             appearance_lower=self.appearance_lower,
             appearance_upper=self.appearance_upper,
             overlap_lower=self.iou_threshold,
+            gate_geometry=gate_geometry,
         )
-        costs[~allowed] = MAX_COST
-        matches, _, _ = linear_assignment(costs, thresh=np.nextafter(MAX_COST, 0.0))
+        costs[~allowed] = MAX_COST if gate_geometry else np.inf
+        cost_limit = np.nextafter(MAX_COST, 0.0) if gate_geometry else None
+        matches, _, _ = linear_assignment(costs, thresh=cost_limit)
         totals = motion.sum(axis=0, keepdims=True)
         weights = np.divide(motion, totals, out=np.zeros_like(motion), where=totals > 0)
         return matches, posteriors, weights

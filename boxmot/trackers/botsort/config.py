@@ -12,6 +12,8 @@ class BotSortConfig(TrackerConfig):
     """Configure confidence stages, lost-track retention, and appearance matching.
 
     Shared history and association settings are inherited from ``TrackerConfig``.
+    Match and proximity thresholds apply to overlap metrics. Centroid matching
+    uses ``centroid_max_distance`` while appearance and confidence still rank pairs.
 
     Args:
         track_high_thresh: Detection confidence threshold for first-pass matching.

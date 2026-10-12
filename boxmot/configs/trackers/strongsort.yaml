@@ -25,10 +25,18 @@ max_cos_dist:
 max_iou_dist:
   type: uniform
   range: [0.5, 0.95]
+  association: [iou, giou, diou, ciou, hmiou]
 
 asso_func:
   type: choice
   options: [iou, giou, diou, ciou, hmiou, centroid]
+
+# Maximum centroid displacement as a fraction of the frame diagonal.
+# The sole geometric cutoff for centroid; other geometric thresholds are inactive.
+centroid_max_distance:
+  association: [centroid]
+  type: uniform
+  range: [0.005, 0.1]
 
 max_age:
   type: randint

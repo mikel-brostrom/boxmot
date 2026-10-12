@@ -21,10 +21,52 @@ track_buffer:
 match_thresh:
   type: uniform
   range: [0.7, 0.9]
+  association: [iou, giou, diou, ciou, hmiou]
+  depends_on: asso_func
+  cases:
+    giou:
+      range: [0.4, 0.85]
+    diou:
+      range: [0.4, 0.85]
+    ciou:
+      range: [0.4, 0.85]
+
+second_match_thresh:
+  type: uniform
+  range: [0.1, 0.9]
+  association: [iou, giou, diou, ciou, hmiou]
+  depends_on: asso_func
+  cases:
+    giou:
+      range: [0.05, 0.45]
+    diou:
+      range: [0.05, 0.45]
+    ciou:
+      range: [0.05, 0.45]
+
+unconfirmed_match_thresh:
+  type: uniform
+  range: [0.4, 0.9]
+  association: [iou, giou, diou, ciou, hmiou]
+  depends_on: asso_func
+  cases:
+    giou:
+      range: [0.4, 0.85]
+    diou:
+      range: [0.4, 0.85]
+    ciou:
+      range: [0.4, 0.85]
 
 asso_func:
   type: choice
   options: [iou, giou, diou, ciou, hmiou, centroid]
+
+# Maximum centroid displacement as a fraction of the frame diagonal.
+# The sole geometric cutoff for centroid; other geometric thresholds are inactive.
+centroid_max_distance:
+  association: [centroid]
+  type: uniform
+  range: [0.005, 0.1]
 
 frame_rate:
   type: choice

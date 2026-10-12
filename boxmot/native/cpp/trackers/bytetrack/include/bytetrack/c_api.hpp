@@ -18,10 +18,13 @@ struct BoxMOTByteTrackConfig {
     float min_conf;
     float track_thresh;
     float match_thresh;
+    float second_match_thresh;
+    float unconfirmed_match_thresh;
     int track_buffer;
     int frame_rate;
     int max_obs;
     const char* asso_func;
+    double centroid_max_distance;
 };
 
 struct BoxMOTByteTrackHandle;

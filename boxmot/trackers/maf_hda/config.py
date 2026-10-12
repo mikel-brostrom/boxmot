@@ -12,6 +12,8 @@ class MafHdaConfig(TrackerConfig):
     """Configure mask association, KCF appearance, and tracklet recovery.
 
     Shared history and association settings are inherited from ``TrackerConfig``.
+    Centroid association uses ``centroid_max_distance`` in place of overlap
+    and area-ratio gates; appearance and motion affinity remain active.
 
     Args:
         max_age: Maximum frame gap for reconnecting a lost tracklet.
@@ -24,6 +26,7 @@ class MafHdaConfig(TrackerConfig):
         merge_iou_thresh: Mask IoU threshold for merging duplicate instances.
         appearance_lower: Minimum KCF affinity for track-to-track recovery.
         appearance_upper: Strong KCF affinity allowing overlap-based recovery.
+            Ignored for centroid association, which uses ``appearance_lower``.
         appearance_gate: Gate KCF evaluation by geometry affinity.
         s2ta_mode: Segment-to-track affinity: ``motion``, ``appearance``, or
             ``maf``. Appearance modes require image pixels.
@@ -47,9 +50,9 @@ class MafHdaConfig(TrackerConfig):
     template_size: int = field(default=96, metadata={"ge": 16, "le": 512})
 
     def __post_init__(self) -> None:
-        """Validate the KCF affinity interval as well as scalar settings."""
+        """Validate the active KCF affinity interval as well as scalar settings."""
         TrackerConfig.__post_init__(self)
-        if self.appearance_lower > self.appearance_upper:
+        if self.asso_func != "centroid" and self.appearance_lower > self.appearance_upper:
             raise ValueError("appearance_lower must not exceed appearance_upper.")
 
 

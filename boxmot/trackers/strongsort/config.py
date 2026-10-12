@@ -12,6 +12,8 @@ class StrongSortConfig(TrackerConfig):
     """Configure StrongSORT's appearance gallery, confirmation, and matching costs.
 
     Shared history and association settings are inherited from ``TrackerConfig``.
+    ``max_iou_dist`` applies to overlap metrics; centroid fallback matching uses
+    ``centroid_max_distance``. Appearance and motion gates remain active.
 
     Args:
         min_conf: Minimum detection confidence accepted for tracking.

@@ -51,11 +51,14 @@ class BoxGeometryOps:
         *,
         width: int | None = None,
         height: int | None = None,
+        centroid_max_distance: float = 0.05,
     ) -> AssociationCallable:
         """Build the existing association kernel for this geometry kind."""
 
         mode = self.association_mode_name(base_name)
-        return AssociationFunction(w=width, h=height, asso_mode=mode).asso_func
+        return AssociationFunction(
+            w=width, h=height, asso_mode=mode, centroid_max_distance=centroid_max_distance
+        ).asso_func
 
 
 AABB_GEOMETRY_OPS = BoxGeometryOps(kind=GeometryKind.AABB, layout=AABB_DETECTIONS)

@@ -65,6 +65,7 @@ class OcSort(BoxTracker):
             min_hits=config.min_hits,
             iou_threshold=config.iou_threshold,
             asso_func=config.asso_func,
+            centroid_max_distance=config.centroid_max_distance,
             kalman=kalman,
             **kwargs,
         )
@@ -160,6 +161,7 @@ class OcSort(BoxTracker):
                 k_observations,
                 self.inertia,
                 is_obb=self.is_obb,
+                gate_before_assignment=self._asso_func_base_name == "centroid",
                 similarity_conditioner=lambda similarity: self._condition_similarity(
                     similarity, _tracks, _detections, threshold=self.iou_threshold
                 ),
@@ -196,6 +198,7 @@ class OcSort(BoxTracker):
                     similarity,
                     self.iou_threshold,
                     solve_assignment,
+                    gate_before_assignment=self._asso_func_base_name == "centroid",
                 ),
             )
             low_result = run_association_stage(low_stage, u_trks, dets_second)
@@ -230,6 +233,7 @@ class OcSort(BoxTracker):
                         similarity,
                         self.iou_threshold,
                         solve_assignment,
+                        gate_before_assignment=self._asso_func_base_name == "centroid",
                     ),
                 )
                 rematch_result = run_association_stage(rematch_stage, left_trks, left_dets)

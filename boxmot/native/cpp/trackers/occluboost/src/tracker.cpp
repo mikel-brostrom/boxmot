@@ -14,6 +14,7 @@
 namespace occluboost {
 
 using boxmot::trackers::base::AssignmentResult;
+using boxmot::trackers::base::GeometrySimilarityThreshold;
 using boxmot::trackers::base::LinearAssignment;
 
 namespace {
@@ -49,14 +50,7 @@ OccluBoostTracker::OccluBoostTracker(Config config)
     : config_(std::move(config)),
       association_mode_(boxmot::trackers::base::ParseAssociationMode(config_.asso_func)),
       cmc_(CreateCameraMotionCompensator(config_.cmc_method)) {
-    config_.obb_det_thresh = std::max(config_.obb_det_thresh, 0.0F);
-    config_.obb_iou_threshold = std::clamp(config_.obb_iou_threshold, 0.0F, 1.0F);
-    config_.obb_new_track_thresh = std::max(config_.obb_new_track_thresh, config_.obb_det_thresh);
-    config_.obb_instant_confirm_thresh =
-        std::max(config_.obb_instant_confirm_thresh, config_.obb_new_track_thresh);
-    config_.obb_max_age = std::max(config_.obb_max_age, 0);
-    config_.obb_recovery_max_age = std::max(config_.obb_recovery_max_age, 0);
-    config_.obb_second_iou_thresh = std::clamp(config_.obb_second_iou_thresh, 0.0F, 1.0F);
+    boxmot::trackers::base::ValidateCentroidMaxDistance(config_.centroid_max_distance);
 }
 
 void OccluBoostTracker::Reset() {
@@ -273,7 +267,7 @@ void OccluBoostTracker::DloConfidenceBoostObb(std::vector<Detection>& detections
             }
             if (visible) {
                 detections[static_cast<std::size_t>(i)].conf = std::max(
-                    detections[static_cast<std::size_t>(i)].conf, config_.obb_det_thresh + 1.0e-5F);
+                    detections[static_cast<std::size_t>(i)].conf, config_.det_thresh + 1.0e-5F);
             }
         }
     }
@@ -293,7 +287,7 @@ void OccluBoostTracker::DuoConfidenceBoostObb(std::vector<Detection>& detections
     std::vector<int> boost_indices;
     for (int i = 0; i < static_cast<int>(detections.size()); ++i) {
         if (min_dists(i) > mhd_limit &&
-            detections[static_cast<std::size_t>(i)].conf < config_.obb_det_thresh) {
+            detections[static_cast<std::size_t>(i)].conf < config_.det_thresh) {
             boost_indices.push_back(i);
         }
     }
@@ -332,7 +326,7 @@ void OccluBoostTracker::DuoConfidenceBoostObb(std::vector<Detection>& detections
         remaining.insert(best);
     }
     for (const int index : remaining) {
-        detections[static_cast<std::size_t>(index)].conf = config_.obb_det_thresh + 1.0e-4F;
+        detections[static_cast<std::size_t>(index)].conf = config_.det_thresh + 1.0e-4F;
     }
 }
 
@@ -731,7 +725,8 @@ std::vector<TrackOutput> OccluBoostTracker::Update(const std::vector<Detection>&
                                         config_.lambda_emb_multiplier,
                                         association_mode_,
                                         association_frame_width_,
-                                        association_frame_height_);
+                                        association_frame_height_,
+                                        config_.centroid_max_distance);
 
     // dets_alpha for ReID EMA on matched pairs.
     Eigen::VectorXd dets_alpha = Eigen::VectorXd::Zero(static_cast<int>(dets_first.size()));
@@ -808,13 +803,14 @@ std::vector<TrackOutput> OccluBoostTracker::Update(const std::vector<Detection>&
                                                                   trk_box_mat,
                                                                   association_mode_,
                                                                   association_frame_width_,
-                                                                  association_frame_height_);
+                                                                  association_frame_height_,
+                                                                  config_.centroid_max_distance);
 
                 Eigen::MatrixXd gated = sim;
                 bool any_pos = false;
                 for (int i = 0; i < gated.rows(); ++i) {
                     for (int j = 0; j < gated.cols(); ++j) {
-                        if (ious(i, j) < config_.recovery_iou_thresh ||
+                        if (ious(i, j) < GeometrySimilarityThreshold(association_mode_, config_.recovery_iou_thresh) ||
                             sim(i, j) < config_.recovery_appearance_thresh) {
                             gated(i, j) = -1.0;
                         } else if (gated(i, j) > 0.0) {
@@ -824,6 +820,7 @@ std::vector<TrackOutput> OccluBoostTracker::Update(const std::vector<Detection>&
                 }
                 if (any_pos) {
                     Eigen::MatrixXd cost = -gated;  // maximise gated similarity.
+                    boxmot::trackers::base::GateCentroidCosts(cost, ious, association_mode_);
                     AssignmentResult hung =
                         LinearAssignment(cost, std::numeric_limits<double>::infinity());
                     std::unordered_set<int> matched_dets_set;
@@ -892,11 +889,17 @@ std::vector<TrackOutput> OccluBoostTracker::Update(const std::vector<Detection>&
                                                               trk_box_mat,
                                                               association_mode_,
                                                               association_frame_width_,
-                                                              association_frame_height_);
-            Eigen::MatrixXd cost = Eigen::MatrixXd::Constant(ious.rows(), ious.cols(), 1.0);
+                                                              association_frame_height_,
+                                                              config_.centroid_max_distance);
+            const bool centroid = association_mode_ == boxmot::trackers::base::AssociationMode::kCentroid;
+            const double invalid_cost = centroid ? std::numeric_limits<double>::infinity() : 1.0;
+            const auto admissible_cost = [centroid](const double value) {
+                return centroid ? value <= 1.0 : value < 1.0;
+            };
+            Eigen::MatrixXd cost = Eigen::MatrixXd::Constant(ious.rows(), ious.cols(), invalid_cost);
             for (int i = 0; i < ious.rows(); ++i) {
                 for (int j = 0; j < ious.cols(); ++j) {
-                    if (ious(i, j) >= config_.second_iou_thresh) {
+                    if (ious(i, j) >= GeometrySimilarityThreshold(association_mode_, config_.second_iou_thresh)) {
                         cost(i, j) = 1.0 - ious(i, j);
                     }
                 }
@@ -930,17 +933,18 @@ std::vector<TrackOutput> OccluBoostTracker::Update(const std::vector<Detection>&
                     for (int i = 0; i < cost.rows(); ++i) {
                         for (int j = 0; j < cost.cols(); ++j) {
                             if (sim2(i, j) < config_.second_appearance_thresh) {
-                                cost(i, j) = 1.0;
+                                cost(i, j) = invalid_cost;
                             }
                         }
                     }
                 }
             }
 
+            boxmot::trackers::base::GateCentroidCosts(cost, ious, association_mode_);
             bool any_match = false;
             for (int i = 0; i < cost.rows() && !any_match; ++i) {
                 for (int j = 0; j < cost.cols(); ++j) {
-                    if (cost(i, j) < 1.0) {
+                    if (admissible_cost(cost(i, j))) {
                         any_match = true;
                         break;
                     }
@@ -948,10 +952,10 @@ std::vector<TrackOutput> OccluBoostTracker::Update(const std::vector<Detection>&
             }
             if (any_match) {
                 AssignmentResult hung =
-                    LinearAssignment(cost, std::numeric_limits<double>::infinity());
+                    LinearAssignment(cost, centroid ? 1.0 : std::numeric_limits<double>::infinity());
                 std::unordered_set<int> used;
                 for (const auto& [r, c] : hung.matches) {
-                    if (cost(r, c) >= 1.0) {
+                    if (!admissible_cost(cost(r, c))) {
                         continue;
                     }
                     const int trk_global = elig[c];
@@ -1082,11 +1086,11 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(const std::vector<Detectio
     dets_first.reserve(working.size());
     dets_second.reserve(working.size());
     for (std::size_t i = 0; i < working.size(); ++i) {
-        const bool keep = working[i].conf >= config_.obb_det_thresh;
+        const bool keep = working[i].conf >= config_.det_thresh;
         if (keep) {
             dets_first.push_back(working[i]);
         } else if (config_.use_second_pass && orig_confs[i] >= config_.track_low_thresh &&
-                   orig_confs[i] < config_.obb_det_thresh) {
+                   orig_confs[i] < config_.det_thresh) {
             dets_second.push_back(working[i]);
         }
     }
@@ -1143,12 +1147,13 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(const std::vector<Detectio
                                                          trks_xywha,
                                                          association_mode_,
                                                          association_frame_width_,
-                                                         association_frame_height_);
+                                                         association_frame_height_,
+                                                         config_.centroid_max_distance);
         Eigen::MatrixXd cost = Eigen::MatrixXd::Constant(n_dets, n_trks, 1.0);
         for (int i = 0; i < n_dets; ++i) {
             for (int j = 0; j < n_trks; ++j) {
                 cost(i, j) = 1.0 - iou(i, j);
-                if (iou(i, j) < config_.obb_iou_threshold) {
+                if (iou(i, j) < GeometrySimilarityThreshold(association_mode_, config_.iou_threshold)) {
                     cost(i, j) = 1.0e6;
                 }
             }
@@ -1158,16 +1163,17 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(const std::vector<Detectio
             for (int i = 0; i < n_dets; ++i) {
                 for (int j = 0; j < n_trks; ++j) {
                     cost(i, j) -= lambda_emb * emb_sim(i, j);
-                    if (iou(i, j) < config_.obb_iou_threshold) {
+                    if (iou(i, j) < GeometrySimilarityThreshold(association_mode_, config_.iou_threshold)) {
                         cost(i, j) = 1.0e6;
                     }
                 }
             }
         }
+        boxmot::trackers::base::GateCentroidCosts(cost, iou, association_mode_);
         AssignmentResult hung = LinearAssignment(cost, std::numeric_limits<double>::infinity());
         std::unordered_set<int> matched_d, matched_t;
         for (const auto& [r, c] : hung.matches) {
-            if (cost(r, c) >= 1.0e5)
+            if (association_mode_ != boxmot::trackers::base::AssociationMode::kCentroid && cost(r, c) >= 1.0e5)
                 continue;
             matches.emplace_back(r, c);
             matched_d.insert(r);
@@ -1185,8 +1191,8 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(const std::vector<Detectio
     for (const auto& [d, t] : matches) {
         AmsUpdate(*trackers_[t], dets_first[d]);
         if (config_.use_embeddings && dets_first[d].has_embedding()) {
-            const double trust = (dets_first[d].conf - config_.obb_det_thresh) /
-                                 std::max(1.0 - config_.obb_det_thresh, 1.0e-6);
+            const double trust = (dets_first[d].conf - config_.det_thresh) /
+                                 std::max(1.0 - config_.det_thresh, 1.0e-6);
             constexpr double af = 0.95;
             const double alpha_emb = af + (1.0 - af) * (1.0 - trust);
             trackers_[t]->UpdateEmbedding(dets_first[d].embedding, alpha_emb);
@@ -1198,7 +1204,7 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(const std::vector<Detectio
     if (config_.use_embeddings && !unmatched_trks.empty() && !unmatched_dets.empty()) {
         std::vector<int> elig;
         for (int t : unmatched_trks) {
-            if (trackers_[t]->time_since_update <= config_.obb_recovery_max_age &&
+            if (trackers_[t]->time_since_update <= config_.recovery_max_age &&
                 trackers_[t]->HasEmbedding()) {
                 elig.push_back(t);
             }
@@ -1240,13 +1246,14 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(const std::vector<Detectio
                                                                  trk_xywha_mat,
                                                                  association_mode_,
                                                                  association_frame_width_,
-                                                                 association_frame_height_);
+                                                                 association_frame_height_,
+                                                                 config_.centroid_max_distance);
 
                 Eigen::MatrixXd gated = sim;
                 bool any_pos = false;
                 for (int i = 0; i < gated.rows(); ++i) {
                     for (int j = 0; j < gated.cols(); ++j) {
-                        if (ious(i, j) < config_.recovery_iou_thresh ||
+                        if (ious(i, j) < GeometrySimilarityThreshold(association_mode_, config_.recovery_iou_thresh) ||
                             sim(i, j) < config_.recovery_appearance_thresh) {
                             gated(i, j) = -1.0;
                         } else if (gated(i, j) > 0.0) {
@@ -1256,6 +1263,7 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(const std::vector<Detectio
                 }
                 if (any_pos) {
                     Eigen::MatrixXd cost = -gated;
+                    boxmot::trackers::base::GateCentroidCosts(cost, ious, association_mode_);
                     AssignmentResult hung =
                         LinearAssignment(cost, std::numeric_limits<double>::infinity());
                     std::unordered_set<int> matched_dets_set;
@@ -1319,11 +1327,17 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(const std::vector<Detectio
                                                              trk_xywha_mat,
                                                              association_mode_,
                                                              association_frame_width_,
-                                                             association_frame_height_);
-            Eigen::MatrixXd cost = Eigen::MatrixXd::Constant(ious.rows(), ious.cols(), 1.0);
+                                                             association_frame_height_,
+                                                             config_.centroid_max_distance);
+            const bool centroid = association_mode_ == boxmot::trackers::base::AssociationMode::kCentroid;
+            const double invalid_cost = centroid ? std::numeric_limits<double>::infinity() : 1.0;
+            const auto admissible_cost = [centroid](const double value) {
+                return centroid ? value <= 1.0 : value < 1.0;
+            };
+            Eigen::MatrixXd cost = Eigen::MatrixXd::Constant(ious.rows(), ious.cols(), invalid_cost);
             for (int i = 0; i < ious.rows(); ++i) {
                 for (int j = 0; j < ious.cols(); ++j) {
-                    if (ious(i, j) >= config_.obb_second_iou_thresh) {
+                    if (ious(i, j) >= GeometrySimilarityThreshold(association_mode_, config_.second_iou_thresh)) {
                         cost(i, j) = 1.0 - ious(i, j);
                     }
                 }
@@ -1356,16 +1370,17 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(const std::vector<Detectio
                     for (int i = 0; i < cost.rows(); ++i) {
                         for (int j = 0; j < cost.cols(); ++j) {
                             if (sim2(i, j) < config_.second_appearance_thresh) {
-                                cost(i, j) = 1.0;
+                                cost(i, j) = invalid_cost;
                             }
                         }
                     }
                 }
             }
+            boxmot::trackers::base::GateCentroidCosts(cost, ious, association_mode_);
             bool any_match = false;
             for (int i = 0; i < cost.rows() && !any_match; ++i) {
                 for (int j = 0; j < cost.cols(); ++j) {
-                    if (cost(i, j) < 1.0) {
+                    if (admissible_cost(cost(i, j))) {
                         any_match = true;
                         break;
                     }
@@ -1373,10 +1388,10 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(const std::vector<Detectio
             }
             if (any_match) {
                 AssignmentResult hung =
-                    LinearAssignment(cost, std::numeric_limits<double>::infinity());
+                    LinearAssignment(cost, centroid ? 1.0 : std::numeric_limits<double>::infinity());
                 std::unordered_set<int> used;
                 for (const auto& [r, c] : hung.matches) {
-                    if (cost(r, c) >= 1.0)
+                    if (!admissible_cost(cost(r, c)))
                         continue;
                     const int trk_global = elig[c];
                     if (!used.insert(trk_global).second)
@@ -1396,11 +1411,11 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(const std::vector<Detectio
 
     // ----- Spawn new tracks from unmatched first-pass detections -----
     for (int i : unmatched_dets) {
-        if (dets_first[i].conf < config_.obb_new_track_thresh)
+        if (dets_first[i].conf < config_.new_track_thresh)
             continue;
         auto trk = std::make_shared<KalmanBoxTracker>(
             dets_first[i], config_.max_obs, next_track_id_++);
-        trk->is_activated = (dets_first[i].conf >= config_.obb_instant_confirm_thresh) ||
+        trk->is_activated = (dets_first[i].conf >= config_.instant_confirm_thresh) ||
                             (config_.confirm_hits <= 1);
         trackers_.push_back(trk);
     }
@@ -1442,7 +1457,7 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(const std::vector<Detectio
     std::vector<KalmanBoxTracker::Ptr> kept;
     kept.reserve(trackers_.size());
     for (auto& trk : trackers_) {
-        if (trk->time_since_update > config_.obb_max_age)
+        if (trk->time_since_update > config_.max_age)
             continue;
         if (!trk->is_activated && trk->time_since_update > config_.tentative_max_age)
             continue;

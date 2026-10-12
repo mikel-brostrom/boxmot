@@ -34,6 +34,7 @@ botsort::Config ConvertConfig(const BoxMOTBotSortConfig& config) {
     native_config.fuse_first_associate = config.fuse_first_associate != 0;
     native_config.use_embeddings = config.use_embeddings != 0;
     native_config.max_obs = config.max_obs;
+    native_config.centroid_max_distance = config.centroid_max_distance;
     native_config.asso_func = config.asso_func == nullptr ? "iou" : std::string(config.asso_func);
     return native_config;
 }

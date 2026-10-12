@@ -3,12 +3,14 @@
 #include "boxmot/trackers/base/assignment.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <stdexcept>
 #include <unordered_set>
 
 namespace bytetrack {
 
 using boxmot::trackers::base::AssignmentResult;
+using boxmot::trackers::base::GeometryCostThreshold;
 using boxmot::trackers::base::LinearAssignment;
 
 namespace {
@@ -102,6 +104,11 @@ ByteTrackTracker::ByteTrackTracker(Config config)
       association_mode_(boxmot::trackers::base::ParseAssociationMode(config_.asso_func)),
       max_time_lost_(static_cast<int>((static_cast<double>(config_.frame_rate) / 30.0) *
                                       static_cast<double>(config_.track_buffer))) {
+    boxmot::trackers::base::ValidateCentroidMaxDistance(config_.centroid_max_distance);
+    if (!std::isfinite(config_.second_match_thresh) || config_.second_match_thresh < 0.0F ||
+        !std::isfinite(config_.unconfirmed_match_thresh) || config_.unconfirmed_match_thresh < 0.0F) {
+        throw std::invalid_argument("ByteTrack secondary and confirmation thresholds must be finite and nonnegative.");
+    }
     if (max_time_lost_ <= 0) {
         max_time_lost_ = config_.track_buffer;
     }
@@ -261,9 +268,11 @@ std::vector<TrackOutput> ByteTrackTracker::Update(const std::vector<Detection>& 
                                                                    detections_first,
                                                                    association_mode_,
                                                                    association_frame_width_,
-                                                                   association_frame_height_),
+                                                                   association_frame_height_,
+                                                                   config_.centroid_max_distance),
                   detections_first);
-    const AssignmentResult first_matches = LinearAssignment(dist_first, config_.match_thresh);
+    const AssignmentResult first_matches =
+        LinearAssignment(dist_first, GeometryCostThreshold(association_mode_, config_.match_thresh));
     for (const auto& match : first_matches.matches) {
         const auto& track = strack_pool[match.first];
         const auto& detection = detections_first[match.second];
@@ -296,8 +305,9 @@ std::vector<TrackOutput> ByteTrackTracker::Update(const std::vector<Detection>& 
                                                          detections_second,
                                                          association_mode_,
                                                          association_frame_width_,
-                                                         association_frame_height_),
-        0.5F);
+                                                         association_frame_height_,
+                                                         config_.centroid_max_distance),
+        GeometryCostThreshold(association_mode_, config_.second_match_thresh));
     for (const auto& match : second_matches.matches) {
         const auto& track = remaining_tracked[match.first];
         const auto& detection = detections_second[match.second];
@@ -336,9 +346,10 @@ std::vector<TrackOutput> ByteTrackTracker::Update(const std::vector<Detection>& 
                                                                    remaining_high,
                                                                    association_mode_,
                                                                    association_frame_width_,
-                                                                   association_frame_height_),
+                                                                   association_frame_height_,
+                                                                   config_.centroid_max_distance),
                   remaining_high),
-        0.7F);
+        GeometryCostThreshold(association_mode_, config_.unconfirmed_match_thresh));
     for (const auto& match : unconfirmed_matches.matches) {
         const auto& track = unconfirmed[match.first];
         if (is_obb_mode_) {

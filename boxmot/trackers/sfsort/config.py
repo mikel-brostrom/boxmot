@@ -12,6 +12,8 @@ class SFSORTConfig(TrackerConfig):
     """Configure confidence stages, density adjustments, and image regions.
 
     Shared history and association settings are inherited from ``TrackerConfig``.
+    Match thresholds and their dynamic adjustment apply to overlap metrics.
+    Centroid matching uses ``centroid_max_distance``; box cues still rank pairs.
 
     Args:
         high_th: Confidence threshold for first-pass detections.

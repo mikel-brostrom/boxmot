@@ -35,6 +35,7 @@ struct BoxMOTSFSORTConfig {
     int frame_rate;
     int max_obs;
     const char* asso_func;
+    double centroid_max_distance;
 };
 
 struct BoxMOTSFSORTHandle;

@@ -31,6 +31,7 @@ struct BoxMOTBotSortConfig {
     int use_embeddings;
     int max_obs;
     const char* asso_func;
+    double centroid_max_distance;
 };
 
 struct BoxMOTBotSortHandle;

@@ -94,7 +94,8 @@ private:
         bool is_obb_mode,
         boxmot::trackers::base::AssociationMode association_mode,
         int frame_width,
-        int frame_height);
+        int frame_height,
+        double centroid_max_distance);
     [[nodiscard]] static TrackOutput FormatTrack(const KalmanBoxTracker& track);
 
     Config config_;

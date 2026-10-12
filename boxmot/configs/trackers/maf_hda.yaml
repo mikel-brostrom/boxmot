@@ -17,10 +17,18 @@ min_hits:
 iou_threshold:
   type: uniform
   range: [0.0, 0.4]
+  association: [iou, giou, diou, ciou, hmiou]
 
 asso_func:
   type: choice
   options: [iou, giou, diou, ciou, hmiou, centroid]
+
+# Maximum centroid displacement as a fraction of the frame diagonal.
+# The sole geometric cutoff for centroid; other geometric thresholds are inactive.
+centroid_max_distance:
+  association: [centroid]
+  type: uniform
+  range: [0.005, 0.1]
 
 velocity_alpha:
   type: uniform
@@ -35,10 +43,12 @@ appearance_lower:
   range: [0.0, 0.3]
 
 appearance_upper:
+  association: [iou, giou, diou, ciou, hmiou]
   type: uniform
   range: [0.5, 0.9]
 
 appearance_gate:
+  association: [iou, giou, diou, ciou, hmiou]
   type: choice
   options: [false, true]
 

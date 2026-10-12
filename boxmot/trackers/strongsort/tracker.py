@@ -119,6 +119,7 @@ class StrongSort(BoxTracker):
             min_hits=config.min_hits,
             iou_threshold=config.iou_threshold,
             asso_func=config.asso_func,
+            centroid_max_distance=config.centroid_max_distance,
             kalman=kalman,
             reid=reid,
             **kwargs,
@@ -133,7 +134,7 @@ class StrongSort(BoxTracker):
         self._max_cos_dist = float(config.max_cos_dist)
         self._nn_budget = int(config.nn_budget) if config.nn_budget is not None else None
         self.metric = self._new_metric()
-        self.max_iou_dist = config.max_iou_dist
+        self.max_iou_dist = self._geometry_cost_threshold(config.max_iou_dist)
         self.n_init = config.n_init
         self.mc_lambda = config.mc_lambda
         self.ema_alpha = config.ema_alpha
@@ -333,7 +334,7 @@ class StrongSort(BoxTracker):
     ) -> np.ndarray:
         """Apply masks while preserving motion and stale-track hard gates."""
         if self._mask_guidance is None:
-            return costs
+            return self._gate_association(costs, tracks, detections)
         protected_costs = costs[gated_mask]
         costs[gated_mask] = np.inf
         adjusted = self._condition_association(costs, tracks, detections, threshold=threshold)

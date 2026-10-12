@@ -34,10 +34,13 @@ class _ByteTrackCConfig(ctypes.Structure):
         ("min_conf", ctypes.c_float),
         ("track_thresh", ctypes.c_float),
         ("match_thresh", ctypes.c_float),
+        ("second_match_thresh", ctypes.c_float),
+        ("unconfirmed_match_thresh", ctypes.c_float),
         ("track_buffer", ctypes.c_int),
         ("frame_rate", ctypes.c_int),
         ("max_obs", ctypes.c_int),
         ("asso_func", ctypes.c_char_p),
+        ("centroid_max_distance", ctypes.c_double),
     ]
 
 
@@ -66,10 +69,13 @@ class ByteTrackLibrary:
             min_conf=float(cfg["min_conf"]),
             track_thresh=float(cfg["track_thresh"]),
             match_thresh=float(cfg["match_thresh"]),
+            second_match_thresh=float(cfg["second_match_thresh"]),
+            unconfirmed_match_thresh=float(cfg["unconfirmed_match_thresh"]),
             track_buffer=int(cfg["track_buffer"]),
             frame_rate=int(cfg["frame_rate"]),
             max_obs=int(cfg.get("max_obs", 50)),
             asso_func=str(cfg["asso_func"]).encode(),
+            centroid_max_distance=float(cfg["centroid_max_distance"]),
         )
         handle = self._library.boxmot_bytetrack_create(ctypes.byref(c_cfg))
         if not handle:

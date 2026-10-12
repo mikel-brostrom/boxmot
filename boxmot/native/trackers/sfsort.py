@@ -51,6 +51,7 @@ class _SFSORTCConfig(ctypes.Structure):
         ("frame_rate", ctypes.c_int),
         ("max_obs", ctypes.c_int),
         ("asso_func", ctypes.c_char_p),
+        ("centroid_max_distance", ctypes.c_double),
     ]
 
 
@@ -96,6 +97,7 @@ class SFSORTLibrary:
             frame_rate=int(cfg["frame_rate"]),
             max_obs=int(cfg["max_obs"]),
             asso_func=str(cfg["asso_func"]).encode(),
+            centroid_max_distance=float(cfg["centroid_max_distance"]),
         )
         handle = self._library.boxmot_sfsort_create(ctypes.byref(c_cfg))
         if not handle:

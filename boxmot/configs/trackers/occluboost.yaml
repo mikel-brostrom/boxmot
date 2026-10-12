@@ -1,7 +1,7 @@
+# Shared AABB/OBB ranges include both geometries' operating points.
 max_age:
-  geometry: aabb
   type: randint
-  range: [15, 200]
+  range: [1, 200]
 
 # Display history capacity; AMS has its own kalman.ams.buffer_size.
 max_obs: {}
@@ -11,18 +11,24 @@ min_hits:
   range: [1, 5]
 
 det_thresh:
-  geometry: aabb
   type: uniform
-  range: [0.1, 0.9]
+  range: [0.05, 0.9]
 
 iou_threshold:
-  geometry: aabb
   type: uniform
-  range: [0.05, 0.99]
+  range: [0.01, 0.99]
+  association: [iou, giou, diou, ciou, hmiou]
 
 asso_func:
   type: choice
   options: [iou, giou, diou, ciou, hmiou, centroid]
+
+# Maximum centroid displacement as a fraction of the frame diagonal.
+# The sole geometric cutoff for centroid; other geometric thresholds are inactive.
+centroid_max_distance:
+  association: [centroid]
+  type: uniform
+  range: [0.005, 0.1]
 
 use_cmc:
   type: choice
@@ -95,8 +101,8 @@ use_embeddings:
     recovery_iou_thresh:
       type: uniform
       range: [0.0, 0.5]
+      association: [iou, giou, diou, ciou, hmiou]
     recovery_max_age:
-      geometry: aabb
       type: randint
       range: [1, 120]
     feat_alpha:
@@ -115,9 +121,9 @@ use_second_pass:
       type: uniform
       range: [0.01, 0.3]
     second_iou_thresh:
-      geometry: aabb
       type: uniform
-      range: [0.3, 0.9]
+      range: [0.05, 0.9]
+      association: [iou, giou, diou, ciou, hmiou]
     second_appearance_thresh:
       type: uniform
       range: [0.2, 0.9]
@@ -129,18 +135,16 @@ use_second_pass:
       range: [1, 20]
 
 new_track_thresh:
-  geometry: aabb
   type: uniform
-  range: [0.3, 0.9]
+  range: [0.05, 0.9]
 
 confirm_hits:
   type: randint
   range: [1, 8]
 
 instant_confirm_thresh:
-  geometry: aabb
   type: uniform
-  range: [0.5, 0.95]
+  range: [0.1, 0.95]
 
 tentative_max_age:
   type: randint
@@ -149,41 +153,6 @@ tentative_max_age:
 duplicate_iou_thresh:
   type: uniform
   range: [0.5, 1.0]
-
-obb_det_thresh:
-  geometry: obb
-  type: uniform
-  range: [0.05, 0.8]
-
-obb_iou_threshold:
-  geometry: obb
-  type: uniform
-  range: [0.01, 0.8]
-
-obb_new_track_thresh:
-  geometry: obb
-  type: uniform
-  range: [0.05, 0.9]
-
-obb_instant_confirm_thresh:
-  geometry: obb
-  type: uniform
-  range: [0.1, 0.95]
-
-obb_max_age:
-  geometry: obb
-  type: randint
-  range: [1, 200]
-
-obb_recovery_max_age:
-  geometry: obb
-  type: randint
-  range: [1, 120]
-
-obb_second_iou_thresh:
-  geometry: obb
-  type: uniform
-  range: [0.05, 0.9]
 
 kalman:
   # Fixed KF mode; select it before calibration.

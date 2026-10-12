@@ -70,6 +70,7 @@ class BotSort(BoxTracker):
             min_hits=config.min_hits,
             iou_threshold=config.iou_threshold,
             asso_func=config.asso_func,
+            centroid_max_distance=config.centroid_max_distance,
             kalman=kalman,
             reid=reid,
             **kwargs,
@@ -80,7 +81,7 @@ class BotSort(BoxTracker):
         self.track_high_thresh = config.track_high_thresh
         self.track_low_thresh = config.track_low_thresh
         self.new_track_thresh = config.new_track_thresh
-        self.match_thresh = config.match_thresh
+        self.match_thresh = self._geometry_cost_threshold(config.match_thresh)
 
         self.buffer_size = int(config.frame_rate / 30.0 * config.track_buffer)
         self.max_time_lost = self.buffer_size
@@ -91,10 +92,10 @@ class BotSort(BoxTracker):
         )
         self.kalman_filter = self.motion_model.create_filter(noise_config=self.kalman_noise_config)
 
-        self.proximity_thresh = config.proximity_thresh
+        self.proximity_thresh = self._geometry_cost_threshold(config.proximity_thresh)
         self.appearance_thresh = config.appearance_thresh
-        self.second_match_thresh = config.second_match_thresh
-        self.unconfirmed_match_thresh = config.unconfirmed_match_thresh
+        self.second_match_thresh = self._geometry_cost_threshold(config.second_match_thresh)
+        self.unconfirmed_match_thresh = self._geometry_cost_threshold(config.unconfirmed_match_thresh)
         self.unconfirmed_emb_scale = config.unconfirmed_emb_scale
         self.use_embeddings = config.use_embeddings
 

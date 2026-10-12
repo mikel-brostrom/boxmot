@@ -47,6 +47,7 @@ class _BotSortCConfig(ctypes.Structure):
         ("use_embeddings", ctypes.c_int),
         ("max_obs", ctypes.c_int),
         ("asso_func", ctypes.c_char_p),
+        ("centroid_max_distance", ctypes.c_double),
     ]
 
 
@@ -89,6 +90,7 @@ class BotSortLibrary:
             use_embeddings=int(bool(cfg["use_embeddings"])),
             max_obs=int(cfg.get("max_obs", 50)),
             asso_func=str(cfg["asso_func"]).encode(),
+            centroid_max_distance=float(cfg["centroid_max_distance"]),
         )
         handle = self._library.boxmot_botsort_create(ctypes.byref(c_cfg))
         if not handle:

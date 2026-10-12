@@ -23,12 +23,18 @@ def predict_covariance(covariance: np.ndarray) -> np.ndarray:
 
 
 def gaussian_affinity(
-    boxes: np.ndarray, predicted_box: np.ndarray, covariance: np.ndarray, *, recovery: bool = False
+    boxes: np.ndarray,
+    predicted_box: np.ndarray,
+    covariance: np.ndarray,
+    *,
+    recovery: bool = False,
+    gate_geometry: bool = True,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return gated center likelihoods and one posterior covariance per box.
 
-    S2TA requires half of the smaller box to overlap; T2TA requires any
-    overlap. Both reject changes of area by a factor of two or more.
+    Overlap modes require half of the smaller box to overlap in S2TA, any
+    overlap in T2TA, and area changes below a factor of two. Centroid mode
+    supplies its own radius gate and keeps these cues from rejecting pairs.
     """
     innovation_covariance = covariance[:2, :2] + MEASUREMENT_NOISE
     gain = np.linalg.solve(innovation_covariance, covariance[:2, :]).T
@@ -45,12 +51,19 @@ def gaussian_affinity(
         np.maximum(0.0, np.minimum(boxes[:, 2:], predicted_box[2:]) - np.maximum(boxes[:, :2], predicted_box[:2])),
         axis=1,
     )
-    valid = (areas < 2.0 * area) & (area < 2.0 * areas)
-    valid &= intersection > 0 if recovery else intersection >= 0.5 * np.minimum(area, areas)
+    valid = np.ones(len(boxes), dtype=bool)
+    if gate_geometry:
+        valid &= (areas < 2.0 * area) & (area < 2.0 * areas)
+        valid &= intersection > 0 if recovery else intersection >= 0.5 * np.minimum(area, areas)
     # MAF can rescue a Gaussian-gated pair through appearance. Such a match
     # must retain the prediction's uncertainty: it supplied no motion update.
     posteriors = np.where(valid[:, None, None], posterior, covariance)
-    likelihood[~valid | (likelihood < np.finfo(np.float32).tiny)] = 0.0
+    if gate_geometry:
+        likelihood[~valid | (likelihood < np.finfo(np.float32).tiny)] = 0.0
+    else:
+        # Large allowed radii can underflow the Gaussian likelihood. Retain a
+        # finite ranking cost instead of introducing an implicit distance gate.
+        likelihood = np.maximum(likelihood, np.finfo(float).tiny)
     return likelihood, posteriors
 
 
@@ -76,12 +89,15 @@ def fusion_cost(
     appearance_lower: float,
     appearance_upper: float,
     overlap_lower: float,
+    gate_geometry: bool = True,
 ) -> np.ndarray:
-    """Fuse GMPHD likelihoods and KCF scores using the source min-max rules."""
+    """Fuse motion and appearance; centroid uses only the lower appearance gate."""
     if mode == "motion":
         affinity = motion.copy()
     elif mode == "appearance":
-        valid = (appearance >= appearance_upper) | ((appearance >= appearance_lower) & (overlap >= overlap_lower))
+        valid = appearance >= appearance_lower
+        if gate_geometry:
+            valid = (appearance >= appearance_upper) | (valid & (overlap >= overlap_lower))
         affinity = np.where(valid, appearance, 0.0)
     else:
         normalized_motion = minmax_affinity(motion)
@@ -90,12 +106,16 @@ def fusion_cost(
             normalized_appearance[appearance < appearance_lower] = 0.0
         affinity = normalized_motion * normalized_appearance
         if recovery:
-            substitute = (normalized_motion == 0.0) & ((appearance >= appearance_upper) | (overlap >= 0.9))
+            geometry_support = overlap >= (0.9 if gate_geometry else 0.0)
+            substitute = (normalized_motion == 0.0) & ((appearance >= appearance_upper) | geometry_support)
         else:
             substitute = (normalized_motion == 0.0) | (overlap > overlap_lower)
-        affinity[substitute] = (overlap * normalized_appearance)[substitute]
-    cost = np.full(affinity.shape, MAX_COST, dtype=np.float64)
-    valid = affinity > np.exp(-MAX_COST / 100.0)
+        # A zero centroid score lies exactly on the allowed radius. Keep it
+        # rankable without overriding an absent or rejected appearance cue.
+        geometry_affinity = overlap if gate_geometry else np.maximum(overlap, np.finfo(float).eps)
+        affinity[substitute] = (geometry_affinity * normalized_appearance)[substitute]
+    cost = np.full(affinity.shape, MAX_COST if gate_geometry else np.inf, dtype=np.float64)
+    valid = affinity > (np.exp(-MAX_COST / 100.0) if gate_geometry else 0.0)
     cost[valid] = np.maximum(0.0, -100.0 * np.log(affinity[valid]))
     return cost
 

@@ -16,6 +16,7 @@ enum class TrackState {
 
 struct Config {
     std::string asso_func = "iou";
+    double centroid_max_distance = 0.05;
     float track_high_thresh = 0.6F;
     float track_low_thresh = 0.1F;
     float new_track_thresh = 0.7F;

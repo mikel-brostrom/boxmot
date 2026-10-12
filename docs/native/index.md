@@ -157,6 +157,11 @@ Each tracker exports a flat C ABI from
 types live in
 `boxmot/native/cpp/trackers/base/include/boxmot/trackers/base/c_api_v2.hpp`.
 
+OccluBoost construction uses `boxmot_occluboost_create_v2` and
+`BoxMOTOccluBoostConfigV2`, which share thresholds and track lifetimes across
+AABB and OBB. Rebuild older native libraries to use this configuration layout;
+the Python loader rejects libraries with the previous constructor ABI.
+
 The update function has this shape, with `<name>` replaced by the tracker ID:
 
 ```cpp

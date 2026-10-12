@@ -94,6 +94,7 @@ class BoxTracker(BoxMaskGuidanceMixin, BaseTracker):
             self._asso_func_base_name,
             width=width,
             height=height,
+            centroid_max_distance=self.centroid_max_distance,
         )
 
     def _validate_geometry(self, geometry: Geometry) -> None:

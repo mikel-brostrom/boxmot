@@ -74,6 +74,7 @@ class BoostTrack(BoxTracker):
             min_hits=config.min_hits,
             iou_threshold=config.iou_threshold,
             asso_func=config.asso_func,
+            centroid_max_distance=config.centroid_max_distance,
             kalman=kalman,
             reid=reid,
             **kwargs,
@@ -213,6 +214,7 @@ class BoostTrack(BoxTracker):
             s_sim_corr=self.s_sim_corr,
             geometry_matrix=geometry_similarity,
             shape_matrix=oriented_shape,
+            gate_before_assignment=self._asso_func_base_name == "centroid",
             geometry_conditioner=lambda similarity: self._condition_similarity(
                 similarity, self.trackers, batch.boxes, threshold=self.iou_threshold
             ),

@@ -31,11 +31,22 @@ def solve_assignment(cost_matrix: np.ndarray, cost_limit: float | None = None) -
         return np.empty((0, 2), dtype=int)
 
     kwargs = {"extend_cost": True}
+    finite = np.isfinite(cost_matrix)
+    if not finite.any():
+        return np.empty((0, 2), dtype=int)
+    if not finite.all():
+        cost_matrix = np.where(finite, cost_matrix, np.inf)
+    if cost_limit is None and not finite.all():
+        # Permit unmatched rows rather than forcing forbidden edges, which can
+        # steal a column from an otherwise eligible match.
+        values = cost_matrix[finite]
+        cost_limit = float(values.max() + np.ptp(values) + max(1.0, np.abs(values).max()))
     if cost_limit is not None:
         kwargs["cost_limit"] = cost_limit
     _, row_to_col, _ = lap.lapjv(cost_matrix, **kwargs)
     assigned_rows = np.flatnonzero(row_to_col >= 0)
-    return np.column_stack((assigned_rows, row_to_col[assigned_rows])).astype(int, copy=False)
+    matches = np.column_stack((assigned_rows, row_to_col[assigned_rows])).astype(int, copy=False)
+    return matches[finite[matches[:, 0], matches[:, 1]]]
 
 
 def linear_assignment(cost_matrix, thresh):

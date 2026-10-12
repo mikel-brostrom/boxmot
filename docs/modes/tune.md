@@ -32,6 +32,16 @@ in place of `--dataset`, `--detector`, and `--reid`. Missing or ambiguous
 catalog matches produce an error; use `--experiment` to select the intended
 configuration. See [experiment workflows](../guides/experiments.md).
 
+Tracker search profiles use `association` lists to declare which metrics each
+parameter applies to. With centroid association, `centroid_max_distance`
+is searched over `[0.005, 0.1]` of the frame diagonal; other metrics keep this
+setting fixed. Centroid uses this radius as its sole geometric cutoff, so
+the overlap matching thresholds are excluded from search and ignored by centroid
+association. Use `--asso-func centroid` to fix the metric while tuning its
+radius and other tracker settings. See [association settings](../config/trackers.md#association-function).
+An explicit `asso_func` in `--tracker-config` also fixes the metric unless
+`--asso-func` overrides it. Other searchable preset values remain starting values.
+
 ## Tune mask guidance
 
 The nine Python box trackers can search EdgeTAM guidance settings together with

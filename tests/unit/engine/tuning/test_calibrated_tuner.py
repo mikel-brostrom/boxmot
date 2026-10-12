@@ -17,7 +17,7 @@ import boxmot.engine.tuning.tuner as tuner_module
 from boxmot.engine.calibration.kalman import calibrate_kalman
 from boxmot.engine.calibration.kalman_artifacts import KalmanCalibrationResult
 from boxmot.engine.config.trackers import resolve_tracker_options
-from boxmot.engine.tuning.search_space import flatten_yaml_config, load_yaml_config
+from boxmot.engine.tuning.search_space import flatten_yaml_config, load_yaml_config, normalize_trial_config
 from boxmot.trackers.common.config import load_tracker_config, nest_tracker_options
 from boxmot.trackers.common.mask_guidance import MASK_GUIDANCE_OPTIONS
 from boxmot.trackers.common.motion.kalman_filters.noise import (
@@ -187,13 +187,19 @@ def fake_tuning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamesp
                 configs = []
                 for _ in range(2):
                     suggestion = _SuggestionTrial()
+                    constants = {}
                     if "search_space" in captured:
-                        captured["search_space"](suggestion)
-                    config = {
-                        key: value.value if isinstance(value, _Domain) else value
-                        for key, value in captured["param_space"].items()
-                    }
-                    configs.append({**config, **suggestion.params})
+                        constants = captured["search_space"](suggestion) or {}
+
+                    def sample(value: object) -> object:
+                        if isinstance(value, _Domain):
+                            return sample(value.value)
+                        if isinstance(value, dict):
+                            return {key: sample(child) for key, child in value.items()}
+                        return value
+
+                    config = sample(captured["param_space"])
+                    configs.append({**config, **suggestion.params, **constants})
             actor = self.trainable()
             actor.setup(configs[0])
             try:
@@ -482,11 +488,11 @@ def test_plain_tuning_preserves_kf_defaults_or_scalar_profile_while_searching_tr
         assert all(config[key] == value for config in fake_tuning.captured["trial_configs"])
     if search_alg == "optuna":
         trial = _SuggestionTrial()
-        fake_tuning.captured["search_space"](trial)
+        constants = fake_tuning.captured["search_space"](trial) or {}
         assert not set(expected).intersection(trial.params)
-        assert "match_thresh" in trial.params
+        assert "match_thresh" in normalize_trial_config({**trial.params, **constants})
     else:
-        assert isinstance(fake_tuning.captured["param_space"]["match_thresh"], _Domain)
+        assert all(config["match_thresh"] == 0.5 for config in fake_tuning.captured["trial_configs"])
 
 
 def test_programmatic_baseline_and_custom_config_are_preserved_during_calibration(

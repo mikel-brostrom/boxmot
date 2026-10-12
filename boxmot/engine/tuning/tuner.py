@@ -84,6 +84,7 @@ from boxmot.engine.ui.reporters.tune import (
     set_tune_progress_workflow,
 )
 from boxmot.engine.ui.reporters.validation import CLI_TUNE_BEST_SUMMARY_TITLE
+from boxmot.trackers.common.config import load_tracker_config
 from boxmot.trackers.common.motion.kalman_filters.noise import (
     KALMAN_NOISE_OPTIONS,
     KALMAN_TIMING_OPTIONS,
@@ -268,6 +269,9 @@ class Tuner:
         setattr(args, "search_alg", search_backend)
 
         baseline_overlay = normalize_trial_config(self.baseline_config)
+        authored_options = load_tracker_config(
+            args.tracker, getattr(args, "tracker_config", None), baseline_overlay, include_defaults=False
+        )
         runtime_config = resolve_tracker_options(args, baseline_overlay, include_defaults=True, stamp_timing=True)
         runtime_config = prepare_mask_guidance_tuning(args, runtime_config, overrides=baseline_overlay)
         if runtime_config.get("per_class"):
@@ -347,19 +351,22 @@ class Tuner:
                 )
                 runtime_config = prepare_mask_guidance_tuning(args, runtime_config, overrides=baseline_overlay)
                 yaml_cfg = condition_mask_guidance_schema(yaml_cfg, args, runtime_config)
+                if "asso_func" in authored_options and getattr(args, "asso_func", None) is None:
+                    yaml_cfg["asso_func"] = {"default": authored_options["asso_func"]}
                 yaml_cfg = condition_tracker_schema(
-                    yaml_cfg, runtime_config, geometry=getattr(args, "geometry", "aabb") or "aabb"
+                    yaml_cfg, runtime_config, geometry=getattr(args, "geometry", "aabb") or "aabb",
                 )
                 record_mask_guidance_tuning(tune_dir, args, runtime_config, yaml_cfg)
                 self._yaml_cfg = yaml_cfg
                 self._runtime_config = runtime_config
                 flat_schema = flatten_yaml_config(yaml_cfg)
                 fixed_options = {
-                    parameter: value
+                    parameter: flat_schema[parameter]["default"] if parameter in flat_schema else value
                     for parameter, value in runtime_config.items()
                     if parameter not in flat_schema or set(flat_schema[parameter]) == {"default"}
                 }
                 fixed_options.update(self._calibrated_fixed_options)
+                runtime_config.update(fixed_options)
                 if "kalman.variable_dt" in runtime_config:
                     args.variable_dt = runtime_config["kalman.variable_dt"]
                     fixed_options["kalman.variable_dt"] = args.variable_dt

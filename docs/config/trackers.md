@@ -23,7 +23,8 @@ Runtime defaults and optimization policy are resolved together:
 - `track`, `eval`, the Python factory, and direct tracker classes use the same
   typed algorithm defaults
 - YAML presets overlay those defaults
-- `tune` reads `type`, `range`, `options`, `values`, `activates`, and `geometry`
+- `tune` reads `type`, `range`, `options`, `values`, `activates`, `depends_on`,
+  `cases`, `geometry`, and `association`
 
 Search entries can declare `geometry: aabb` or `geometry: obb`. Image tuning
 keeps entries for the other geometry fixed at their runtime values, including
@@ -41,6 +42,35 @@ block, a true value enables the children's search ranges and a false value
 keeps the children fixed. A searchable parent's default does not fix its
 children: the selected trial value controls Optuna and HyperOpt branches.
 Random search samples variable branches as a flat space.
+
+Use `association` to declare which metrics a search parameter applies to.
+An overlap threshold is searched only for the listed overlap metrics, while
+the centroid radius is searched only when `asso_func` is `centroid`:
+
+```yaml
+iou_threshold:
+  association: [iou, giou, diou, ciou, hmiou]
+  type: uniform
+  range: [0.1, 0.9]
+
+centroid_max_distance:
+  association: [centroid]
+  type: uniform
+  range: [0.005, 0.1]
+```
+
+Parameters outside their applicable metrics are not searched; their typed or
+authored runtime values are retained. `association` works together with
+`geometry` and `activates`, and applies to random, Optuna, and HyperOpt search,
+whether `asso_func` is fixed or searched. Centroid ignores overlap thresholds
+at runtime and uses `centroid_max_distance` as its sole geometric cutoff.
+
+Use `depends_on` and `cases` when an applicable parameter needs different numeric
+ranges for different metrics, as ByteTrack does for GIoU, DIoU, and CIoU.
+Cases override the base distribution; a case containing only `default` fixes
+that value, including when a runtime profile supplies a different starting
+value. Without a matching case, the base distribution applies, or the runtime
+default if no distribution exists.
 
 ## Python algorithm configs
 
@@ -135,9 +165,10 @@ EagerMOT sensor evaluation loads both class profiles from one YAML through
 
 ## Association function
 
-Every registered Python tracker exposes `asso_func` through the same config
-entry. AABB and OBB tracking both support `iou`, `giou`, `diou`, `ciou`,
-`hmiou`, and `centroid`. Select one without editing the built-in file by
+The 2D box trackers and MAF-HDA expose `asso_func` through the same config
+entry. AABB and OBB box tracking both support `iou`, `giou`, `diou`, `ciou`,
+`hmiou`, and `centroid`; EagerMOT uses IoU for its image associations.
+Select a metric without editing the built-in file by
 passing a runtime override:
 
 ```python
@@ -148,7 +179,7 @@ tracker = create_tracker(
     TrackerSpec(
         name="ocsort",
         geometry="aabb",
-        options=(("asso_func", "centroid"),),
+        options=(("asso_func", "centroid"), ("centroid_max_distance", 0.05)),
     )
 )
 ```
@@ -169,7 +200,7 @@ For OBB detections, BoxMOT uses these exact definitions:
 | `diou` | Supported | Oriented IoU with squared center distance normalized by the squared diagonal of the rotation-invariant, minimum-area oriented rectangle enclosing both boxes. |
 | `ciou` | **Experimental** | The OBB DIoU construction plus a custom aspect-ratio penalty computed from each box's ordered long and short sides. |
 | `hmiou` | **Experimental** | Oriented IoU multiplied by the interval IoU of the boxes' projections onto the image's global y-axis. |
-| `centroid` | Supported | One minus center distance normalized by the frame diagonal. |
+| `centroid` | Supported | `1 - center_distance / (centroid_max_distance * frame_diagonal)`, with pairs outside the radius forbidden. |
 
 GIoU, DIoU, and CIoU are transformed with `(score + 1) / 2` before
 association. OBB results are defensively clipped to `[0, 1]`; AABB CIoU uses
@@ -187,6 +218,33 @@ thresholds when changing metrics.
 Centroid association needs the frame dimensions for normalization, so trackers
 using it need an image until those dimensions have been initialized. SFSORT can
 instead use the explicit `frame_width` and `frame_height` fields in `SFSORTConfig`.
+
+`centroid_max_distance` is a positive fraction of the frame diagonal, at most
+`1.0`, with a runtime default of `0.05`. On a 1920×1080 frame, `0.05` gives a
+maximum center displacement of approximately 110 pixels. This hard distance
+limit applies to every matching and recovery pass; appearance similarity cannot
+override it. It is the sole geometric distance cutoff for centroid association:
+settings such as `iou_threshold`, `match_thresh`, and `proximity_thresh` do not
+tighten the radius, even when supplied through a runtime profile. The tracker
+still uses its confidence, appearance, and lifecycle rules, and competing pairs
+are ranked by its association scores. A pair inside the radius is eligible for
+geometric matching, rather than guaranteed a match.
+IoU and the other metrics ignore `centroid_max_distance`.
+
+ByteTrack exposes `second_match_thresh` and `unconfirmed_match_thresh` alongside
+`match_thresh` for other metrics. Their runtime defaults remain `0.5` and `0.7`.
+Centroid uses the same radius in the high-confidence, low-confidence, and
+unconfirmed passes. A centroid runtime profile needs only the metric and radius:
+
+```yaml title="bytetrack-centroid.yaml"
+tracker: bytetrack
+asso_func: centroid
+centroid_max_distance: 0.03
+```
+
+```bash
+boxmot track --tracker bytetrack --tracker-config bytetrack-centroid.yaml --source video.mp4
+```
 
 The native backends expose the same choices for both box layouts; see the
 native tracker documentation for C++ integration details.

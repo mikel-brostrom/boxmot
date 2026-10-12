@@ -82,6 +82,11 @@ noise priors are internal constants. Versioning the constructor prevents older
 libraries from reading the revised configuration layout. Detection and track
 batches continue to use the shared typed v2 API.
 
+OccluBoost uses `boxmot_occluboost_create_v2` with `BoxMOTOccluBoostConfigV2`.
+Its configuration shares detection, association, confirmation, and lifetime
+settings across AABB and OBB. Rebuild older libraries to use this layout;
+the Python loader rejects the previous constructor ABI.
+
 Build requirements:
 
 - C++17 compiler

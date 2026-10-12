@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from scipy.optimize import linear_sum_assignment
 
-from boxmot.trackers.common.association.matching import chi2inv95
+from boxmot.trackers.common.association.matching import chi2inv95, linear_assignment
 
 INFTY_COST = 1e5
 
@@ -58,6 +58,13 @@ def min_cost_matching(
         return [], track_indices, detection_indices  # Nothing to match.
 
     cost_matrix = distance_metric(tracks, detections, track_indices, detection_indices)
+    if not np.isfinite(cost_matrix).all():
+        matches, unmatched_tracks, unmatched_detections = linear_assignment(cost_matrix, max_distance)
+        return (
+            [(track_indices[row], detection_indices[col]) for row, col in matches],
+            [track_indices[row] for row in unmatched_tracks],
+            [detection_indices[col] for col in unmatched_detections],
+        )
     cost_matrix[cost_matrix > max_distance] = max_distance + 1e-5
     row_indices, col_indices = linear_sum_assignment(cost_matrix)
 

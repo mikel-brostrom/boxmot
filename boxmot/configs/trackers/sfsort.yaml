@@ -17,6 +17,7 @@ high_th:
 match_th_first:
   type: uniform
   range: [0.4, 0.67]
+  association: [iou, giou, diou, ciou, hmiou]
 
 new_track_th:
   type: uniform
@@ -29,10 +30,18 @@ low_th:
 match_th_second:
   type: uniform
   range: [0.1, 0.6]
+  association: [iou, giou, diou, ciou, hmiou]
 
 asso_func:
   type: choice
   options: [iou, giou, diou, ciou, hmiou, centroid]
+
+# Maximum centroid displacement as a fraction of the frame diagonal.
+# The sole geometric cutoff for centroid; other geometric thresholds are inactive.
+centroid_max_distance:
+  association: [centroid]
+  type: uniform
+  range: [0.005, 0.1]
 
 dynamic_tuning:
   type: choice
@@ -53,6 +62,7 @@ new_track_th_m:
 match_th_first_m:
   type: uniform
   range: [0.02, 0.08]
+  association: [iou, giou, diou, ciou, hmiou]
 
 obb_theta_damping:
   type: uniform

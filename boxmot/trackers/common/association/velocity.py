@@ -66,6 +66,7 @@ def associate(
     aw_param=None,
     is_obb=False,
     similarity_conditioner: Callable[[np.ndarray], np.ndarray] | None = None,
+    gate_before_assignment: bool = False,
 ):
     """Match geometry and motion, optionally conditioning geometric similarity.
 
@@ -111,7 +112,12 @@ def associate(
     angle_diff_cost = angle_diff_cost * scores
 
     if min(similarity_matrix.shape):
-        a = (similarity_matrix > similarity_threshold).astype(np.int32)
+        admissible = (
+            similarity_matrix >= similarity_threshold
+            if gate_before_assignment
+            else similarity_matrix > similarity_threshold
+        )
+        a = admissible.astype(np.int32)
         if a.sum(1).max() == 1 and a.sum(0).max() == 1:
             matched_indices = np.stack(np.where(a), axis=1)
         else:
@@ -125,6 +131,8 @@ def associate(
                     emb_cost *= w_assoc_emb
 
             final_cost = -(similarity_matrix + angle_diff_cost + emb_cost)
+            if gate_before_assignment or not np.isfinite(similarity_matrix).all():
+                final_cost = np.where(similarity_matrix >= similarity_threshold, final_cost, np.inf)
             matched_indices = solve_assignment(final_cost)
             if matched_indices.size == 0:
                 matched_indices = np.empty(shape=(0, 2))

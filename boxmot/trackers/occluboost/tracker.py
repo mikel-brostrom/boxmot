@@ -46,6 +46,7 @@ from boxmot.trackers.common.appearance import (
 )
 from boxmot.trackers.common.association.boost import associate
 from boxmot.trackers.common.association.iou import AssociationFunction
+from boxmot.trackers.common.association.matching import solve_assignment
 from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runtime_options
 from boxmot.trackers.common.motion.batching import predict_tracks
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
@@ -70,7 +71,7 @@ class OccluBoost(BoostTrack):
     ) -> None:
         """Configure recovery, track confirmation, and occlusion-aware motion updates.
 
-        The OBB path has separate detection, matching, and lifetime thresholds.
+        AABB and OBB paths share detection, matching, and lifetime thresholds.
         Abnormal-motion suppression and lambda_emb_multiplier affect AABB tracking.
 
         Args:
@@ -97,11 +98,11 @@ class OccluBoost(BoostTrack):
 
             self.cmc = create_cmc("sof", **sof_options(config))
         self.recovery_appearance_thresh = config.recovery_appearance_thresh
-        self.recovery_iou_thresh = config.recovery_iou_thresh
+        self.recovery_iou_thresh = self._geometry_similarity_threshold(config.recovery_iou_thresh)
         self.recovery_max_age = config.recovery_max_age
         self.feat_alpha = config.feat_alpha
         self.track_low_thresh = config.track_low_thresh
-        self.second_iou_thresh = config.second_iou_thresh
+        self.second_iou_thresh = self._geometry_similarity_threshold(config.second_iou_thresh)
         self.second_appearance_thresh = config.second_appearance_thresh
         self.second_pass_max_age = config.second_pass_max_age
         self.second_pass_min_hits = config.second_pass_min_hits
@@ -120,16 +121,6 @@ class OccluBoost(BoostTrack):
         self.confirm_hits = max(int(config.confirm_hits), 1)
         self.instant_confirm_thresh = config.instant_confirm_thresh
         self.tentative_max_age = max(int(config.tentative_max_age), 0)
-        # The MOT-tuned AABB defaults are too restrictive for multi-class OBB
-        # detections. Keep a separate OBB operating point so AABB behaviour is
-        # unchanged while oriented tracks can start and recover reliably.
-        self.obb_det_thresh = max(float(config.obb_det_thresh), 0.0)
-        self.obb_iou_threshold = float(np.clip(config.obb_iou_threshold, 0.0, 1.0))
-        self.obb_new_track_thresh = max(float(config.obb_new_track_thresh), self.obb_det_thresh)
-        self.obb_instant_confirm_thresh = max(float(config.obb_instant_confirm_thresh), self.obb_new_track_thresh)
-        self.obb_max_age = max(int(config.obb_max_age), 0)
-        self.obb_recovery_max_age = max(int(config.obb_recovery_max_age), 0)
-        self.obb_second_iou_thresh = float(np.clip(config.obb_second_iou_thresh, 0.0, 1.0))
         # ---- Duplicate-track suppression ----
         # IoU threshold above which two co-existing tracks are considered
         # duplicates; the younger one (lower ``age``) is dropped.
@@ -220,6 +211,7 @@ class OccluBoost(BoostTrack):
             s_sim_corr=self.s_sim_corr,
             lambda_emb_multiplier=self.lambda_emb_multiplier,
             geometry_matrix=geometry_similarity,
+            gate_before_assignment=self._asso_func_base_name == "centroid",
             geometry_conditioner=lambda similarity: self._condition_similarity(
                 similarity, self.trackers, high_batch.boxes, threshold=self.iou_threshold
             ),
@@ -266,6 +258,7 @@ class OccluBoost(BoostTrack):
                 gated = sim + (guided_ious - ious)
                 ious = guided_ious
                 gated[ious < self.recovery_iou_thresh] = -1.0
+                gated[~self.association_eligibility(high_batch.boxes[u_det_idx], trks_pos[:, :4])] = -1.0
                 gated[sim < self.recovery_appearance_thresh] = -1.0
 
                 if (gated > 0).any():
@@ -315,8 +308,11 @@ class OccluBoost(BoostTrack):
                     threshold=self.second_iou_thresh,
                 )
 
+                eligible = (ious2 >= self.second_iou_thresh) & self.association_eligibility(
+                    second_batch.boxes, trks_pos[:, :4]
+                )
                 cost = 1.0 - ious2
-                cost[ious2 < self.second_iou_thresh] = 1.0
+                cost[~eligible] = 1.0
 
                 if (
                     self.use_embeddings
@@ -326,14 +322,22 @@ class OccluBoost(BoostTrack):
                     trk_e = np.stack([self.trackers[t].get_emb() for t in elig_sec], axis=0).reshape(len(elig_sec), -1)
                     det_e = dets_embs_second.reshape(dets_embs_second.shape[0], -1)
                     sim2 = det_e @ trk_e.T
+                    eligible &= sim2 >= self.second_appearance_thresh
                     cost[sim2 < self.second_appearance_thresh] = 1.0
 
-                if (cost < 1.0).any():
-                    row_ind, col_ind = linear_sum_assignment(cost)
+                centroid = self._asso_func_base_name == "centroid"
+                has_candidates = eligible.any() if centroid else (cost < 1.0).any()
+                if has_candidates:
+                    if centroid:
+                        pairs = solve_assignment(np.where(eligible, cost, np.inf), cost_limit=1.0)
+                        row_ind, col_ind = pairs.T
+                    else:
+                        row_ind, col_ind = linear_sum_assignment(cost)
                     used = set()
                     accepted = []
                     for r, c in zip(row_ind, col_ind):
-                        if cost[r, c] >= 1.0:
+                        accepted_cost = eligible[r, c] if centroid else cost[r, c] < 1.0
+                        if not accepted_cost:
                             continue
                         trk_global = elig_sec[c]
                         if trk_global in used:
@@ -619,14 +623,14 @@ class OccluBoost(BoostTrack):
         # low-confidence pass even when an OBB boost promotes a row.
         orig_confs = batch.confs.copy()
         if self.use_dlo_boost:
-            dets = self.dlo_confidence_boost_obb(dets, threshold=self.obb_det_thresh)
+            dets = self.dlo_confidence_boost_obb(dets, threshold=self.det_thresh)
         if self.use_duo_boost:
-            dets = self.duo_confidence_boost_obb(dets, threshold=self.obb_det_thresh)
+            dets = self.duo_confidence_boost_obb(dets, threshold=self.det_thresh)
         boosted_confs = self.detection_layout.confidences(dets)
         batch = batch.with_confs(boosted_confs)
-        keep_mask = boosted_confs >= self.obb_det_thresh
+        keep_mask = boosted_confs >= self.det_thresh
         second_mask = (
-            ((~keep_mask) & (orig_confs >= self.track_low_thresh) & (orig_confs < self.obb_det_thresh))
+            ((~keep_mask) & (orig_confs >= self.track_low_thresh) & (orig_confs < self.det_thresh))
             if self.use_second_pass
             else np.zeros_like(keep_mask, dtype=bool)
         )
@@ -655,8 +659,9 @@ class OccluBoost(BoostTrack):
             unmatched_trks = np.arange(n_trks, dtype=int)
         else:
             iou = self.asso_func(high_batch.boxes, trks_xywha)
+            eligible = self.association_eligibility(high_batch.boxes, trks_xywha)
             cost = 1.0 - iou
-            cost[iou < self.obb_iou_threshold] = 1e6
+            cost[iou < self.iou_threshold] = 1e6
 
             if self.use_embeddings and dets_embs.shape[0] > 0 and self.trackers[0].get_emb() is not None:
                 tracker_embs = np.stack([trk.get_emb() for trk in self.trackers], axis=0).reshape(n_trks, -1)
@@ -665,13 +670,19 @@ class OccluBoost(BoostTrack):
                 lambda_emb = float(getattr(self, "lambda_iou", 0.5)) + 0.5
                 cost = cost - lambda_emb * emb_sim
                 # Re-apply IoU gate so good appearance can't bypass geometry.
-                cost[iou < self.obb_iou_threshold] = 1e6
+                cost[iou < self.iou_threshold] = 1e6
 
-            row_ind, col_ind = linear_sum_assignment(cost)
+            centroid = self._asso_func_base_name == "centroid"
+            if centroid:
+                cost = np.where(eligible, cost, np.inf)
+                row_ind, col_ind = solve_assignment(cost).T
+            else:
+                cost[~eligible] = 1e6
+                row_ind, col_ind = linear_sum_assignment(cost)
             matched_pairs = []
             matched_d, matched_t = set(), set()
             for r, c in zip(row_ind, col_ind):
-                if cost[r, c] >= 1e5:
+                if not np.isfinite(cost[r, c]) or (not centroid and cost[r, c] >= 1e5):
                     continue
                 matched_pairs.append([r, c])
                 matched_d.add(r)
@@ -686,7 +697,7 @@ class OccluBoost(BoostTrack):
             if self.use_embeddings:
                 alpha_emb = confidence_aware_alpha(
                     self.detection_layout.confidences(dets)[m[0] : m[0] + 1],
-                    self.obb_det_thresh,
+                    self.det_thresh,
                 )[0]
                 self.trackers[m[1]].update_emb(dets_embs[m[0]], alpha=float(alpha_emb))
             self._maybe_activate(self.trackers[m[1]])
@@ -696,7 +707,7 @@ class OccluBoost(BoostTrack):
             elig = [
                 int(t)
                 for t in unmatched_trks
-                if self.trackers[int(t)].time_since_update <= self.obb_recovery_max_age
+                if self.trackers[int(t)].time_since_update <= self.recovery_max_age
                 and self.trackers[int(t)].get_emb() is not None
             ]
             if elig:
@@ -710,6 +721,7 @@ class OccluBoost(BoostTrack):
 
                 gated = sim.copy()
                 gated[ious < self.recovery_iou_thresh] = -1.0
+                gated[~self.association_eligibility(high_batch.boxes[u_det_idx], trks_pos)] = -1.0
                 gated[sim < self.recovery_appearance_thresh] = -1.0
 
                 if (gated > 0).any():
@@ -748,8 +760,11 @@ class OccluBoost(BoostTrack):
             if elig_sec:
                 trks_pos = np.stack([self.trackers[t].get_state()[0] for t in elig_sec], axis=0)
                 ious2 = self.asso_func(second_batch.boxes, trks_pos)
+                eligible = (ious2 >= self.second_iou_thresh) & self.association_eligibility(
+                    second_batch.boxes, trks_pos
+                )
                 cost2 = 1.0 - ious2
-                cost2[ious2 < self.obb_second_iou_thresh] = 1.0
+                cost2[~eligible] = 1.0
 
                 if (
                     self.use_embeddings
@@ -759,14 +774,22 @@ class OccluBoost(BoostTrack):
                     trk_e = np.stack([self.trackers[t].get_emb() for t in elig_sec], axis=0).reshape(len(elig_sec), -1)
                     det_e = dets_embs_second.reshape(dets_embs_second.shape[0], -1)
                     sim2 = det_e @ trk_e.T
+                    eligible &= sim2 >= self.second_appearance_thresh
                     cost2[sim2 < self.second_appearance_thresh] = 1.0
 
-                if (cost2 < 1.0).any():
-                    row_ind, col_ind = linear_sum_assignment(cost2)
+                centroid = self._asso_func_base_name == "centroid"
+                has_candidates = eligible.any() if centroid else (cost2 < 1.0).any()
+                if has_candidates:
+                    if centroid:
+                        pairs = solve_assignment(np.where(eligible, cost2, np.inf), cost_limit=1.0)
+                        row_ind, col_ind = pairs.T
+                    else:
+                        row_ind, col_ind = linear_sum_assignment(cost2)
                     used = set()
                     accepted = []
                     for r, c in zip(row_ind, col_ind):
-                        if cost2[r, c] >= 1.0:
+                        accepted_cost = eligible[r, c] if centroid else cost2[r, c] < 1.0
+                        if not accepted_cost:
                             continue
                         trk_global = elig_sec[c]
                         if trk_global in used:
@@ -785,7 +808,7 @@ class OccluBoost(BoostTrack):
         # ---- New tracks for remaining unmatched high-conf detections ----
         for i in unmatched_dets:
             det_conf = self.detection_layout.confidences(dets)[i]
-            if det_conf >= self.obb_new_track_thresh:
+            if det_conf >= self.new_track_thresh:
                 det_emb = dets_embs[i] if self.use_embeddings else None
                 new_trk = KalmanBoxTracker(
                     dets[i, :],
@@ -797,7 +820,7 @@ class OccluBoost(BoostTrack):
                     noise_config=self.kalman_noise_config,
                 kalman_type=self.kalman_config.type,
                 )
-                new_trk.is_activated = bool(det_conf >= self.obb_instant_confirm_thresh or self.confirm_hits <= 1)
+                new_trk.is_activated = bool(det_conf >= self.instant_confirm_thresh or self.confirm_hits <= 1)
                 self.trackers.append(new_trk)
 
         # ---- Build outputs ----
@@ -822,7 +845,7 @@ class OccluBoost(BoostTrack):
         self.trackers = [
             trk
             for trk in self.trackers
-            if trk.time_since_update <= self.obb_max_age
+            if trk.time_since_update <= self.max_age
             and (getattr(trk, "is_activated", True) or trk.time_since_update <= self.tentative_max_age)
         ]
 

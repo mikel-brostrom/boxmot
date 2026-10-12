@@ -16,6 +16,7 @@ min_hits:
 iou_threshold:
   type: uniform
   range: [0.1, 0.4]
+  association: [iou, giou, diou, ciou, hmiou]
 
 delta_t:
   type: randint
@@ -24,6 +25,13 @@ delta_t:
 asso_func:
   type: choice
   options: [iou, giou, diou, ciou, hmiou, centroid]
+
+# Maximum centroid displacement as a fraction of the frame diagonal.
+# The sole geometric cutoff for centroid; other geometric thresholds are inactive.
+centroid_max_distance:
+  association: [centroid]
+  type: uniform
+  range: [0.005, 0.1]
 
 inertia:
   type: uniform

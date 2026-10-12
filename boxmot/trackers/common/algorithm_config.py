@@ -42,9 +42,12 @@ class TrackerConfig:
             can increase this to retain a complete ``max_age`` interval.
         min_hits: Confirmation hits, or shared display filtering for trackers
             with separate activation rules.
-        iou_threshold: Geometric association threshold. Its useful range depends
-            on the selected similarity; values above one can disable matching.
+        iou_threshold: Association threshold for overlap similarities. Ignored
+            by centroid association, which uses its full configured radius.
         asso_func: Canonical geometry similarity used during association.
+        centroid_max_distance: Sole geometric cutoff for centroid association,
+            as a fraction of the image diagonal. Other geometric stage
+            thresholds are inactive in this mode.
 
     Each concrete schema owns its defaults. YAML presets and serialized specs
     supply overrides through ``from_mapping`` rather than defining defaults.
@@ -58,6 +61,7 @@ class TrackerConfig:
         default="iou",
         metadata={"choices": ("iou", "giou", "diou", "ciou", "hmiou", "centroid")},
     )
+    centroid_max_distance: float = field(default=0.05, metadata={"gt": 0.0, "le": 1.0})
 
     def __post_init__(self) -> None:
         """Validate scalar types, finite numbers, bounds, and enum choices."""

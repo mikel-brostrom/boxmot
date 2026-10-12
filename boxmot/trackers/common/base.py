@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from numbers import Real
 from typing import overload
 
@@ -99,7 +99,9 @@ class BaseTracker(
     def _build_association_function(self, *, width: int | None, height: int | None):
         """Build the selected association callable for optional frame dimensions."""
 
-        return AssociationFunction(w=width, h=height, asso_mode=self.asso_func_name).asso_func
+        return AssociationFunction(
+            w=width, h=height, asso_mode=self.asso_func_name, centroid_max_distance=self.centroid_max_distance
+        ).asso_func
 
     def _validate_geometry(self, geometry: Geometry) -> None:
         """Validate canonical geometry against this tracker's fixed mode."""
@@ -121,6 +123,7 @@ class BaseTracker(
         class_ids: Iterable[int] | None = None,
         class_names: Mapping[int, str] | None = None,
         asso_func: str = "iou",
+        centroid_max_distance: float = 0.05,
         is_obb: bool = False,
         kalman: KalmanConfig | None = None,
         reid: ReIDConfig | AppearanceEncoder | None = _REID_OPTION_UNSET,
@@ -134,7 +137,8 @@ class BaseTracker(
         - max_age: Maximum age in frames before a track is considered lost.
         - max_obs: Maximum number of historical observations stored per track.
         - min_hits: Minimum hits before a track is considered confirmed.
-        - iou_threshold: Minimum selected-geometry similarity for matching.
+        - iou_threshold: Minimum selected-geometry similarity for overlap metrics.
+          Centroid matching uses its full configured radius instead.
         - per_class: Enable class-separated tracking.
         - class_ids: Optional detector class IDs allowed by this tracker.
         - class_names: Optional detector class names keyed by detector class ID.
@@ -143,6 +147,8 @@ class BaseTracker(
           OBB ``ciou`` is a custom experimental long/short-side adaptation.
           OBB ``hmiou`` is an experimental global-y height cue intended only
           where image vertical is meaningful.
+        - centroid_max_distance: Sole geometric cutoff for centroid matching,
+          expressed as a fraction of the frame diagonal.
         - is_obb: Use oriented detections instead of axis-aligned detections.
         - kalman: Immutable filter noise, timing, and supported behavior settings.
         - reid: Immutable encoder configuration or a prebuilt AppearanceEncoder.
@@ -178,7 +184,11 @@ class BaseTracker(
         self.max_age = max_age
         self.max_obs = max_obs
         self.min_hits = min_hits
-        self.iou_threshold = iou_threshold
+        if isinstance(centroid_max_distance, bool) or not isinstance(centroid_max_distance, Real):
+            raise TypeError("centroid_max_distance must be a real number.")
+        if not np.isfinite(centroid_max_distance) or not 0 < centroid_max_distance <= 1:
+            raise ValueError("centroid_max_distance must be finite and in (0, 1].")
+        self.centroid_max_distance = float(centroid_max_distance)
         self.per_class = per_class
         self.class_catalog = ClassCatalog.from_metadata(class_ids=class_ids, class_names=class_names)
         self.class_ids = self.class_catalog.class_ids
@@ -197,6 +207,7 @@ class BaseTracker(
         if asso_func != asso_func.strip().lower():
             raise ValueError(f"asso_func must use its canonical lowercase identifier: {asso_func!r}")
         self._asso_func_base_name = asso_func
+        self.iou_threshold = self._geometry_similarity_threshold(iou_threshold)
         self.detection_layout = self._resolve_detection_layout(is_obb)
         if self.detection_layout.is_obb and not self.supports_obb:
             raise ValueError(f"{self.__class__.__name__} does not support OBB geometry.")
@@ -238,7 +249,11 @@ class BaseTracker(
             "max_age": max_age,
             "max_obs": max_obs,
             "min_hits": min_hits,
-            "iou_threshold": iou_threshold,
+            **(
+                {"centroid_max_distance": self.centroid_max_distance}
+                if self._asso_func_base_name == "centroid"
+                else {"iou_threshold": self.iou_threshold}
+            ),
             "per_class": per_class,
             "class_ids": None if self.class_ids is None else tuple(sorted(self.class_ids)),
             "asso_func": self._asso_func_base_name,
@@ -700,6 +715,14 @@ class BaseTracker(
         self.asso_func = self._build_association_function(width=self.w, height=self.h)
         self._first_frame_processed = True
 
+    def _geometry_similarity_threshold(self, threshold: float) -> float:
+        """Use the complete centroid radius instead of overlap-score cutoffs."""
+        return 0.0 if self._asso_func_base_name == "centroid" else threshold
+
+    def _geometry_cost_threshold(self, threshold: float) -> float:
+        """Accept normalized centroid distances up to the configured radius."""
+        return 1.0 if self._asso_func_base_name == "centroid" else threshold
+
     def association_similarity(
         self,
         boxes_a: np.ndarray | Iterable[object],
@@ -719,6 +742,25 @@ class BaseTracker(
     ) -> np.ndarray:
         """Return ``1 - similarity`` for arrays or track-like objects."""
         return 1.0 - self.association_similarity(atracks, btracks)
+
+    def association_eligibility(
+        self, boxes_a: np.ndarray | Sequence[object], boxes_b: np.ndarray | Sequence[object]
+    ) -> np.ndarray:
+        """Keep the centroid distance limit independent of every fused score."""
+        if self._asso_func_base_name != "centroid":
+            return np.ones((len(boxes_a), len(boxes_b)), dtype=bool)
+        return self.association_similarity(boxes_a, boxes_b) >= 0.0
+
+    def _gate_association(
+        self,
+        costs: np.ndarray,
+        tracks: np.ndarray | Sequence[object],
+        detections: np.ndarray | Sequence[object],
+    ) -> np.ndarray:
+        """Exclude distant pairs before assignment, regardless of other cues."""
+        if self._asso_func_base_name != "centroid":
+            return costs
+        return np.where(self.association_eligibility(tracks, detections), costs, np.inf)
 
     def _association_boxes(self, items: np.ndarray | Iterable[object]) -> np.ndarray:
         """Extract canonical AABB/OBB geometry from arrays or track-like objects."""

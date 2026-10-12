@@ -82,6 +82,7 @@ class HybridSort(BoxTracker):
             min_hits=config.min_hits,
             iou_threshold=config.iou_threshold,
             asso_func=config.asso_func,
+            centroid_max_distance=config.centroid_max_distance,
             kalman=kalman,
             reid=reid,
             **kwargs,
@@ -252,6 +253,7 @@ class HybridSort(BoxTracker):
                 longterm_embedding_weight=self.longterm_reid_weight,
                 correct_with_appearance=self.with_longterm_reid_correction,
                 appearance_threshold=self.longterm_reid_correction_thresh,
+                gate_before_assignment=self._asso_func_base_name == "centroid",
                 geometry_conditioner=lambda similarity: self._condition_similarity(
                     similarity, self.active_tracks, high_batch.boxes, threshold=self.iou_threshold
                 ),
@@ -265,6 +267,7 @@ class HybridSort(BoxTracker):
                 k_observations,
                 self.inertia,
                 association_function,
+                gate_before_assignment=self._asso_func_base_name == "centroid",
                 geometry_conditioner=lambda similarity: self._condition_similarity(
                     similarity, self.active_tracks, high_batch.boxes, threshold=self.iou_threshold
                 ),
@@ -297,14 +300,25 @@ class HybridSort(BoxTracker):
             if self.tcm_byte_step:
                 similarity -= confidence_difference(dets_low, u_trks) * self.tcm_byte_step_weight
 
-            if similarity.max() > self.iou_threshold:
+            if similarity.max() > self.iou_threshold or (
+                self._asso_func_base_name == "centroid" and threshold_similarity.max() >= self.iou_threshold
+            ):
                 if self.eg_weight_low_score > 0 and self.use_embeddings:
                     u_tracklets = [self.active_tracks[idx] for idx in unmatched_trks]
                     u_track_features = np.asarray([t.smooth_feat for t in u_tracklets], dtype=float)
                     emb_dists_low = feature_distance(u_track_features, id_feature_second).T
-                    matched_indices = solve_assignment(-similarity + self.eg_weight_low_score * emb_dists_low)
+                    assignment_cost = -similarity + self.eg_weight_low_score * emb_dists_low
+                    if self._asso_func_base_name == "centroid":
+                        allowed = threshold_similarity >= self.iou_threshold
+                        if self.with_longterm_reid_correction:
+                            allowed &= emb_dists_low <= self.longterm_reid_correction_thresh_low
+                        assignment_cost = np.where(allowed, assignment_cost, np.inf)
+                    matched_indices = solve_assignment(assignment_cost)
                 else:
-                    matched_indices = solve_assignment(-similarity)
+                    assignment_cost = -similarity
+                    if self._asso_func_base_name == "centroid":
+                        assignment_cost = np.where(threshold_similarity >= self.iou_threshold, assignment_cost, np.inf)
+                    matched_indices = solve_assignment(assignment_cost)
                 to_remove_trk_indices = []
                 accepted_detections = []
                 for mm in matched_indices:
@@ -341,8 +355,13 @@ class HybridSort(BoxTracker):
                 high_batch.boxes[unmatched_dets],
                 threshold=self.iou_threshold,
             )
-            if similarity.max() > self.iou_threshold:
-                rematched = solve_assignment(-similarity)
+            if similarity.max() > self.iou_threshold or (
+                self._asso_func_base_name == "centroid" and similarity.max() >= self.iou_threshold
+            ):
+                assignment_cost = -similarity
+                if self._asso_func_base_name == "centroid":
+                    assignment_cost = np.where(similarity >= self.iou_threshold, assignment_cost, np.inf)
+                rematched = solve_assignment(assignment_cost)
                 to_remove_det_indices = []
                 to_remove_trk_indices = []
                 for mm in rematched:
@@ -453,9 +472,18 @@ class HybridSort(BoxTracker):
             assignment_cost = -similarity
             if embedding_cost is not None:
                 assignment_cost += self.eg_weight_high_score * embedding_cost
+            eligible = self.association_eligibility(high.boxes, predicted)
+            if self._asso_func_base_name == "centroid":
+                accepted_geometry = similarity >= self.iou_threshold
+                if embedding_cost is not None:
+                    accepted_geometry |= embedding_cost <= self.longterm_reid_correction_thresh
+                eligible &= accepted_geometry
+            assignment_cost = np.where(eligible, assignment_cost, np.inf)
             pairs = solve_assignment(assignment_cost)
             accepted = []
             for det_index, track_index in pairs:
+                if not eligible[det_index, track_index]:
+                    continue
                 poor_geometry = similarity[det_index, track_index] < self.iou_threshold
                 # Without appearance evidence, geometry must pass on its own.
                 # Treating a missing embedding matrix as "good appearance"
@@ -480,6 +508,9 @@ class HybridSort(BoxTracker):
 
         if self.use_byte and len(low_dets) and len(unmatched_tracks):
             similarity = self.asso_func(low.boxes, predicted[unmatched_tracks])
+            eligible = self.association_eligibility(low.boxes, predicted[unmatched_tracks])
+            if self._asso_func_base_name == "centroid":
+                similarity = np.where(eligible & (similarity >= self.iou_threshold), similarity, -np.inf)
             pairs = solve_assignment(-similarity)
             accepted = [(d, t) for d, t in pairs if similarity[d, t] >= self.iou_threshold]
             update_tracks(

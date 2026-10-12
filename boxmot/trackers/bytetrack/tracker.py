@@ -59,6 +59,7 @@ class ByteTrack(BoxTracker):
             min_hits=config.min_hits,
             iou_threshold=config.iou_threshold,
             asso_func=config.asso_func,
+            centroid_max_distance=config.centroid_max_distance,
             kalman=kalman,
             **kwargs,
         )
@@ -72,7 +73,9 @@ class ByteTrack(BoxTracker):
         # Detection thresholds
         self.min_conf = config.min_conf
         self.track_thresh = config.track_thresh
-        self.match_thresh = config.match_thresh
+        self.match_thresh = self._geometry_cost_threshold(config.match_thresh)
+        self.second_match_thresh = self._geometry_cost_threshold(config.second_match_thresh)
+        self.unconfirmed_match_thresh = self._geometry_cost_threshold(config.unconfirmed_match_thresh)
         self.det_thresh = config.track_thresh  # Same as track_thresh
 
         # Motion model
@@ -194,7 +197,7 @@ class ByteTrack(BoxTracker):
         second_stage = AssociationStage(
             name="bytetrack_low",
             cost=self._low_association_cost,
-            threshold=0.5,
+            threshold=self.second_match_thresh,
         )
         second_result = run_association_stage(
             second_stage,
@@ -228,7 +231,7 @@ class ByteTrack(BoxTracker):
         unconfirmed_stage = AssociationStage(
             name="bytetrack_unconfirmed",
             cost=self._unconfirmed_association_cost,
-            threshold=0.7,
+            threshold=self.unconfirmed_match_thresh,
         )
         unconfirmed_result = run_association_stage(
             unconfirmed_stage,
@@ -292,13 +295,13 @@ class ByteTrack(BoxTracker):
     def _low_association_cost(self, tracks: list[STrack], detections: list[STrack]) -> np.ndarray:
         """Condition the low-confidence association pass at its own threshold."""
         return self._condition_association(
-            self.association_distance(tracks, detections), tracks, detections, threshold=0.5
+            self.association_distance(tracks, detections), tracks, detections, threshold=self.second_match_thresh
         )
 
     def _unconfirmed_association_cost(self, tracks: list[STrack], detections: list[STrack]) -> np.ndarray:
-        """Condition confirmation using the reference's 0.7 cost threshold."""
+        """Condition tentative matches using their configured cost threshold."""
         costs = fuse_score(self.association_distance(tracks, detections), detections)
-        return self._condition_association(costs, tracks, detections, threshold=0.7)
+        return self._condition_association(costs, tracks, detections, threshold=self.unconfirmed_match_thresh)
 
     def reset(self) -> None:
         """Reset tracks and temporal mask memory for a new pass over the source."""
