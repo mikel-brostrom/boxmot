@@ -32,6 +32,11 @@ use_cmc:
       type: choice
       options: [sof, ecc]
 
+# Keep camera estimation settings fixed across tracker trials.
+cmc_min_conf: {}
+sof_target_width: {}
+sof_ransac_reproj_threshold: {}
+
 min_box_area:
   type: randint
   range: [5, 100]

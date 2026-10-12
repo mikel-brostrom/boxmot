@@ -26,6 +26,10 @@ cmc_method:
   type: choice
   options: [sof, ecc]
 
+# Keep activation and the camera mask threshold fixed across tracker trials.
+use_cmc: {}
+cmc_min_conf: {}
+
 delta_t:
   type: randint
   range: [1, 6]

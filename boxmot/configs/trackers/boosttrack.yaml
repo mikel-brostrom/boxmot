@@ -29,6 +29,9 @@ use_cmc:
       type: choice
       options: [sof, ecc]
 
+# Keep the camera mask threshold fixed across tracker trials.
+cmc_min_conf: {}
+
 min_box_area:
   type: randint
   range: [5, 100]

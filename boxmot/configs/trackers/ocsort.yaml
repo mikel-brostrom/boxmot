@@ -37,6 +37,11 @@ inertia:
   type: uniform
   range: [0.1, 0.4]
 
+# Camera settings stay fixed unless supplied by CMC selection.
+use_cmc: {}
+cmc_method: {}
+cmc_min_conf: {}
+
 # Timing and reference-prior units stay fixed across all tuning trials.
 
 kalman:

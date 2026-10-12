@@ -30,6 +30,11 @@ frame_rate:
   type: choice
   options: [25, 30]  # static choice for Ray Search
 
+# Camera settings stay fixed unless supplied by CMC selection.
+use_cmc: {}
+cmc_method: {}
+cmc_min_conf: {}
+
 # Timing and reference-prior units stay fixed across all tuning trials.
 
 kalman:

@@ -49,6 +49,10 @@ use_cmc:
   type: choice
   options: [True, False]
 
+# Keep the estimator and camera mask threshold fixed across tracker trials.
+cmc_method: {}
+cmc_min_conf: {}
+
 aw_off:
   type: choice
   options: [True, False]

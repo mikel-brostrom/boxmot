@@ -39,6 +39,9 @@ use_cmc:
       type: choice
       options: [sof, ecc]
 
+# Keep the camera mask threshold fixed across tracker trials.
+cmc_min_conf: {}
+
 frame_rate:
   type: choice
   options: [25, 30]

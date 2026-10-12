@@ -40,10 +40,13 @@ _ENGINE_CONFIG_MODULES = (
 )
 
 _CALIBRATION_MODULES = (
-    "boxmot.engine.calibration.ground_truth_noise",
+    "boxmot.engine.calibration.cmc",
     "boxmot.engine.calibration.kalman",
+    "boxmot.engine.calibration.kalman_artifacts",
     "boxmot.engine.calibration.kalman_data",
+    "boxmot.engine.calibration.kalman_fit",
     "boxmot.engine.calibration.kalman_model",
+    "boxmot.engine.calibration.kalman_selection",
 )
 
 _ROOT_HELP_RUNTIME_MODULES = (

@@ -95,6 +95,7 @@ REMOVED_V24_MODULES = (
     "boxmot.engine.commands.reid.base",
     "boxmot.engine.tracking.results",
     "boxmot.engine.tracking.setup_timing",
+    "boxmot.engine.calibration.ground_truth_noise",
     "boxmot.engine.tuning.ground_truth_noise",
     "boxmot.engine.tuning.eagermot_kitti",
     "boxmot.engine.tuning.kalman",
