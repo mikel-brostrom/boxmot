@@ -42,6 +42,54 @@ radius and other tracker settings. See [association settings](../config/trackers
 An explicit `asso_func` in `--tracker-config` also fixes the metric unless
 `--asso-func` overrides it. Other searchable preset values remain starting values.
 
+Conditional parameters are sampled only in their active branch. Optuna uses
+Ray Tune's [define-by-run interface](https://docs.ray.io/en/latest/tune/examples/optuna_example.html#conditional-search-spaces);
+HyperOpt and random search use branch-specific choice dictionaries. For example,
+`motion_fusion_lambda` is suggested only when `motion_fusion` is `blend`.
+Other modes can still record its fixed runtime default in `results.csv` and
+trial configs. A recorded value alone does not mean the optimizer sampled it;
+the analysis excludes these inactive defaults using the recorded search schema.
+
+## Inspect image-tracker tuning results
+
+Each image-tracker run saves `results.csv`, `best.yaml`, and `summary.md` under
+its reported run directory. The analysis uses that run's `search-space.json`
+and trial JSON metadata to explain which parameters were actually searched:
+
+| Output | What to inspect |
+| --- | --- |
+| `analysis.png` | Scores in completion order, best-so-far progress, score distribution, and detection/association and identity tradeoffs. |
+| `analysis_scatter.png` | Numeric search dimensions, active sample counts, and Spearman correlations with HOTA. |
+| `analysis_categories.png` | Categorical and Boolean choices, their sample counts, and association-function × motion-fusion comparisons. |
+| `analysis_candidates.png` | Top-ten trial metrics and per-sequence HOTA changes against the reference. |
+
+Near-best means within **0.2 absolute HOTA points** of the winner. The summary
+compares top-ten and near-best parameter ranges, active counts, and proximity
+to the recorded search bounds. Inactive conditional defaults are excluded;
+conditional ranges are shown separately. Numeric correlations are calculated
+within each active branch, and conditional categorical choices get separate
+panels with that branch's options and sample counts. An active sample is kept
+even when its value equals an inactive branch's default. Parameters that stayed
+constant are omitted from the scatter plots. A default baseline is identified by matching
+recorded defaults; otherwise the reference is labeled as the first completed
+trial. Missing metadata is reported, and diagnostics that require it are
+omitted.
+
+To regenerate the figures and the parameter section of an existing summary,
+run this from the repository root, replacing the directory with your run:
+
+```bash
+uv run --no-sync python -m boxmot.engine.tuning.analysis \
+  runs/ray/mot17-ablation-yolox-lmbn/bytetrack_3
+```
+
+The summary's run provenance and other sections are preserved. Correlations,
+category comparisons, and concentrated ranges describe the sampled trials;
+unequal sampling and simultaneous parameter changes prevent causal conclusions.
+They guide the next experiment, but do not establish repeatability or
+statistically demonstrated superiority. Check sequence regressions and evaluate
+selected profiles on held-out data before drawing broader conclusions.
+
 ## Tune mask guidance
 
 The nine Python box trackers can search EdgeTAM guidance settings together with
