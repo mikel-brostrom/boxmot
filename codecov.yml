@@ -1,0 +1,6 @@
+# Coverage is displayed in the README; pytest owns the coverage threshold.
+comment: false
+coverage:
+  status:
+    project: false
+    patch: false
