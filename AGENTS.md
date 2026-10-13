@@ -278,7 +278,9 @@ Sometimes the provided environment is missing GPUs, large datasets, or external 
   - Accept the matching config through `config=`; keep component settings and
     geometry/class selection separate. Constructors and factories share these defaults.
   - Create `boxmot/configs/trackers/<name>.yaml` with tuning ranges and component
-    profiles. Do not duplicate algorithm defaults there; put tuned overrides in presets.
+    profiles. Every searchable parameter must declare a default; algorithm defaults
+    must match the typed config. Use named filters for `kalman.type` defaults and
+    search options. Put tuned overrides in presets.
 
 4) Update docs
   - Add a tracker doc page in `docs/trackers/<name>.md`.

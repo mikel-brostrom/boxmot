@@ -446,9 +446,14 @@ stay fixed; scale refinement changes each selected group as a whole.
 For image trackers, reuse an existing calibration by starting a new tuning run
 with `--tracker-config path/to/kf-tuning/calibrated.yaml` and omit
 `--calibrate-kf`. The loaded KF values stay fixed while the other tracker
-parameters are optimized. Without a profile, the built-in KF defaults stay
-fixed. The selector also accepts partial runtime YAMLs and built-in
-presets.
+parameters are optimized. Without a filter constraint, the eight Python 2D
+Kalman trackers search `kalman.type` over `xyah`, `xywh`, `xysr`, `xyhr`, and
+`xyscr`, starting from the [named default in each tracker YAML](../config/trackers.md).
+These YAML defaults apply to both AABB and OBB. Covariance and
+timing defaults stay fixed. An explicit runtime `kalman.type` (including
+`null`), covariance vectors, or adaptive KF policy fixes the filter, as do
+`--calibrate-kf` and `--select-kf`. C++ tuning keeps its native filter fixed.
+The selector also accepts partial runtime YAMLs and built-in presets.
 
 EagerMOT uses `--class-config` for its separate car and pedestrian profiles.
 Its 3D filter supports covariance calibration in fixed-step mode only.

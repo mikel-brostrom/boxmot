@@ -1,22 +1,27 @@
 min_conf:
   type: uniform
+  default: 0.6
   range: [0.2, 0.8]
 
 ema_alpha:
   type: uniform
+  default: 0.9
   range: [0.7, 0.95]
 
 max_cos_dist:
   type: uniform
+  default: 0.4
   range: [0.1, 0.4]
 
 max_iou_dist:
   type: uniform
+  default: 0.7
   range: [0.5, 0.95]
   association: [iou, giou, diou, ciou, hmiou]
 
 asso_func:
   type: choice
+  default: iou
   options: [iou, giou, diou, ciou, hmiou, centroid]
 
 # Maximum centroid displacement as a fraction of the frame diagonal.
@@ -24,30 +29,37 @@ asso_func:
 centroid_max_distance:
   association: [centroid]
   type: uniform
+  default: 0.05
   range: [0.005, 0.1]
 
 max_age:
   type: randint
+  default: 30
   range: [10, 151]  # upper bound exclusive
 
 n_init:
   type: randint
+  default: 3
   range: [1, 4]  # upper bound exclusive
 
 mc_lambda:
   type: uniform
+  default: 0.98
   range: [0.90, 0.999]
 
 gating_only_position:
   type: choice
+  default: false
   options: [false, true]
 
 geometric_recovery_max_age:
   type: randint
+  default: 1
   range: [1, 6]
 
 nn_budget:
   type: choice
+  default: 100
   # Bound the per-track appearance gallery while varying its memory horizon.
   options: [25, 50, 100, 200]
 
@@ -59,9 +71,11 @@ cmc_min_conf: {}
 # Timing and reference-prior units stay fixed across all tuning trials.
 
 kalman:
-  # Preserve the tracker-specific filter unless a profile or --select-kf chooses one.
+  # Search filter types from this tracker's explicit default.
   type:
-    default: null
+    type: choice
+    default: xyah
+    options: [xyah, xywh, xysr, xyhr, xyscr]
 
   variable_dt:
     default: false

@@ -27,10 +27,13 @@ Adding a tuned tracker usually means:
 3. document any new behavior or defaults
 
 Tracker YAML algorithm entries declare tuning metadata such as `type`, `range`,
-`options`, or conditional `activates`. The loader supplies each algorithm field's
-`default` from its config class. Give effective algorithm parameters valid search
-ranges, and mark fixed settings that affect tracker setup with an empty mapping
-and a short explanation. Omit unused inherited fields and display-only controls;
+`options`, or conditional `activates`. Every searchable parameter must include a
+`default`, including parameters inside `activates` blocks or searched only in a
+conditional case. Algorithm defaults must match the value and type in the config
+class; the loader rejects mismatches. Case fragments inherit the parameter's
+default unless they explicitly override it. Give effective algorithm parameters
+valid search ranges, and mark fixed settings that affect tracker setup with an
+empty mapping and a short explanation. Omit unused inherited fields and display-only controls;
 keep observation-history settings when they affect motion estimation or recovery.
 Omitted algorithm fields retain their typed defaults and are not searched.
 Component groups retain profile defaults. Presets under

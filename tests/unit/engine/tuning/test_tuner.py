@@ -238,6 +238,7 @@ def test_built_in_tracker_yaml_combines_runtime_defaults_and_tuning_metadata():
         "second_match_thresh": 0.5,
         "unconfirmed_match_thresh": 0.7,
         "asso_func": "iou",
+        "kalman.type": "xyah",
         "edgetam.min_coverage": 0.9,
         "edgetam.min_fill": 0.05,
         "edgetam.prompt_overlap": 0.1,

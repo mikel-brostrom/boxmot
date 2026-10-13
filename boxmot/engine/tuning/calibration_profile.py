@@ -16,6 +16,7 @@ from boxmot.trackers.common.config import flatten_tracker_options
 from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_OPTIONS, KALMAN_TIMING_OPTIONS
 
 CALIBRATED_KF_OPTIONS = (
+    "kalman.type",
     *KALMAN_NOISE_OPTIONS,
     *KALMAN_TIMING_OPTIONS,
     "kalman.variable_dt",

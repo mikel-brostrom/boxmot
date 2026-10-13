@@ -2,7 +2,9 @@
 
 Algorithm defaults live in immutable Python config classes such as
 `BotSortConfig`. Each `boxmot/configs/trackers/<tracker>.yaml` file defines the
-corresponding tuning search space and shared component settings. Tuned presets live under
+corresponding tuning search space and shared component settings. Every searchable
+parameter includes an explicit `default`; algorithm defaults must match the
+value and type in the corresponding Python config. Tuned presets live under
 `boxmot/configs/trackers/presets`. Single-profile presets are runtime
 overlays and declare their owning tracker with a top-level `tracker` field.
 The EagerMOT `eagermot-kitti-mots-val.yaml` preset contains both `car` and
@@ -59,11 +61,13 @@ the centroid radius is searched only when `asso_func` is `centroid`:
 iou_threshold:
   association: [iou, giou, diou, ciou, hmiou]
   type: uniform
+  default: 0.3
   range: [0.1, 0.9]
 
 centroid_max_distance:
   association: [centroid]
   type: uniform
+  default: 0.05
   range: [0.005, 0.1]
 ```
 
@@ -75,8 +79,11 @@ at runtime and uses `centroid_max_distance` as its sole geometric cutoff.
 
 Use `depends_on` and `cases` when an applicable parameter needs different numeric
 ranges for different metrics, as ByteTrack does for GIoU, DIoU, and CIoU.
-Cases override the base distribution; a case containing only `default` fixes
-that value, including when a runtime profile supplies a different starting
+Searchable parameters inside `activates` blocks and parameters searched only in
+a case also declare their defaults on the parameter entry. Case fragments inherit
+that default unless they override it. Cases override the base distribution;
+a case containing only `default` fixes that value, including when a runtime
+profile supplies a different starting
 value. Without a matching case, the base distribution applies, or the runtime
 default if no distribution exists.
 
@@ -160,9 +167,24 @@ OccluBoost. `kalman.is_angular` selects EagerMOT's object yaw-velocity state.
 OccluBoost's `kalman.ams` group holds `enabled`, `alpha0`, `threshold`,
 `buffer_size`, and `shrink_ratio` for its AABB gain-suppression policy. Other
 trackers reject these policy groups. `kalman.type` selects a compatible Python
-2D filter (`xyah`, `xywh`, `xysr`, `xyhr`, or `xyscr`); omitting it or using `null`
-preserves the original filter for the tracker and geometry. Built-in 2D Kalman
-profiles declare this selector with fixed `default: null`. Use
+2D filter (`xyah`, `xywh`, `xysr`, `xyhr`, or `xyscr`). Built-in 2D Kalman
+profiles search these five named types and declare explicit defaults:
+
+| Tracker | Default `kalman.type` |
+| --- | --- |
+| ByteTrack, StrongSORT | `xyah` |
+| BoT-SORT | `xywh` |
+| OC-SORT, DeepOC-SORT | `xysr` |
+| HybridSORT | `xyscr` |
+| BoostTrack, OccluBoost | `xyhr` |
+
+The Python factory and CLI use these YAML defaults for both AABB and OBB.
+Direct constructors without a Kalman configuration use their geometry-dependent
+filter defaults; explicitly supplying `kalman.type: null` also requests that
+fallback. For OBB, that fallback is `xywh` for ByteTrack and StrongSORT and
+`xysr` for HybridSORT. An explicit runtime
+`kalman.type`, calibration, covariance vectors, or adaptive KF policy fixes
+the filter; C++ tuning keeps its native filter. Use
 [`tune --select-kf`](../modes/tune.md#select-the-kf-before-tracker-tuning) to
 compare types and noise profiles before tuning tracker thresholds.
 
