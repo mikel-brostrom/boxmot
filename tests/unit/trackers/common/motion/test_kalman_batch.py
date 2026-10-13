@@ -94,10 +94,7 @@ def test_vectorized_obb_gating_matches_scalar_alignment(filter_type, count, metr
     projected_mean, projected_covariance = kalman.project(mean, covariance)
     aligned = measurements.copy()
     for index in range(count):
-        if filter_type is KalmanFilterXYWH:
-            aligned[index] = kalman._align_obb_measurement(aligned[index], projected_mean)
-        else:
-            aligned[index, 4] = kalman._align_angle_to_reference(aligned[index, 4], projected_mean[4])
+        aligned[index] = kalman._align_obb_measurement(aligned[index], projected_mean)
     expected = kalman._gating_from_residuals(aligned - projected_mean, projected_covariance, metric)
     np.testing.assert_allclose(kalman.gating_distance(mean, covariance, measurements, metric=metric), expected)
 

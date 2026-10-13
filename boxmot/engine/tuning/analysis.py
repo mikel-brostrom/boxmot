@@ -221,6 +221,19 @@ def generate_tune_analysis(tune_dir: Path, tracker_name: str = "", n_trials: int
     return output_png
 
 
+def generate_selection_analysis(tune_dir: Path) -> tuple[Path, ...]:
+    """Rebuild selection images from reports, independently of completed trials."""
+    from boxmot.engine.calibration.cmc_plots import generate_cmc_plot
+    from boxmot.engine.calibration.selection_plots import generate_selection_plot
+
+    directory = Path(tune_dir) / "kf-tuning"
+    outputs = (
+        generate_selection_plot(directory / "selection.json"),
+        generate_cmc_plot(directory / "cmc" / "analysis.json"),
+    )
+    return tuple(path for path in outputs if path is not None)
+
+
 if __name__ == "__main__":
     import sys
 

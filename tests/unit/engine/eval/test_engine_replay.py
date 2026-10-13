@@ -280,6 +280,7 @@ def test_sequence_replay_uses_sample_dimensions_without_loading_image_pixels(tmp
 
 
 def test_replay_worker_does_not_join_observational_progress_feeder(monkeypatch) -> None:
+    """Initialize worker progress without leaving its queue in the test process."""
     class _ProgressQueue:
         cancelled = False
 
@@ -291,6 +292,7 @@ def test_replay_worker_does_not_join_observational_progress_feeder(monkeypatch) 
     monkeypatch.setattr(logger, "handlers", [])
     monkeypatch.setattr(logger, "propagate", True)
     monkeypatch.setattr(logger, "disabled", False)
+    monkeypatch.setattr(replay_module, "_WORKER_PROGRESS_QUEUE", None)
 
     replay_module._initialize_replay_worker(progress_queue)
 

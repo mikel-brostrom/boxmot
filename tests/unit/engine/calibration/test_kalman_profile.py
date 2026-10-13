@@ -13,10 +13,68 @@ from boxmot.trackers import create_tracker
 from boxmot.trackers.common.config import load_tracker_config
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
 from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
-from boxmot.trackers.common.motion.kalman_filters.profile import calibration_profile_signature
+from boxmot.trackers.common.motion.kalman_filters.profile import (
+    calibration_cmc_signature,
+    calibration_profile_signature,
+    validate_calibration_profile,
+)
 from tests.unit.engine.calibration.test_kalman import _args, _data, _load_fixture
 from tests.unit.engine.calibration.test_kalman_sensor import _data as _sensor_data
 from tests.unit.engine.calibration.test_kalman_sensor import _dataset
+
+
+def _joint_camera_profile() -> dict:
+    """A portable camera-bound profile may omit default-valued tracker options."""
+    options = {"cmc_method": "sof", "cmc_min_conf": 0.2}
+    return {
+        **options,
+        **{
+            f"calibration.{name}": value
+            for name, value in calibration_profile_signature("occluboost", "aabb", options).items()
+        },
+        "calibration.cmc_policy": "auto",
+        "calibration.cmc_rule": "sof-motion-v3",
+        "calibration.cmc_min_conf": 0.2,
+        **calibration_cmc_signature(load_tracker_config("occluboost")),
+    }
+
+
+def test_portable_camera_profile_resolves_omitted_tracker_sof_defaults():
+    options = _joint_camera_profile()
+    validate_calibration_profile(options, tracker_name="occluboost", geometry="aabb")
+    options.update(sof_target_width=None, sof_ransac_reproj_threshold=3.0)
+    validate_calibration_profile(options, tracker_name="occluboost", geometry="aabb")
+
+
+@pytest.mark.parametrize("overrides", [{"sof_target_width": 128}, {"sof_ransac_reproj_threshold": 1.5}])
+def test_factory_rejects_changed_camera_settings_before_tracker_construction(overrides):
+    with pytest.raises(ValueError, match="SOF estimator settings differ"):
+        create_tracker("occluboost", **{**_joint_camera_profile(), **overrides})
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("cmc_sof_target_width", 0),
+        ("cmc_sof_target_width", True),
+        ("cmc_sof_target_width", 256.0),
+        ("cmc_sof_ransac_reproj_threshold", float("inf")),
+        ("cmc_sof_ransac_reproj_threshold", float("nan")),
+        ("cmc_sof_ransac_reproj_threshold", -1.0),
+    ],
+)
+def test_camera_profile_rejects_invalid_estimator_metadata(field, value):
+    options = {**_joint_camera_profile(), f"calibration.{field}": value}
+    with pytest.raises(ValueError, match=f"invalid {field} provenance"):
+        validate_calibration_profile(options, tracker_name="occluboost", geometry="aabb")
+
+
+@pytest.mark.parametrize("missing", ["cmc_sof_target_width", "cmc_sof_ransac_reproj_threshold"])
+def test_camera_profile_requires_complete_estimator_metadata(missing):
+    options = _joint_camera_profile()
+    del options[f"calibration.{missing}"]
+    with pytest.raises(ValueError, match="metadata must include.*SOF settings"):
+        validate_calibration_profile(options, tracker_name="occluboost", geometry="aabb")
 
 
 def test_moved_calibrated_profile_validates_factory_geometry_without_sidecar(monkeypatch, tmp_path):

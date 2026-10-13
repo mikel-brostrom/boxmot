@@ -700,6 +700,9 @@ jobs:
 
   tests:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     outputs:
       status: ${{ job.status }}
     timeout-minutes: 30
@@ -737,10 +740,12 @@ jobs:
           # CI-only integration and native tests run in their dedicated jobs.
           # Local dataset-preparation tests are opt-in.
           # Use the prepared CPU-only environment without an implicit uv sync.
+          # Use allocated logical CPUs, capped to bound memory and child processes.
           .venv/bin/python -m pytest \
             --cov="$PACKAGE_DIR" \
             --cov-report=html \
-            -n 2 --dist worksteal \
+            --cov-report=xml:coverage.xml \
+            -n logical --maxprocesses=4 --dist worksteal \
             -q -ra --durations=30 \
             --junitxml=test-results.xml \
             --ignore=tests/ci \
@@ -748,12 +753,22 @@ jobs:
             --ignore=tests/unit/tools \
             tests
           .venv/bin/python -m coverage report --fail-under="$COVERAGE_FAIL_UNDER"
+      - name: Publish coverage to Codecov
+        if: ${{ !cancelled() && hashFiles('coverage.xml') != '' }}
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage.xml
+          disable_search: true
+          use_oidc: true
+          fail_ci_if_error: false
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
-          path: htmlcov/
+          path: |
+            htmlcov/
+            coverage.xml
           retention-days: 14
       - name: Upload test results
         if: always()

@@ -2,6 +2,7 @@ from typing import Tuple
 
 import numpy as np
 
+from boxmot.trackers.common.geometry.obb import align_obb_measurement, align_obb_measurements
 from boxmot.trackers.common.motion.kalman_filters.base import BaseKalmanFilter
 from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
 
@@ -90,6 +91,28 @@ class KalmanFilterXYAH(BaseKalmanFilter):
         std[:, (0, 1, 3)] = self._std_weight_position * mean[:, 3, None]
         return std
 
+    @staticmethod
+    def _align_obb_measurement(measurement: np.ndarray, reference: np.ndarray) -> np.ndarray:
+        """Resolve equivalent rectangles in width/height space, then restore XYAH."""
+        box = np.asarray(measurement, dtype=float).reshape(-1).copy()
+        reference_box = np.asarray(reference, dtype=float).reshape(-1)[:5].copy()
+        box[2] *= box[3]
+        reference_box[2] *= reference_box[3]
+        aligned = align_obb_measurement(box, reference_box)
+        aligned[2] /= aligned[3]
+        return aligned
+
+    @staticmethod
+    def _align_multi_obb_measurement(measurement: np.ndarray, reference: np.ndarray) -> np.ndarray:
+        """Resolve each row's ratio/height and angle ambiguity independently."""
+        boxes = np.asarray(measurement, dtype=float).copy()
+        reference_boxes = np.asarray(reference, dtype=float)[:, :5].copy()
+        boxes[:, 2] *= boxes[:, 3]
+        reference_boxes[:, 2] *= reference_boxes[:, 3]
+        aligned = align_obb_measurements(boxes, reference_boxes)
+        aligned[:, 2] /= aligned[:, 3]
+        return aligned
+
     @classmethod
     def _enforce_xyah_constraints(cls, mean: np.ndarray, is_obb: bool) -> np.ndarray:
         return cls._enforce_state_geometry(
@@ -138,14 +161,14 @@ class KalmanFilterXYAH(BaseKalmanFilter):
             measurement_arr = np.asarray(measurement, dtype=float).copy()
             if mean_arr.ndim == 2:
                 measurement_arr = measurement_arr.reshape((self.ndim, 1))
-                reference_theta = float(mean_arr[4, 0])
-                measurement_arr[4, 0] = self._align_angle_to_reference(measurement_arr[4, 0], reference_theta)
+                measurement_arr[:, 0] = self._align_obb_measurement(measurement_arr[:, 0], mean_arr[:, 0])
             else:
                 measurement_arr = measurement_arr.reshape((self.ndim,))
-                reference_theta = float(mean_arr[4])
-                measurement_arr[4] = self._align_angle_to_reference(measurement_arr[4], reference_theta)
+                measurement_arr = self._align_obb_measurement(measurement_arr, mean_arr)
             measurement = measurement_arr
         new_mean, new_covariance = super().update(mean, covariance, measurement, confidence)
+        if self._is_obb:
+            new_mean = self._damp_theta_velocity(new_mean, damping=0.8)
         new_mean = self._enforce_xyah_constraints(new_mean, self._is_obb)
         return new_mean, new_covariance
 
@@ -156,13 +179,13 @@ class KalmanFilterXYAH(BaseKalmanFilter):
         measurement: np.ndarray,
         confidence: float | np.ndarray = 0.0,
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Correct a batch with independent angle alignment and confidence."""
+        """Correct a batch with independent angle alignment and damped turns."""
         if self._is_obb:
-            measurement = np.asarray(measurement, dtype=float).copy()
-            measurement[:, 4] = mean[:, 4] + self._wrap_angle(measurement[:, 4] - mean[:, 4])
+            measurement = self._align_multi_obb_measurement(measurement, mean)
         mean, covariance = super().multi_update(mean, covariance, measurement, confidence)
         mean[:, 2:4] = np.maximum(mean[:, 2:4], 1e-4)
         if self._is_obb:
+            mean[:, -1] *= 0.8
             mean[:, 4] = self._wrap_angle(mean[:, 4])
         return mean, covariance
 
@@ -180,7 +203,9 @@ class KalmanFilterXYAH(BaseKalmanFilter):
         projected_mean, projected_cov, measurements = self._prepare_gating_inputs(
             mean, covariance, measurements, self.project
         )
-        measurements[:, 4] = projected_mean[4] + self._wrap_angle(measurements[:, 4] - projected_mean[4])
+        measurements = self._align_multi_obb_measurement(
+            measurements, np.broadcast_to(projected_mean, measurements.shape)
+        )
 
         residuals = measurements - projected_mean
         return self._gating_from_residuals(residuals, projected_cov, metric)

@@ -45,8 +45,7 @@ def test_driver_records_filtered_search_and_preserves_fixed_trial_values(fake_tu
     assert profile["schema"] == driver._yaml_cfg
     sampled = _sample(profile["schema"], "optuna")
     excluded = {*KALMAN_NOISE_OPTIONS, "asso_func", "edgetam.max_objects"}
-    excluded.update(key for key in profile["fixed_options"] if key.startswith("obb_"))
-    assert len([key for key in excluded if key.startswith("obb_")]) == 7
+    assert not any(key.startswith("obb_") for key in profile["fixed_options"])
     assert not excluded.intersection(sampled)
     assert set(MASK_GUIDANCE_OPTIONS) - {"edgetam.max_objects"} <= sampled.keys()
     for trial in fake_tuning.captured["trial_configs"]:
@@ -57,8 +56,8 @@ def _sample(schema: dict, backend: str) -> dict:
     """Exercise each converter without starting a tuning job or model."""
     if backend == "optuna":
         trial = _SuggestionTrial()
-        yaml_to_optuna_define_space(schema)(trial)
-        return trial.params
+        constants = yaml_to_optuna_define_space(schema)(trial) or {}
+        return normalize_trial_config({**trial.params, **constants})
     if backend == "hyperopt":
         stochastic = pytest.importorskip("hyperopt.pyll.stochastic")
         return normalize_trial_config(
@@ -71,7 +70,7 @@ def _sample(schema: dict, backend: str) -> dict:
         randint=lambda low, high: low,
         qrandint=lambda low, high, step: low,
     )
-    return yaml_to_tune_space(schema, fake_ray)
+    return normalize_trial_config(yaml_to_tune_space(schema, fake_ray))
 
 
 @pytest.mark.parametrize("backend", ["optuna", "hyperopt", "random"])
@@ -223,19 +222,21 @@ def test_tuning_metadata_rejects_invalid_geometry(geometry: object) -> None:
 
 
 @pytest.mark.parametrize("backend", ["optuna", "hyperopt", "random"])
-def test_obb_search_excludes_aabb_thresholds_and_ams_without_losing_shared_weights(backend: str) -> None:
+def test_obb_search_keeps_shared_thresholds_and_excludes_aabb_motion_controls(backend: str) -> None:
     args = SimpleNamespace(tracker="occluboost", tracker_backend="python", geometry="obb")
     runtime = resolve_tracker_options(args, include_defaults=True)
     schema = condition_tracker_schema(load_yaml_config("occluboost"), runtime, geometry="obb")
     sampled = _sample(schema, backend)
     flat = flatten_yaml_config(schema)
     inactive = {
-        "max_age", "det_thresh", "iou_threshold", "new_track_thresh", "instant_confirm_thresh",
-        "recovery_max_age", "second_iou_thresh", "lambda_mhd", "lambda_shape", "s_sim_corr",
+        "lambda_mhd", "lambda_shape", "s_sim_corr",
         "lambda_emb_multiplier", *(key for key in runtime if key.startswith("kalman.ams.")),
     }
 
     assert not inactive.intersection(sampled)
     assert all(flat[key] == {"default": runtime[key]} for key in inactive)
-    assert {"obb_det_thresh", "obb_iou_threshold", "obb_max_age", "lambda_iou"}.issubset(sampled)
+    assert {
+        "det_thresh", "iou_threshold", "max_age", "new_track_thresh", "instant_confirm_thresh", "lambda_iou",
+    }.issubset(sampled)
+    assert not any(key.startswith("obb_") for key in flat)
     assert flat["recovery_iou_thresh"]["type"] == "uniform"

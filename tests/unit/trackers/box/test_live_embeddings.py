@@ -66,7 +66,7 @@ def _tracker_options(tracker_name: str) -> dict[str, object]:
                 "track_high_thresh": 0.2,
                 "new_track_thresh": 0.2,
             },
-            "deepocsort": {"cmc_off": True},
+            "deepocsort": {"use_cmc": False},
             "hybridsort": {},
             "occluboost": {
                 "use_cmc": False,

@@ -9,15 +9,26 @@ from boxmot.engine.calibration.kalman_model import CalibrationModel
 from boxmot.trackers import TrackerSpec, create_tracker
 from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_TRACKER_NAMES
 from boxmot.trackers.common.motion.kalman_filters.profile import calibration_profile_signature
+from boxmot.trackers.common.motion.models import supported_motion_model_kinds
 from tests.unit.trackers.test_trackers import _aabb_rows, _obb_rows
 from tests.unit.trackers.test_variable_frame_time import _state, _update
 
 
 @pytest.mark.parametrize("tracker_name", sorted(KALMAN_TRACKER_NAMES))
-@pytest.mark.parametrize("geometry", ["aabb", "obb"])
 @pytest.mark.parametrize("timed", [False, True])
-def test_covariance_bases_reconstruct_actual_tracker_matrices(tracker_name: str, geometry: str, timed: bool) -> None:
+@pytest.mark.parametrize(
+    "geometry,kalman_type",
+    [
+        (geometry, kind)
+        for geometry in ("aabb", "obb")
+        for kind in (None, *(item.value for item in supported_motion_model_kinds(is_obb=geometry == "obb")))
+    ],
+)
+def test_covariance_bases_reconstruct_actual_tracker_matrices(
+    tracker_name: str, geometry: str, timed: bool, kalman_type: str | None
+) -> None:
     options = {
+        "kalman.type": kalman_type,
         "min_hits": 1,
         "kalman.variable_dt": timed,
         "kalman.noise.reference_dt_s": 0.05,
@@ -54,19 +65,21 @@ def test_covariance_bases_reconstruct_actual_tracker_matrices(tracker_name: str,
     )
 
     zero_covariance = np.zeros_like(initial_covariance)
-    if tracker_name in {"boosttrack", "occluboost"}:
+    if model.kind.value == "xyhr":
         actual_r = actual_filter.project(mean, zero_covariance)[1]
-    elif tracker_name in {"ocsort", "deepocsort", "hybridsort"}:
+    elif model.kind.value in {"xysr", "xyscr"}:
         actual_r = actual_filter.project_state(x=mean, P=zero_covariance)[1]
     else:
         confidence = score if tracker_name == "strongsort" else 0.0
         actual_r = actual_filter.project(mean, zero_covariance, confidence=confidence)[1]
+    if tracker_name == "strongsort" and model.kind.value in {"xyhr", "xysr", "xyscr"}:
+        actual_r *= (1.0 - score) ** 2
     np.testing.assert_allclose(actual_r, 5.0 * model.measurement_covariance(measurement, score))
 
     interval = 0.12 if timed else None
     mean[list(model.velocity_indices)] = 0.01
     q_position, q_velocity = model.process_covariance_bases(mean, interval)
-    if tracker_name in {"ocsort", "deepocsort", "hybridsort"}:
+    if model.kind.value in {"xysr", "xyscr"}:
         actual_filter.x = mean.reshape(-1, 1).copy()
         actual_filter.P = zero_covariance.copy()
         actual_filter.predict(dt=interval)
@@ -94,17 +107,23 @@ def test_obb_measurements_align_equivalent_rectangles_and_angle_wrap(tracker_nam
     crossed_box = reference_box.copy()
     crossed_box[4] = -np.pi + 0.03
     crossed = model.to_measurement(crossed_box, reference=reference)
-    assert crossed[4] - reference[4] == pytest.approx(0.05)
+    angle_index = model.motion_model.angle_measurement_index
+    assert crossed[angle_index] - reference[angle_index] == pytest.approx(0.05)
 
 
-def test_hybrid_sort_confidence_is_not_supervised_by_box_ground_truth() -> None:
-    model = CalibrationModel("hybridsort", "aabb", {})
-    assert model.dim_z == 5
-    assert model.dim_x == 9
-    assert model.measurement_indices == (0, 1, 2, 4)
-    assert model.velocity_indices == (5, 6, 7)
-    assert model.velocity_measurement_indices == (0, 1, 2)
-    assert model.to_measurement(np.array([10.0, 20.0, 40.0, 80.0]), score=0.85)[3] == 0.85
+@pytest.mark.parametrize("geometry", ["aabb", "obb"])
+def test_hybrid_sort_confidence_is_not_supervised_by_box_ground_truth(geometry) -> None:
+    model = CalibrationModel("hybridsort", geometry, {"kalman.type": "xyscr"})
+    is_obb = geometry == "obb"
+    assert model.dim_z == (6 if is_obb else 5)
+    assert model.dim_x == (11 if is_obb else 9)
+    assert model.measurement_indices == ((0, 1, 2, 4, 5) if is_obb else (0, 1, 2, 4))
+    assert model.velocity_indices == ((6, 7, 8, 10) if is_obb else (5, 6, 7))
+    assert model.velocity_measurement_indices == ((0, 1, 2, 5) if is_obb else (0, 1, 2))
+    box = np.array([10.0, 20.0, 40.0, 80.0, 0.2] if is_obb else [10.0, 20.0, 40.0, 80.0])
+    measurement = model.to_measurement(box, score=0.85)
+    assert measurement[3] == 0.85
+    assert model.to_measurement(box, score=0.65, reference=measurement)[3] == 0.65
 
 
 def test_class_reference_model_removes_existing_noise_scales():
@@ -129,7 +148,7 @@ def test_class_reference_model_removes_existing_noise_scales():
     assert options["kalman"]["noise"]["by_class"]["2"]["measurement_noise_scale"] == 7.0
 
 
-@pytest.mark.parametrize("tracker_name", ["ocsort", "deepocsort", "hybridsort"])
+@pytest.mark.parametrize("tracker_name", ["ocsort", "deepocsort"])
 def test_obb_xysr_derivative_mapping_keeps_ratio_static(tracker_name: str) -> None:
     model = CalibrationModel(tracker_name, "obb", {})
     assert model.velocity_indices == (5, 6, 7, 8)

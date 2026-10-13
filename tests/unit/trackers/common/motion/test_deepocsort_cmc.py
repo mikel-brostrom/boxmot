@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from boxmot.trackers.common.geometry.obb import transform_aabb
-from boxmot.trackers.common.motion.cmc.state import transform_xysr_kalman_centers
+from boxmot.trackers.common.motion.models import create_motion_model
 from boxmot.trackers.common.tracking.track import TrackIdAllocator
 from boxmot.trackers.deepocsort.track import DeepOBBKalmanBoxTracker
 from boxmot.trackers.deepocsort.track import KalmanBoxTracker as DeepTrack
@@ -22,7 +22,9 @@ def test_xysr_camera_correction_preserves_size_and_covariance_terms(column: bool
     original_means = means.copy()
     matrix = np.array([[0.8, -0.6, 12.0], [0.6, 0.8, -7.0]])
 
-    transformed, corrected = transform_xysr_kalman_centers(means[..., None] if column else means, covariance, matrix)
+    transformed, corrected = create_motion_model("xysr").transform_states(
+        means[..., None] if column else means, covariance, matrix
+    )
 
     assert transformed.shape == ((1, 7, 1) if column else (1, 7))
     result = transformed.reshape(1, 7)
@@ -43,7 +45,7 @@ def test_xysr_camera_correction_preserves_positive_covariance() -> None:
     covariance = np.eye(7)[None]
     covariance[:, 0, 4] = covariance[:, 4, 0] = 0.9999
     transform = np.array([[0.99992, 0.00017, 0.09], [-0.00017, 0.99992, 0.14]])
-    _, corrected = transform_xysr_kalman_centers(means, covariance, transform)
+    _, corrected = create_motion_model("xysr").transform_states(means, covariance, transform)
     np.testing.assert_allclose(corrected, corrected.swapaxes(1, 2), atol=1e-15)
     assert np.linalg.eigvalsh(corrected).min() > 0.0
 
@@ -60,7 +62,7 @@ def test_deep_camera_rotation_keeps_pedestrian_trajectory_and_recovery_stable() 
         measurement = detection.copy()
         measurement[:4] += frame
         track.update(measurement)
-        np.testing.assert_allclose(track.kf.x[[2, 3]], original_shape, rtol=1e-10)
+        np.testing.assert_allclose(track.kf.x[3], original_shape[1], rtol=1e-10)
         assert np.max(np.abs(track.kf.P)) < 25.0
         np.testing.assert_allclose(track.get_state()[0], measurement[:4], atol=1.0)
 
@@ -80,8 +82,11 @@ def test_deep_camera_rotation_keeps_pedestrian_trajectory_and_recovery_stable() 
         (timed_track.kf._prediction_origin, timed_original._prediction_origin),
         ((track.kf.attr_saved["x"], track.kf.attr_saved["P"]), (original.attr_saved["x"], original.attr_saved["P"])),
     ):
-        np.testing.assert_array_equal(actual[0][[2, 3, 6]], previous[0][[2, 3, 6]])
-        np.testing.assert_array_equal(actual[1][[2, 3, 6]], previous[1][[2, 3, 6]])
+        expected_mean, expected_covariance = track.motion_model.transform_states(
+            previous[0].reshape(1, -1), previous[1][None], transform
+        )
+        np.testing.assert_allclose(actual[0].reshape(-1), expected_mean[0])
+        np.testing.assert_allclose(actual[1], expected_covariance[0])
 
 
 def test_deep_projective_camera_correction_retains_perspective() -> None:

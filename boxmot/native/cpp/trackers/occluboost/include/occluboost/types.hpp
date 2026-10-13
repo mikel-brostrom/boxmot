@@ -9,6 +9,7 @@ namespace occluboost {
 
 struct Config {
     std::string asso_func = "iou";
+    double centroid_max_distance = 0.05;
     // BoostTrack inherited
     int max_age = 120;
     int min_hits = 1;
@@ -29,6 +30,17 @@ struct Config {
     bool use_embeddings = true;
     std::string cmc_method = "ecc";
     int max_obs = 50;
+    double alpha_fixed_emb = 0.95;
+    double appearance_thresh = 0.75;
+    double appearance_iou_fraction = 0.5;
+    double dlo_soft_alpha = 0.65;
+    double dlo_soft_power = 1.5;
+    double dlo_threshold_start = 0.95;
+    double dlo_threshold_end = 0.8;
+    double duo_mahalanobis_thresh = 13.2767;
+    double duo_iou_thresh = 0.3;
+    double track_confidence_decay = 0.9;
+    int track_confidence_warmup = 7;
 
     // OccluBoost specific
     float recovery_appearance_thresh = 0.4F;
@@ -52,16 +64,6 @@ struct Config {
     int ams_buffer_size = 30;
     float ams_shrink_ratio = 0.75F;
     float lambda_emb_multiplier = 1.5F;
-
-    // Multi-class OBB detections need a less restrictive operating point than
-    // the MOT-tuned AABB defaults. These mirror the Python tracker settings.
-    float obb_det_thresh = 0.2F;
-    float obb_iou_threshold = 0.15F;
-    float obb_new_track_thresh = 0.3F;
-    float obb_instant_confirm_thresh = 0.5F;
-    int obb_max_age = 30;
-    int obb_recovery_max_age = 15;
-    float obb_second_iou_thresh = 0.3F;
 };
 
 struct Detection {

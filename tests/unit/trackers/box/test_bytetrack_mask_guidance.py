@@ -485,7 +485,7 @@ def test_guidance_accepts_optional_metadata_and_checks_it_when_available() -> No
 
 
 def test_guidance_keeps_lost_candidates_then_releases_retired_masks() -> None:
-    tracker, propagator = _guided_tracker(track_buffer=2)
+    tracker, propagator = _guided_tracker(max_lost_frames=2)
     result = _update(tracker, _rows()[:1], 0, canonical=True)
     identity = int(result.track_ids[0])
     propagator.masks[identity] = np.ones(FRAME_SHAPE, dtype=bool)

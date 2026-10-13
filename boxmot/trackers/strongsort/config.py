@@ -12,6 +12,8 @@ class StrongSortConfig(TrackerConfig):
     """Configure StrongSORT's appearance gallery, confirmation, and matching costs.
 
     Shared history and association settings are inherited from ``TrackerConfig``.
+    ``max_iou_dist`` applies to overlap metrics; centroid fallback matching uses
+    ``centroid_max_distance``. Appearance and motion gates remain active.
 
     Args:
         min_conf: Minimum detection confidence accepted for tracking.
@@ -23,6 +25,10 @@ class StrongSortConfig(TrackerConfig):
             the motion-distance weight is one minus this value.
         ema_alpha: Previous-embedding weight in exponential smoothing; higher values
             retain more history and adapt more slowly.
+        gating_only_position: Gate appearance matches using center coordinates
+            instead of all measured geometry coordinates.
+        geometric_recovery_max_age: Maximum unmatched age eligible for geometric
+            fallback after appearance matching, measured after prediction.
         det_thresh: Minimum detection confidence for the shared tracking kernel.
     """
 
@@ -33,7 +39,12 @@ class StrongSortConfig(TrackerConfig):
     nn_budget: int | None = field(default=100, metadata={"gt": 0})
     mc_lambda: float = field(default=0.98, metadata={"ge": 0.0, "le": 1.0})
     ema_alpha: float = field(default=0.9, metadata={"ge": 0.0, "le": 1.0})
+    gating_only_position: bool = False
+    geometric_recovery_max_age: int = field(default=1, metadata={"ge": 1})
     det_thresh: float = field(default=0.3, metadata={"ge": 0.0, "le": 1.0})
 
+    use_cmc: bool = True
+    cmc_method: str = field(default="ecc", metadata={"choices": ("ecc", "orb", "sof", "sift")})
+    cmc_min_conf: float | None = field(default=None, metadata={"ge": 0.0, "le": 1.0})
 
 __all__ = ("StrongSortConfig",)

@@ -15,11 +15,16 @@ import yaml
 import boxmot.engine.calibration.kalman as kalman_module
 import boxmot.engine.tuning.tuner as tuner_module
 from boxmot.engine.calibration.kalman import calibrate_kalman
+from boxmot.engine.calibration.kalman_artifacts import KalmanCalibrationResult
 from boxmot.engine.config.trackers import resolve_tracker_options
-from boxmot.engine.tuning.search_space import flatten_yaml_config, load_yaml_config
+from boxmot.engine.tuning.search_space import flatten_yaml_config, load_yaml_config, normalize_trial_config
 from boxmot.trackers.common.config import load_tracker_config, nest_tracker_options
 from boxmot.trackers.common.mask_guidance import MASK_GUIDANCE_OPTIONS
-from boxmot.trackers.common.motion.kalman_filters.noise import DEFAULT_REFERENCE_DT_S, KALMAN_NOISE_OPTIONS
+from boxmot.trackers.common.motion.kalman_filters.noise import (
+    DEFAULT_REFERENCE_DT_S,
+    KALMAN_DIAGONAL_OPTIONS,
+    KALMAN_NOISE_OPTIONS,
+)
 from tests.unit.engine.calibration.test_kalman import _data, _load_fixture
 
 
@@ -82,7 +87,7 @@ def fake_tuning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamesp
         output_dir: Path,
         progress: object = None,
         tracker_options: dict | None = None,
-    ) -> kalman_module.KalmanCalibrationResult:
+    ) -> KalmanCalibrationResult:
         del progress
         captured["events"].append("calibrate")
         baseline = resolve_tracker_options(args, tracker_options, include_defaults=True, stamp_timing=True)
@@ -122,7 +127,7 @@ def fake_tuning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamesp
         captured["calibrated_config"] = config
         captured["config_path"] = config_path
         captured["report_path"] = report_path
-        return kalman_module.KalmanCalibrationResult(config_path, report_path, 20, 15, KALMAN_NOISE_OPTIONS)
+        return KalmanCalibrationResult(config_path, report_path, 20, 15, KALMAN_NOISE_OPTIONS)
 
     monkeypatch.setattr(kalman_module, "calibrate_kalman", calibrate)
 
@@ -182,13 +187,19 @@ def fake_tuning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamesp
                 configs = []
                 for _ in range(2):
                     suggestion = _SuggestionTrial()
+                    constants = {}
                     if "search_space" in captured:
-                        captured["search_space"](suggestion)
-                    config = {
-                        key: value.value if isinstance(value, _Domain) else value
-                        for key, value in captured["param_space"].items()
-                    }
-                    configs.append({**config, **suggestion.params})
+                        constants = captured["search_space"](suggestion) or {}
+
+                    def sample(value: object) -> object:
+                        if isinstance(value, _Domain):
+                            return sample(value.value)
+                        if isinstance(value, dict):
+                            return {key: sample(child) for key, child in value.items()}
+                        return value
+
+                    config = sample(captured["param_space"])
+                    configs.append({**config, **suggestion.params, **constants})
             actor = self.trainable()
             actor.setup(configs[0])
             try:
@@ -295,6 +306,7 @@ def test_kf_is_calibrated_once_before_ray_and_frozen_in_every_trial(
     assert captured["events"].index("calibrate") < captured["events"].index("ray_init")
     frozen = {
         **{name: float(index + 2) for index, name in enumerate(KALMAN_NOISE_OPTIONS)},
+        "kalman.type": "xywh",
         "kalman.variable_dt": True,
         "kalman.noise.time_unit": "seconds",
         "kalman.noise.reference_dt_s": 0.05,
@@ -358,7 +370,7 @@ def test_occluboost_guidance_runs_real_calibration_before_tuning(
     checkpoint = tmp_path / "edgetam.pt"
     checkpoint.write_bytes(b"checkpoint identity only; no inference during calibration")
 
-    def calibrate(*args: object, **kwargs: object) -> kalman_module.KalmanCalibrationResult:
+    def calibrate(*args: object, **kwargs: object) -> KalmanCalibrationResult:
         captured["events"].append("calibrate")
         result = calibrate_kalman(*args, **kwargs)
         captured["calibration"] = result
@@ -383,7 +395,8 @@ def test_occluboost_guidance_runs_real_calibration_before_tuning(
     assert captured["events"].index("calibrate") < captured["events"].index("ray_init")
     calibration = captured["calibration"]
     assert calibration.matched_detections == 12
-    assert set(calibration.fitted_parameters) == set(KALMAN_NOISE_OPTIONS)
+    assert calibration.fitted_parameters
+    assert {name.split("[", 1)[0] for name in calibration.fitted_parameters} == set(KALMAN_DIAGONAL_OPTIONS)
     saved = load_tracker_config("occluboost", calibration.config_path)
     defaults = load_tracker_config("occluboost")
     assert {key: saved[key] for key in MASK_GUIDANCE_OPTIONS} == {
@@ -396,8 +409,8 @@ def test_occluboost_guidance_runs_real_calibration_before_tuning(
     for config in captured["trial_configs"]:
         assert config["asso_func"] == "iou"
         assert config["edgetam.max_objects"] == 64
-        assert {key: config[key] for key in KALMAN_NOISE_OPTIONS} == {
-            key: saved[key] for key in KALMAN_NOISE_OPTIONS
+        assert {key: config[key] for key in (*KALMAN_NOISE_OPTIONS, *KALMAN_DIAGONAL_OPTIONS)} == {
+            key: saved[key] for key in (*KALMAN_NOISE_OPTIONS, *KALMAN_DIAGONAL_OPTIONS)
         }
     schema = flatten_yaml_config(driver._yaml_cfg)
     assert schema["edgetam.max_objects"] == {"default": 64}
@@ -476,25 +489,25 @@ def test_plain_tuning_preserves_kf_defaults_or_scalar_profile_while_searching_tr
         assert all(config[key] == value for config in fake_tuning.captured["trial_configs"])
     if search_alg == "optuna":
         trial = _SuggestionTrial()
-        fake_tuning.captured["search_space"](trial)
+        constants = fake_tuning.captured["search_space"](trial) or {}
         assert not set(expected).intersection(trial.params)
-        assert "match_thresh" in trial.params
+        assert "match_thresh" in normalize_trial_config({**trial.params, **constants})
     else:
-        assert isinstance(fake_tuning.captured["param_space"]["match_thresh"], _Domain)
+        assert all(config["match_thresh"] == 0.5 for config in fake_tuning.captured["trial_configs"])
 
 
 def test_programmatic_baseline_and_custom_config_are_preserved_during_calibration(
     fake_tuning: SimpleNamespace, tmp_path: Path
 ) -> None:
     original_config = tmp_path / "tracker.yaml"
-    original_config.write_text(yaml.safe_dump({"tracker": "botsort", "track_buffer": 61, "match_thresh": 0.8}))
+    original_config.write_text(yaml.safe_dump({"tracker": "botsort", "max_lost_frames": 61, "match_thresh": 0.8}))
     args = fake_tuning.args(tracker_config=original_config)
     baseline = {"match_thresh": 0.55, "use_cmc": False, "kalman.noise.measurement_noise_scale": 8.0}
 
     tuner_module.Tuner(args, baseline_config=baseline).fit()
 
     observed = fake_tuning.captured["calibrations"][0]
-    assert observed["track_buffer"] == 61
+    assert observed["max_lost_frames"] == 61
     assert observed["match_thresh"] == 0.55
     assert observed["use_cmc"] is False
     assert observed["kalman.noise.measurement_noise_scale"] == 8.0

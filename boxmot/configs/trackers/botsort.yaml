@@ -1,81 +1,121 @@
-# Shared history/display controls; track_buffer owns lost-track lifetime.
-max_age: {}
-max_obs: {}
-min_hits: {}
-
-# Confidence stages and match thresholds below own filtering and association.
-det_thresh: {}
-iou_threshold: {}
-
 track_high_thresh:
   type: uniform
+  default: 0.6296854875023994
   range: [0.3, 0.7]
 
 track_low_thresh:
   type: uniform
+  default: 0.1014392537025336
   range: [0.1, 0.3]
 
 new_track_thresh:
   type: uniform
+  default: 0.6246494191492591
   range: [0.1, 0.8]
 
-track_buffer:
+# Lost-track lifetime in tracker updates, without FPS scaling.
+max_lost_frames:
   type: randint
-  range: [20, 81]
+  default: 40
+  range: [1, 200]
 
 match_thresh:
   type: uniform
+  default: 0.7722224024589055
   range: [0.1, 0.9]
+  association: [iou, giou, diou, ciou, hmiou]
 
 asso_func:
   type: choice
+  default: iou
   options: [iou, giou, diou, ciou, hmiou, centroid]
+
+# Maximum centroid displacement as a fraction of the frame diagonal.
+# The sole geometric cutoff for centroid; other geometric thresholds are inactive.
+centroid_max_distance:
+  association: [centroid]
+  type: uniform
+  default: 0.05
+  range: [0.005, 0.1]
 
 use_cmc:
   type: choice
+  default: true
   options: [False, True]
   activates:
     cmc_method:
       type: choice
+      default: sof
       options: [sof, ecc]
 
-frame_rate:
-  type: choice
-  options: [25, 30]
+# Keep the camera mask threshold fixed across tracker trials.
+cmc_min_conf: {}
 
 fuse_first_associate:
   type: choice
+  default: true
   options: [False, True]
+
+fuse_unconfirmed_associate:
+  type: choice
+  default: true
+  options: [False, True]
+
+# IoU distance cutoff, independent of the selected association metric.
+duplicate_distance_thresh:
+  type: uniform
+  default: 0.15
+  range: [0.0, 0.3]
 
 use_embeddings:
   type: choice
+  default: true
   options: [False, True]
   activates:
+    alpha_fixed_emb:
+      type: uniform
+      default: 0.9
+      range: [0.7, 0.99]
     proximity_thresh:
       type: uniform
+      default: 0.6084297894561342
       range: [0.25, 0.75]
+      association: [iou, giou, diou, ciou, hmiou]
     appearance_thresh:
       type: uniform
+      default: 0.6188818853936099
       range: [0.1, 0.8]
     unconfirmed_emb_scale:
       type: uniform
+      default: 2.5445206391993294
       range: [1.0, 4.0]
 
 second_match_thresh:
   type: uniform
+  default: 0.28795081514328974
   range: [0.1, 0.9]
+  association: [iou, giou, diou, ciou, hmiou]
 
 unconfirmed_match_thresh:
   type: uniform
+  default: 0.41148010638233784
   range: [0.1, 0.9]
+  association: [iou, giou, diou, ciou, hmiou]
 
 removed_stracks_buffer:
   type: randint
+  default: 329
   range: [50, 501]
 
 # Timing and reference-prior units stay fixed across all tuning trials.
 
 kalman:
+  # Search filter types from this tracker's explicit default.
+  type:
+    type: choice
+    default: xywh
+    options: [xyah, xywh, xysr, xyhr, xyscr]
+
   variable_dt:
     default: false
 

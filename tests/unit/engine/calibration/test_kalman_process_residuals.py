@@ -7,8 +7,8 @@ from dataclasses import dataclass
 import numpy as np
 import pytest
 
-from boxmot.engine.calibration.kalman import _collect_track_moments
 from boxmot.engine.calibration.kalman_data import CalibrationTrack
+from boxmot.engine.calibration.kalman_fit import _collect_track_moments
 from boxmot.trackers.common.motion.kalman_filters.fitting import ProcessNoiseMoments, ScalarNoiseMoments
 
 

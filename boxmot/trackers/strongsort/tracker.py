@@ -20,6 +20,7 @@ from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runti
 from boxmot.trackers.common.geometry import xyxy2tlwh
 from boxmot.trackers.common.motion.cmc.registry import create_cmc
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
+from boxmot.trackers.common.motion.models import create_motion_model, resolve_motion_model_kind
 from boxmot.trackers.strongsort.config import StrongSortConfig
 from boxmot.trackers.strongsort.track import Track
 
@@ -82,9 +83,7 @@ class StrongSort(BoxTracker):
 
     supports_variable_dt = True
     requires_embeddings = True
-    requires_frame = True
     use_embeddings = True
-    _requires_frame = True
 
     def __init__(
         self,
@@ -120,22 +119,39 @@ class StrongSort(BoxTracker):
             min_hits=config.min_hits,
             iou_threshold=config.iou_threshold,
             asso_func=config.asso_func,
+            centroid_max_distance=config.centroid_max_distance,
             kalman=kalman,
             reid=reid,
             **kwargs,
         )
 
+        self.motion_model = create_motion_model(
+            resolve_motion_model_kind("strongsort", self.kalman_config.type, is_obb=self.is_obb),
+            is_obb=self.is_obb,
+            max_obs=self.max_obs,
+        )
         self.min_conf = config.min_conf
         self._max_cos_dist = float(config.max_cos_dist)
         self._nn_budget = int(config.nn_budget) if config.nn_budget is not None else None
         self.metric = self._new_metric()
-        self.max_iou_dist = config.max_iou_dist
+        self.max_iou_dist = self._geometry_cost_threshold(config.max_iou_dist)
         self.n_init = config.n_init
         self.mc_lambda = config.mc_lambda
         self.ema_alpha = config.ema_alpha
+        self.gating_only_position = config.gating_only_position
+        self.geometric_recovery_max_age = config.geometric_recovery_max_age
         self.tracks: list[Track] = []
         self.active_tracks = self.tracks
-        self.cmc = create_cmc("ecc")
+        self.cmc = create_cmc(config.cmc_method, enabled=config.use_cmc)
+        self._requires_frame = self._requires_frame or self.cmc is not None
+        if self.cmc is not None:
+            self._requires_frame_dimensions_only = False
+
+    def cmc_detection_boxes(self, dets: np.ndarray) -> np.ndarray:
+        """Keep the native mask threshold unless selection fixes it separately."""
+        if self.config.cmc_min_conf is None:
+            dets = dets[self.detection_layout.confidences(dets) >= self.min_conf]
+        return super().cmc_detection_boxes(dets)
 
     def _new_metric(self) -> NearestNeighborDistanceMetric:
         """Create an empty appearance gallery with this tracker's settings."""
@@ -168,12 +184,6 @@ class StrongSort(BoxTracker):
     ) -> np.ndarray:
         batch = self._make_detection_batch(dets, embs=embs, masks=masks)
         batch = batch.select(batch.confs >= self.min_conf)
-        indexed_dets = batch.as_indexed_detections(dtype=dets.dtype)
-
-        # Advance the estimator on every frame, including initialization and
-        # trackless gaps, so the next live track never receives a stale warp.
-        self.apply_cmc(img, indexed_dets, self.tracks)
-
         features = resolve_batch_embeddings(
             batch,
         )
@@ -191,6 +201,7 @@ class StrongSort(BoxTracker):
         ]
 
         self._predict_tracks()
+        self.apply_cmc(img, dets, self.tracks)
         self._update_tracks(detections)
 
         outputs = []
@@ -249,6 +260,7 @@ class StrongSort(BoxTracker):
                 track_indices,
                 detection_indices,
                 self.mc_lambda,
+                only_position=self.gating_only_position,
                 gated_mask=gated_mask,
             )
             return self._condition_gated_association(
@@ -271,9 +283,13 @@ class StrongSort(BoxTracker):
         )
 
         iou_track_candidates = unconfirmed_tracks + [
-            index for index in unmatched_tracks_a if self.tracks[index].time_since_update == 1
+            index for index in unmatched_tracks_a
+            if self.tracks[index].time_since_update <= self.geometric_recovery_max_age
         ]
-        unmatched_tracks_a = [index for index in unmatched_tracks_a if self.tracks[index].time_since_update != 1]
+        unmatched_tracks_a = [
+            index for index in unmatched_tracks_a
+            if self.tracks[index].time_since_update > self.geometric_recovery_max_age
+        ]
         matches_b, unmatched_tracks_b, unmatched_detections = min_cost_matching(
             self._association_cost,
             self.max_iou_dist,
@@ -304,7 +320,7 @@ class StrongSort(BoxTracker):
         selected_detections = [detections[int(index)] for index in detection_indices]
         cost_matrix = self.association_distance(selected_tracks, selected_detections)
         for row, track in enumerate(selected_tracks):
-            if track.time_since_update > 1:
+            if track.time_since_update > self.geometric_recovery_max_age:
                 cost_matrix[row, :] = INFTY_COST
         return self._condition_gated_association(
             cost_matrix,
@@ -325,7 +341,7 @@ class StrongSort(BoxTracker):
     ) -> np.ndarray:
         """Apply masks while preserving motion and stale-track hard gates."""
         if self._mask_guidance is None:
-            return costs
+            return self._gate_association(costs, tracks, detections)
         protected_costs = costs[gated_mask]
         costs[gated_mask] = np.inf
         adjusted = self._condition_association(costs, tracks, detections, threshold=threshold)
@@ -341,9 +357,10 @@ class StrongSort(BoxTracker):
                 self.n_init,
                 self.max_age,
                 self.max_obs,
-                self.ema_alpha,
+                ema_alpha=self.ema_alpha,
                 is_obb=detection.is_obb,
                 noise_config=self.kalman_noise_config,
+                motion_model=self.motion_model,
             )
         )
 

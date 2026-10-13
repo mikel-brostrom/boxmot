@@ -32,6 +32,16 @@ in place of `--dataset`, `--detector`, and `--reid`. Missing or ambiguous
 catalog matches produce an error; use `--experiment` to select the intended
 configuration. See [experiment workflows](../guides/experiments.md).
 
+Tracker search profiles use `association` lists to declare which metrics each
+parameter applies to. With centroid association, `centroid_max_distance`
+is searched over `[0.005, 0.1]` of the frame diagonal; other metrics keep this
+setting fixed. Centroid uses this radius as its sole geometric cutoff, so
+the overlap matching thresholds are excluded from search and ignored by centroid
+association. Use `--asso-func centroid` to fix the metric while tuning its
+radius and other tracker settings. See [association settings](../config/trackers.md#association-function).
+An explicit `asso_func` in `--tracker-config` also fixes the metric unless
+`--asso-func` overrides it. Other searchable preset values remain starting values.
+
 ## Tune mask guidance
 
 The nine Python box trackers can search EdgeTAM guidance settings together with
@@ -354,7 +364,7 @@ remaining tracker parameters. The flag works with automatic preparation or
 an explicitly selected build.
 
 Calibration runs after build validation and before Ray and the search start.
-The five calibrated covariance scales, their timing settings, and the filter's
+The fitted covariance vectors, global scales, timing settings, and the filter's
 reference process-noise priors stay fixed throughout all 200 tracker trials.
 `kalman.adaptive_kf` also stays fixed for trackers that support it. No search-schema
 edits are needed.
@@ -384,6 +394,41 @@ search space it started with.
 [Kalman calibration](eval.md#kalman-calibration) for the estimator, supported
 trackers, and limitations.
 
+## Select the KF before tracker tuning
+
+Use `--select-kf` to compare compatible filter types with original, partially
+calibrated, and fully calibrated noise on held-out trajectories:
+
+```bash
+boxmot tune --experiment mot17/ablation-yolox-lmbn.yaml \
+  --tracker botsort --select-kf --n-trials 200
+```
+
+Selection fits its own training folds, so `--calibrate-kf` is unnecessary.
+The winning filter and noise stay fixed during the tracker search, and CMC
+stays off. Defaults can win. Explicit `--tune-kf` options refine only the
+requested scales after selection. Native trackers, EagerMOT, and trackers
+without Kalman filters do not support this workflow.
+
+## Joint CMC and KF selection
+
+Add `--select-cmc` to compare CMC off and automatic SOF alongside filter types
+and noise profiles:
+
+```bash
+boxmot tune --experiment mot17/ablation-yolox-lmbn.yaml \
+  --tracker botsort --select-kf --select-cmc --n-trials 200
+```
+
+Source images are required for camera analysis. Each candidate is calibrated
+under its camera behavior before held-out scoring. The winning strategy is
+saved in `best.yaml`; evaluation analyzes its own sequences when automatic
+CMC was selected. `--select-cmc` requires `--select-kf`.
+
+Resume either selection workflow with `--resume-tune TUNING_DIRECTORY` and
+omit both selection flags. See [Kalman calibration](../guides/kalman-calibration.md)
+for scoring, noise recipes, output artifacts, and held-out evaluation.
+
 ## Kalman noise and timing
 
 Tracker tuning holds covariance scales fixed unless you select them with `--tune-kf`. The five covariance
@@ -394,15 +439,21 @@ These covariance and timing settings have no default search ranges.
 OccluBoost's `kalman.ams` settings retain their conditional search ranges.
 EagerMOT's `kalman.is_angular` remains searchable when no calibration or class
 profile fixes its state model.
-Use [Kalman calibration](eval.md#kalman-calibration) to estimate covariance
-scales from detections and ground truth.
+Use [Kalman calibration](eval.md#kalman-calibration) to estimate coordinate-wise
+covariance multipliers from detections and ground truth. The fitted vectors
+stay fixed; scale refinement changes each selected group as a whole.
 
 For image trackers, reuse an existing calibration by starting a new tuning run
 with `--tracker-config path/to/kf-tuning/calibrated.yaml` and omit
 `--calibrate-kf`. The loaded KF values stay fixed while the other tracker
-parameters are optimized. Without a profile, the built-in KF defaults stay
-fixed. The selector also accepts partial runtime YAMLs and built-in
-presets.
+parameters are optimized. Without a filter constraint, the eight Python 2D
+Kalman trackers search `kalman.type` over `xyah`, `xywh`, `xysr`, `xyhr`, and
+`xyscr`, starting from the [named default in each tracker YAML](../config/trackers.md).
+These YAML defaults apply to both AABB and OBB. Covariance and
+timing defaults stay fixed. An explicit runtime `kalman.type` (including
+`null`), covariance vectors, or adaptive KF policy fixes the filter, as do
+`--calibrate-kf` and `--select-kf`. C++ tuning keeps its native filter fixed.
+The selector also accepts partial runtime YAMLs and built-in presets.
 
 EagerMOT uses `--class-config` for its separate car and pedestrian profiles.
 Its 3D filter supports covariance calibration in fixed-step mode only.
@@ -425,8 +476,8 @@ Repeat `--tune-kf` to select `process_position_scale`, `process_velocity_scale`,
 `measurement_noise_scale`, `initial_position_scale`, or `initial_velocity_scale`.
 Each selected multiplier is searched on a logarithmic scale from **0.25× to 4×**
 its starting value. Unselected scales, timing units, and the reference interval
-stay fixed. Without `--calibrate-kf`, the starting values come from
-`--tracker-config` or the tracker defaults.
+stay fixed. Starting values come from selection, calibration, a loaded
+`--tracker-config`, or tracker defaults, according to the requested workflow.
 
 ```bash
 boxmot tune --experiment mot17/ablation-yolox-lmbn.yaml --build <build> \

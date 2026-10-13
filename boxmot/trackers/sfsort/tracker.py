@@ -74,6 +74,20 @@ class Track:
     def id(self) -> int:
         return self.track_id
 
+    @property
+    def xyxy(self) -> np.ndarray:
+        """Expose canonical AABB geometry for shared association gates."""
+        if len(self.bbox) == 5:
+            from boxmot.trackers.common.geometry.obb import xywha_to_xyxy
+
+            return xywha_to_xyxy(self.bbox.reshape(1, 5))[0]
+        return self.bbox
+
+    @property
+    def xywha(self) -> np.ndarray:
+        """Expose native oriented geometry for shared association gates."""
+        return self.bbox
+
     @staticmethod
     def _wrap_angle(angle: float) -> float:
         return float(normalize_angle(angle))
@@ -161,14 +175,15 @@ class SFSORT(BoxTracker):
             min_hits=config.min_hits,
             iou_threshold=config.iou_threshold,
             asso_func=config.asso_func,
+            centroid_max_distance=config.centroid_max_distance,
             **kwargs,
         )
 
         self.high_th = self.clamp(float(config.high_th), 0.0, 1.0)
-        self.match_th_first = self.clamp(float(config.match_th_first), 0.0, 0.67)
+        self.match_th_first = self._geometry_cost_threshold(self.clamp(float(config.match_th_first), 0.0, 0.67))
         self.new_track_th = self.clamp(float(config.new_track_th), self.high_th, 1.0)
         self.low_th = self.clamp(float(config.low_th), 0.0, self.high_th)
-        self.match_th_second = self.clamp(float(config.match_th_second), 0.0, 1.0)
+        self.match_th_second = self._geometry_cost_threshold(self.clamp(float(config.match_th_second), 0.0, 1.0))
 
         self.dynamic_tuning = bool(config.dynamic_tuning)
         self.cth = self.clamp(float(config.cth), self.low_th, 1.0)
@@ -248,7 +263,10 @@ class SFSORT(BoxTracker):
                     association_function=self.asso_func,
                 )
                 cost = self._condition_association(cost, track_pool, definite_boxes, threshold=mth)
-                matches, unmatched_tracks, unmatched_detections = linear_assignment(cost, mth)
+                # Shape and center cues rank pairs within the radius; their
+                # combined cost must not impose a second centroid cutoff.
+                cost_limit = None if self._asso_func_base_name == "centroid" else mth
+                matches, unmatched_tracks, unmatched_detections = linear_assignment(cost, cost_limit)
                 for track_idx, detection_idx in matches:
                     track = track_pool[track_idx]
                     track.update(
@@ -342,7 +360,7 @@ class SFSORT(BoxTracker):
             hth = self.clamp(hth - (self.high_th_m * lnc), 0.0, 1.0)
             nth = self.clamp(nth + (self.new_track_th_m * lnc), hth, 1.0)
             mth = self.clamp(mth - (self.match_th_first_m * lnc), 0.0, 0.67)
-        return hth, nth, mth
+        return hth, nth, self._geometry_cost_threshold(mth)
 
     def _purge_stale_lost_tracks(self) -> None:
         for track in self.lost_tracks.copy():

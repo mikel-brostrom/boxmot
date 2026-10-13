@@ -16,7 +16,7 @@ class _FakeLibrary:
         self.calls: list[tuple] = []
 
     def create(self, cfg):
-        self.calls.append(("create", cfg["frame_rate"], cfg["track_thresh"]))
+        self.calls.append(("create", cfg["max_lost_frames"], cfg["track_thresh"]))
         return "handle"
 
     def reset(self, handle):
@@ -43,7 +43,7 @@ class _FakeLibrary:
 def test_native_bytetrack_uses_structured_live_library_wrapper():
     library = _FakeLibrary()
     tracker = native_module.NativeByteTrackTracker(
-        {"frame_rate": 15, "track_thresh": 0.5},
+        {"max_lost_frames": 15, "track_thresh": 0.5},
         geometry="aabb",
         library=library,
     )

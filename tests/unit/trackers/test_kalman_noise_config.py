@@ -59,7 +59,8 @@ def test_noise_settings_reach_tracks_survive_reset_and_preserve_other_owners(nam
     configured = _tracker(
         name,
         geometry,
-        kalman=KalmanConfig(
+        kalman=replace(
+            reference.kalman_config,
             noise=KalmanNoiseConfig(
                 process_position_scale=2.0,
                 process_velocity_scale=5.0,
@@ -151,7 +152,8 @@ def test_seconds_initial_covariance_uses_reference_interval_and_independent_scal
     tracker = _tracker(
         name,
         geometry,
-        kalman=KalmanConfig(
+        kalman=replace(
+            reference.kalman_config,
             variable_dt=True,
             noise=KalmanNoiseConfig(
                 reference_dt_s=reference_dt,

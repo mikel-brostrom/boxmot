@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+from copy import copy
 from dataclasses import replace
 from pathlib import Path
 
@@ -230,16 +232,38 @@ def _source_samples(tmp_path: Path) -> list[SourceSample]:
     return samples
 
 
-def _publish_detect_build(tmp_path: Path) -> tuple[FakeDetector, DatasetMaterializer, Path]:
-    """Publish a minimal build and retain its materializer for reuse checks."""
+@pytest.fixture(scope="module")
+def published_detect_template(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> tuple[FakeDetector, BuildPlan, Path]:
+    """Materialize the immutable input for publication validation once."""
 
+    tmp_path = tmp_path_factory.mktemp("published-detect-template")
     plan = _detect_finalize_plan(tmp_path / "builds")
     detector = FakeDetector()
     materializer = DatasetMaterializer(
         plan,
         [DetectStage(detector, _source_samples(tmp_path)), FinalizeStage()],
     )
-    return detector, materializer, materializer.run()
+    return detector, plan, materializer.run()
+
+
+@pytest.fixture
+def published_detect_build(
+    tmp_path: Path,
+    published_detect_template: tuple[FakeDetector, BuildPlan, Path],
+) -> tuple[FakeDetector, DatasetMaterializer, Path]:
+    """Clone published files before tests corrupt or inspect their reuse."""
+
+    template_detector, template_plan, template_output = published_detect_template
+    plan = replace(template_plan, build_root=tmp_path / "builds")
+    detector = copy(template_detector)
+    shutil.copytree(template_output, plan.output_root)
+    materializer = DatasetMaterializer(
+        plan,
+        [DetectStage(detector, _source_samples(tmp_path)), FinalizeStage()],
+    )
+    return detector, materializer, plan.output_root
 
 
 def test_build_and_stage_fingerprints_are_deterministic() -> None:
@@ -542,10 +566,10 @@ def test_materializer_runs_all_components_publishes_atomically_and_reuses(tmp_pa
     assert detector.calls == 2
 
 
-def test_published_reuse_hashes_each_shard_once_without_decoding_payloads(tmp_path, monkeypatch) -> None:
+def test_published_reuse_hashes_each_shard_once_without_decoding_payloads(published_detect_build, monkeypatch) -> None:
     import boxmot.datasets.validation as validation_module
 
-    detector, materializer, output = _publish_detect_build(tmp_path)
+    detector, materializer, output = published_detect_build
     manifest = DatasetManifest.load(output)
     expected_shards = {(output / shard.path).resolve() for artifact in manifest.artifacts for shard in artifact.shards}
     hash_calls: list[Path] = []
@@ -567,8 +591,8 @@ def test_published_reuse_hashes_each_shard_once_without_decoding_payloads(tmp_pa
     assert detector.calls == 2
 
 
-def test_published_reuse_rejects_same_size_shard_corruption(tmp_path) -> None:
-    detector, materializer, output = _publish_detect_build(tmp_path)
+def test_published_reuse_rejects_same_size_shard_corruption(published_detect_build) -> None:
+    detector, materializer, output = published_detect_build
     manifest = DatasetManifest.load(output)
     shard_path = output / manifest.artifact(INSTANCES_ARTIFACT).shards[0].path
     payload = bytearray(shard_path.read_bytes())
@@ -581,8 +605,8 @@ def test_published_reuse_rejects_same_size_shard_corruption(tmp_path) -> None:
     assert detector.calls == 2
 
 
-def test_published_reuse_requires_matching_success_marker(tmp_path) -> None:
-    _, materializer, output = _publish_detect_build(tmp_path)
+def test_published_reuse_requires_matching_success_marker(published_detect_build) -> None:
+    _, materializer, output = published_detect_build
     (output / "_SUCCESS").write_text(
         json.dumps({"schema": "boxmot.dataset/v1", "build_id": "0" * 64}),
         encoding="utf-8",
@@ -592,8 +616,8 @@ def test_published_reuse_requires_matching_success_marker(tmp_path) -> None:
         materializer.run()
 
 
-def test_published_reuse_derives_artifact_hash_from_verified_shards(tmp_path) -> None:
-    _, materializer, output = _publish_detect_build(tmp_path)
+def test_published_reuse_derives_artifact_hash_from_verified_shards(published_detect_build) -> None:
+    _, materializer, output = published_detect_build
     manifest = DatasetManifest.load(output)
     instances = manifest.artifact(INSTANCES_ARTIFACT)
     wrong_digest = "0" * 64 if instances.sha256 != "0" * 64 else "1" * 64
@@ -610,10 +634,10 @@ def test_published_reuse_derives_artifact_hash_from_verified_shards(tmp_path) ->
         materializer.run()
 
 
-def test_published_reuse_rejects_non_zstd_shard_from_footer(tmp_path) -> None:
+def test_published_reuse_rejects_non_zstd_shard_from_footer(published_detect_build) -> None:
     import pyarrow.parquet as pq
 
-    _, materializer, output = _publish_detect_build(tmp_path)
+    _, materializer, output = published_detect_build
     manifest = DatasetManifest.load(output)
     shard_path = output / manifest.artifact(SAMPLES_ARTIFACT).shards[0].path
     table = read_parquet_artifact(output / SAMPLES_ARTIFACT, artifact_name=SAMPLES_ARTIFACT)
@@ -635,11 +659,11 @@ def test_published_reuse_rejects_non_zstd_shard_from_footer(tmp_path) -> None:
         materializer.run()
 
 
-def test_published_reuse_rejects_schema_drift_from_footer(tmp_path) -> None:
+def test_published_reuse_rejects_schema_drift_from_footer(published_detect_build) -> None:
     import pyarrow as pa
     import pyarrow.parquet as pq
 
-    _, materializer, output = _publish_detect_build(tmp_path)
+    _, materializer, output = published_detect_build
     manifest = DatasetManifest.load(output)
     shard_path = output / manifest.artifact(SAMPLES_ARTIFACT).shards[0].path
     table = pq.read_table(shard_path)
@@ -663,8 +687,8 @@ def test_published_reuse_rejects_schema_drift_from_footer(tmp_path) -> None:
         materializer.run()
 
 
-def test_published_reuse_rejects_manifest_footer_row_count_drift(tmp_path) -> None:
-    _, materializer, output = _publish_detect_build(tmp_path)
+def test_published_reuse_rejects_manifest_footer_row_count_drift(published_detect_build) -> None:
+    _, materializer, output = published_detect_build
     manifest = DatasetManifest.load(output)
     instances = manifest.artifact(INSTANCES_ARTIFACT)
     first_shard, *remaining_shards = instances.shards
@@ -687,16 +711,16 @@ def test_published_reuse_rejects_manifest_footer_row_count_drift(tmp_path) -> No
         materializer.run()
 
 
-def test_published_reuse_rejects_unpublished_optional_artifact(tmp_path) -> None:
-    _, materializer, output = _publish_detect_build(tmp_path)
+def test_published_reuse_rejects_unpublished_optional_artifact(published_detect_build) -> None:
+    _, materializer, output = published_detect_build
     (output / MASKS_ARTIFACT).mkdir()
 
     with pytest.raises(DatasetValidationError, match="unpublished 'masks'"):
         materializer.run()
 
 
-def test_published_reuse_rejects_plan_provenance_drift(tmp_path) -> None:
-    detector, materializer, output = _publish_detect_build(tmp_path)
+def test_published_reuse_rejects_plan_provenance_drift(published_detect_build) -> None:
+    detector, materializer, output = published_detect_build
     manifest = DatasetManifest.load(output)
     changed_manifest = replace(
         manifest,

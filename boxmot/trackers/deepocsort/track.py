@@ -9,6 +9,7 @@ import numpy as np
 from boxmot.trackers.common.appearance import (
     ema_update_embedding,
 )
+from boxmot.trackers.common.geometry.obb import xywha_to_xyxy
 from boxmot.trackers.common.motion.cmc.batching import transform_ocsort_tracks
 from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
 from boxmot.trackers.common.motion.models import MotionModelKind, create_motion_model
@@ -19,9 +20,9 @@ from boxmot.trackers.ocsort.track import KalmanBoxTracker as OBBKalmanBoxTracker
 
 
 class KalmanBoxTracker(SortBoxTrack):
-    """
-    This class represents the internal state of individual tracked objects observed as bbox.
-    """
+    """One DeepOCSORT identity with observation-centric motion and appearance."""
+
+    observation_centric = True
 
     def __init__(
         self,
@@ -33,6 +34,7 @@ class KalmanBoxTracker(SortBoxTrack):
         id_allocator: TrackIdAllocator | None = None,
         *,
         noise_config: KalmanNoiseConfig | None = None,
+        kalman_type: str | None = None,
     ):
         """
         Initialises a tracker using initial bounding box.
@@ -45,36 +47,44 @@ class KalmanBoxTracker(SortBoxTrack):
         self.cls = det[5]
         self.det_ind = det[6]
 
-        self.motion_model = create_motion_model(MotionModelKind.XYSR, is_obb=False)
+        self.motion_model = create_motion_model(
+            kalman_type or MotionModelKind.XYSR,
+            is_obb=False,
+            cls_id=int(self.cls),
+        )
         self.kf = self.motion_model.create_filter(noise_config=noise_config)
-        self.kf.F = np.array(
-            [
-                # x  y  s  r  x' y' s'
-                [1, 0, 0, 0, 1, 0, 0],
-                [0, 1, 0, 0, 0, 1, 0],
-                [0, 0, 1, 0, 0, 0, 1],
-                [0, 0, 0, 1, 0, 0, 0],
-                [0, 0, 0, 0, 1, 0, 0],
-                [0, 0, 0, 0, 0, 1, 0],
-                [0, 0, 0, 0, 0, 0, 1],
-            ]
-        )
-        self.kf.H = np.array(
-            [
-                [1, 0, 0, 0, 0, 0, 0],
-                [0, 1, 0, 0, 0, 0, 0],
-                [0, 0, 1, 0, 0, 0, 0],
-                [0, 0, 0, 1, 0, 0, 0],
-            ]
-        )
-        self.kf.R[2:, 2:] *= 10.0
-        self.kf.P[4:, 4:] *= 1000.0  # give high uncertainty to the unobservable initial velocities
-        self.kf.P *= 10.0
+        if self.motion_model.kind is MotionModelKind.XYSR:
+            self.kf.F = np.array(
+                [
+                    # x  y  s  r  x' y' s'
+                    [1, 0, 0, 0, 1, 0, 0],
+                    [0, 1, 0, 0, 0, 1, 0],
+                    [0, 0, 1, 0, 0, 0, 1],
+                    [0, 0, 0, 1, 0, 0, 0],
+                    [0, 0, 0, 0, 1, 0, 0],
+                    [0, 0, 0, 0, 0, 1, 0],
+                    [0, 0, 0, 0, 0, 0, 1],
+                ]
+            )
+            self.kf.H = np.array(
+                [
+                    [1, 0, 0, 0, 0, 0, 0],
+                    [0, 1, 0, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0, 0],
+                    [0, 0, 0, 1, 0, 0, 0],
+                ]
+            )
+            self.kf.R[2:, 2:] *= 10.0
+            self.kf.P[4:, 4:] *= 1000.0  # give high uncertainty to the unobservable initial velocities
+            self.kf.P *= 10.0
 
         self.bbox_to_z_func = self.motion_model.to_measurement
         self.x_to_bbox_func = self.motion_model.to_box
 
-        self.kf.x[:4] = self.bbox_to_z_func(bbox)
+        if self.motion_model.kind is MotionModelKind.XYSR:
+            self.kf.x[:4] = self.bbox_to_z_func(bbox)
+        else:
+            self.motion_model.initialize_filter(self.kf, self.bbox_to_z_func(bbox), confidence=float(self.conf))
 
         self._assign_sort_id(id_allocator=id_allocator)
         self._init_sort_counters(max_obs=max_obs)
@@ -111,7 +121,7 @@ class KalmanBoxTracker(SortBoxTrack):
         """
 
         measurement = self._prepare_update(det)
-        self.kf.update(measurement)
+        self.motion_model.update_filter(self.kf, measurement, observation_centric=True, confidence=float(self.conf))
         self._finish_update(measurement)
 
     def _prepare_update(self, det) -> np.ndarray | None:
@@ -167,7 +177,7 @@ class KalmanBoxTracker(SortBoxTrack):
 
     @classmethod
     def multi_camera_update(cls, tracks, affine: np.ndarray) -> None:
-        """Correct affine camera motion without refitting the area/aspect state."""
+        """Correct camera motion using the selected model and its recovery histories."""
         if tracks:
             transform_ocsort_tracks(tracks, affine, model=tracks[0].motion_model)
 
@@ -176,14 +186,12 @@ class KalmanBoxTracker(SortBoxTrack):
         Advances the state vector and returns the predicted bounding box estimate.
         """
         self._prepare_prediction(dt=dt)
-        self.kf.predict(dt=dt)
+        self.motion_model.predict_filter(self.kf, dt=dt, observation_centric=self.observation_centric)
         return self._finish_prediction()
 
     def _prepare_prediction(self, *, dt: float | None = None) -> None:
-        """Prevent the predicted area from becoming negative."""
-        interval = 1.0 if dt is None else dt
-        if (interval * self.kf.x[6] + self.kf.x[2]) <= 0:
-            self.kf.x[6] *= 0.0
+        """Prevent the selected model from extrapolating nonpositive sizes."""
+        self.motion_model.prevent_invalid_size(self.kf, dt=dt)
 
     def _finish_prediction(self) -> np.ndarray:
         """Advance counters after scalar or batched Kalman prediction."""
@@ -201,9 +209,22 @@ class KalmanBoxTracker(SortBoxTrack):
         """
         return self.x_to_bbox_func(self.kf.x)
 
+    @property
+    def xyxy(self) -> np.ndarray:
+        """Return canonical predicted AABB geometry for shared association gates."""
+        return np.asarray(self.get_state()[0], dtype=float)
+
     def mahalanobis(self, bbox):
         """Should be run after a predict() call for accuracy."""
-        return self.kf.md_for_measurement(self.bbox_to_z_func(bbox))
+        if self.motion_model.kind is MotionModelKind.XYSR:
+            return self.kf.md_for_measurement(self.bbox_to_z_func(bbox))
+        distances = self.motion_model.gating_distance(
+            self.kf,
+            np.asarray(self.kf.x).reshape(-1),
+            self.kf.P,
+            self.bbox_to_z_func(bbox).reshape(1, -1),
+        )
+        return float(np.sqrt(distances[0]))
 
 
 class DeepOBBKalmanBoxTracker(OBBKalmanBoxTracker):
@@ -219,6 +240,7 @@ class DeepOBBKalmanBoxTracker(OBBKalmanBoxTracker):
         max_obs,
         id_allocator,
         noise_config: KalmanNoiseConfig | None = None,
+        kalman_type: str | None = None,
     ):
         super().__init__(
             det[:6],
@@ -229,6 +251,7 @@ class DeepOBBKalmanBoxTracker(OBBKalmanBoxTracker):
             is_obb=True,
             id_allocator=id_allocator,
             noise_config=noise_config,
+            kalman_type=kalman_type,
         )
         self.emb = emb
         self.alpha = alpha
@@ -236,8 +259,18 @@ class DeepOBBKalmanBoxTracker(OBBKalmanBoxTracker):
 
     def update(self, det):
         measurement = self._prepare_update(det)
-        self.kf.update(measurement)
+        self.motion_model.update_filter(self.kf, measurement, observation_centric=True, confidence=float(self.conf))
         self._finish_update(measurement)
+
+    @property
+    def xywha(self) -> np.ndarray:
+        """Return native predicted OBB geometry for shared association gates."""
+        return np.asarray(self.get_state()[0], dtype=float)
+
+    @property
+    def xyxy(self) -> np.ndarray:
+        """Return the enclosing AABB when a consumer needs axis-aligned geometry."""
+        return xywha_to_xyxy(self.xywha.reshape(1, 5))[0]
 
     def _prepare_update(self, det) -> np.ndarray | None:
         """Adapt packed oriented detections to the shared OC-SORT lifecycle."""

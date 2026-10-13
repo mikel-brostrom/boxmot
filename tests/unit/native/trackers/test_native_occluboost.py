@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from pathlib import Path
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
@@ -73,42 +76,50 @@ def test_native_occluboost_consumes_supplied_embeddings():
     tracker.close()
 
 
-def test_native_occluboost_resolves_and_forwards_obb_operating_point():
+def test_native_occluboost_resolves_and_forwards_shared_thresholds() -> None:
+    """Forward all seven shared operating-point values across the C ABI."""
     cfg = native_module._resolve_tracker_config(
         {
-            "obb_det_thresh": 0.11,
-            "obb_iou_threshold": 0.12,
-            "obb_new_track_thresh": 0.13,
-            "obb_instant_confirm_thresh": 0.14,
-            "obb_max_age": 17,
-            "obb_recovery_max_age": 9,
-            "obb_second_iou_thresh": 0.16,
+            "det_thresh": 0.11,
+            "iou_threshold": 0.12,
+            "new_track_thresh": 0.13,
+            "instant_confirm_thresh": 0.14,
+            "max_age": 17,
+            "recovery_max_age": 9,
+            "second_iou_thresh": 0.16,
             "use_embeddings": False,
         }
     )
     c_cfg = native_binding._build_c_config(cfg)
 
-    assert np.isclose(c_cfg.obb_det_thresh, 0.11)
-    assert np.isclose(c_cfg.obb_iou_threshold, 0.12)
-    assert np.isclose(c_cfg.obb_new_track_thresh, 0.13)
-    assert np.isclose(c_cfg.obb_instant_confirm_thresh, 0.14)
-    assert c_cfg.obb_max_age == 17
-    assert c_cfg.obb_recovery_max_age == 9
-    assert np.isclose(c_cfg.obb_second_iou_thresh, 0.16)
+    assert np.isclose(c_cfg.det_thresh, 0.11)
+    assert np.isclose(c_cfg.iou_threshold, 0.12)
+    assert np.isclose(c_cfg.new_track_thresh, 0.13)
+    assert np.isclose(c_cfg.instant_confirm_thresh, 0.14)
+    assert c_cfg.max_age == 17
+    assert c_cfg.recovery_max_age == 9
+    assert np.isclose(c_cfg.second_iou_thresh, 0.16)
 
 
-def _obb_tracker(**overrides):
+def test_native_occluboost_rejects_stale_config_abi_before_creating_a_tracker(monkeypatch) -> None:
+    """Reject old libraries before passing them the shortened configuration struct."""
+    calls = []
+    stale_library = SimpleNamespace(boxmot_occluboost_create=lambda _config: calls.append("unsafe create"))
+    monkeypatch.setattr(native_binding.ctypes, "CDLL", lambda _path: stale_library)
+    with pytest.raises(RuntimeError, match="incompatible configuration ABI; rebuild the native library"):
+        native_binding.OccluBoostLibrary(Path("stale-native-library"))
+    assert calls == []
+
+
+def _native_tracker(*, geometry: str = "obb", **overrides) -> native_module.NativeOccluBoostTracker:
+    """Build a live tracker with permissive shared thresholds for either geometry."""
     options = {
         "use_embeddings": False,
         "use_cmc": False,
         "det_thresh": 0.1,
         "iou_threshold": 0.01,
-        "obb_det_thresh": 0.1,
-        "obb_iou_threshold": 0.01,
         "new_track_thresh": 0.1,
-        "obb_new_track_thresh": 0.1,
         "instant_confirm_thresh": 0.1,
-        "obb_instant_confirm_thresh": 0.1,
         "confirm_hits": 1,
         "min_hits": 0,
         "aspect_ratio_thresh": 10.0,
@@ -118,13 +129,53 @@ def _obb_tracker(**overrides):
     library = native_binding.OccluBoostLibrary(native_binding.ensure_occluboost_cpp_library())
     return native_module.NativeOccluBoostTracker(
         options,
-        geometry="obb",
+        geometry=geometry,
         library=library,
     )
 
 
+@pytest.mark.parametrize("geometry", ["aabb", "obb"])
+@pytest.mark.parametrize("threshold", ["det_thresh", "new_track_thresh", "instant_confirm_thresh"])
+def test_native_occluboost_shared_confidence_thresholds_control_birth(geometry: str, threshold: str) -> None:
+    """The same confidence settings gate track output in both native kernels."""
+    tracker = _native_tracker(
+        geometry=geometry,
+        **{threshold: 0.6},
+        confirm_hits=2,
+        use_dlo_boost=False,
+        use_duo_boost=False,
+        use_second_pass=False,
+    )
+    box = [40, 50, 120, 70] if geometry == "aabb" else [80, 60, 80, 20, 0.0]
+    try:
+        below = update_rows(tracker, np.array([[*box, 0.4, 0]], dtype=np.float32))
+        tracker.reset()
+        above = update_rows(tracker, np.array([[*box, 0.8, 0]], dtype=np.float32))
+    finally:
+        tracker.close()
+    assert len(below) == 0
+    assert len(above) == 1
+
+
+@pytest.mark.parametrize("geometry", ["aabb", "obb"])
+def test_native_occluboost_shared_max_age_expires_tracks(geometry: str) -> None:
+    """A short canonical max_age prevents reusing an expired track's identity."""
+    tracker = _native_tracker(geometry=geometry, max_age=1)
+    box = [40, 50, 120, 70] if geometry == "aabb" else [80, 60, 80, 20, 0.0]
+    detection = np.array([[*box, 0.95, 0]], dtype=np.float32)
+    try:
+        first = update_rows(tracker, detection)
+        update_rows(tracker, np.empty((0, detection.shape[1]), dtype=np.float32))
+        update_rows(tracker, np.empty((0, detection.shape[1]), dtype=np.float32))
+        reborn = update_rows(tracker, detection)
+    finally:
+        tracker.close()
+    assert len(first) == len(reborn) == 1
+    assert first[0, len(box)] != reborn[0, len(box)]
+
+
 def test_native_occluboost_live_obb_damps_angular_velocity():
-    tracker = _obb_tracker()
+    tracker = _native_tracker()
 
     def detection(angle: float) -> np.ndarray:
         return np.array([[80, 60, 80, 20, angle, 0.95, 0]], dtype=np.float32)
@@ -150,7 +201,7 @@ def test_native_occluboost_live_obb_damps_angular_velocity():
     ),
 )
 def test_native_occluboost_obb_applies_geometry_filter(detection):
-    tracker = _obb_tracker(
+    tracker = _native_tracker(
         use_dlo_boost=False,
         use_duo_boost=False,
         use_second_pass=False,

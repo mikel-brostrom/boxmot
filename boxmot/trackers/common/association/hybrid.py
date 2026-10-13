@@ -87,14 +87,18 @@ def _geometry_candidates(
     similarity: np.ndarray,
     ranking_similarity: np.ndarray,
     threshold: float,
+    gate_before_assignment: bool = False,
 ) -> np.ndarray:
     if min(similarity.shape, default=0) == 0:
         return np.empty((0, 2), dtype=int)
 
-    admissible = similarity > threshold
+    admissible = similarity >= threshold if gate_before_assignment else similarity > threshold
     if admissible.sum(axis=1).max() == 1 and admissible.sum(axis=0).max() == 1:
         return np.argwhere(admissible)
-    return solve_assignment(-ranking_similarity)
+    costs = -ranking_similarity
+    if gate_before_assignment or not np.isfinite(similarity).all():
+        costs = np.where(similarity >= threshold, costs, np.inf)
+    return solve_assignment(costs)
 
 
 def _partition_matches(
@@ -139,6 +143,7 @@ def associate_hybrid(
     association_function: SimilarityFunction,
     *,
     geometry_conditioner: Callable[[np.ndarray], np.ndarray] | None = None,
+    gate_before_assignment: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Associate HybridSORT detections using geometry, motion, and confidence consistency."""
     if len(tracks) == 0:
@@ -161,7 +166,7 @@ def associate_hybrid(
         )
         - confidence_difference(detections, tracks, track_confidence_column=4)
     )
-    candidates = _geometry_candidates(similarity, ranking_similarity, similarity_threshold)
+    candidates = _geometry_candidates(similarity, ranking_similarity, similarity_threshold, gate_before_assignment)
     return _partition_matches(
         candidates,
         lambda detection_index, track_index: similarity[detection_index, track_index] >= similarity_threshold,
@@ -187,6 +192,7 @@ def associate_hybrid_with_reid(
     correct_with_appearance: bool = False,
     appearance_threshold: float = 0.0,
     geometry_conditioner: Callable[[np.ndarray], np.ndarray] | None = None,
+    gate_before_assignment: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Associate HybridSORT detections with geometry, motion, and appearance."""
     if len(tracks) == 0:
@@ -211,15 +217,22 @@ def associate_hybrid_with_reid(
         guided_similarity = geometry_conditioner(similarity)
         assignment_cost -= guided_similarity - similarity
         similarity = guided_similarity
+    # Centroid radius determines eligibility. Confidence remains a ranking
+    # cue, so it cannot reduce the usable distance budget.
+    threshold_similarity = similarity if gate_before_assignment else similarity - confidence_difference(
+        detections, tracks, track_confidence_column=4
+    )
+    if gate_before_assignment or not np.isfinite(similarity).all():
+        allowed = threshold_similarity >= similarity_threshold
+        if correct_with_appearance:
+            allowed |= embedding_cost <= appearance_threshold
+        allowed &= np.isfinite(similarity)
+        assignment_cost = np.where(allowed, assignment_cost, np.inf)
     candidates = solve_assignment(assignment_cost)
 
-    threshold_similarity = similarity - confidence_difference(
-        detections,
-        tracks,
-        track_confidence_column=4,
-    )
-
     def accepted(detection_index: int, track_index: int) -> bool:
+        if not np.isfinite(similarity[detection_index, track_index]):
+            return False
         geometry_is_weak = threshold_similarity[detection_index, track_index] < similarity_threshold
         if correct_with_appearance:
             appearance_is_weak = embedding_cost[detection_index, track_index] > appearance_threshold

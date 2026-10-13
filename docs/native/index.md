@@ -157,6 +157,18 @@ Each tracker exports a flat C ABI from
 types live in
 `boxmot/native/cpp/trackers/base/include/boxmot/trackers/base/c_api_v2.hpp`.
 
+OccluBoost construction uses `boxmot_occluboost_create_v3` and
+`BoxMOTOccluBoostConfigV3`, which share thresholds and track lifetimes across
+AABB and OBB. Rebuild older native libraries to use this configuration layout;
+the Python loader rejects libraries with the previous constructor ABI.
+
+ByteTrack and BotSort construction uses `boxmot_bytetrack_create_v3` with
+`BoxMOTByteTrackConfigV3` and `boxmot_botsort_create_v3` with
+`BoxMOTBotSortConfigV3`. Their `max_lost_frames` setting counts tracker updates
+directly, without FPS scaling. Rebuild older libraries to use these layouts;
+the Python loader rejects their previous constructors. The shared v2 update
+and result buffers are unchanged.
+
 The update function has this shape, with `<name>` replaced by the tracker ID:
 
 ```cpp

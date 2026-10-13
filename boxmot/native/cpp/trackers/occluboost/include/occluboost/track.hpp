@@ -16,7 +16,8 @@ class KalmanBoxTracker {
 public:
     using Ptr = std::shared_ptr<KalmanBoxTracker>;
 
-    KalmanBoxTracker(const Detection& detection, int max_obs, std::int64_t track_id);
+    KalmanBoxTracker(const Detection& detection, int max_obs, std::int64_t track_id,
+                     double confidence_decay = 0.9, int confidence_warmup = 7);
 
     // Advance the predict step: bumps age + time_since_update; resets
     // hit_streak if a frame was missed; returns the predicted [x1,y1,x2,y2].
@@ -45,7 +46,7 @@ public:
     [[nodiscard]] bool is_obb() const { return is_obb_; }
 
     // BoostTrack track-confidence decay (coef^(missed) heuristic).
-    [[nodiscard]] double GetConfidence(double coef = 0.9) const;
+    [[nodiscard]] double GetConfidence() const;
 
     // OccluBoost AMS suppression buffer accessors.
     std::deque<Eigen::Vector4d>& ams_buffer() { return ams_buffer_; }
@@ -65,6 +66,8 @@ public:
 private:
     int max_obs_;
     bool is_obb_ = false;
+    double confidence_decay_;
+    int confidence_warmup_;
     Eigen::VectorXf embedding_;
     std::deque<Eigen::Vector4d> ams_buffer_;
 };

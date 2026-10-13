@@ -74,7 +74,7 @@ def _frame() -> Frame:
 
 
 def _without_cmc(name: str) -> dict[str, bool]:
-    return {"cmc_off": True} if name == "deepocsort" else {"use_cmc": False}
+    return {"use_cmc": False} if name == "deepocsort" else {"use_cmc": False}
 
 
 def _python_tracker(name: str, **options: Any) -> Any:
@@ -176,7 +176,7 @@ def test_python_variable_timing_requires_and_consumes_capture_timestamps(name: s
 @pytest.mark.parametrize("name", _PYTHON_TRACKERS)
 @pytest.mark.parametrize("invalid", (None, "false", 0, 1))
 def test_python_camera_motion_toggles_require_booleans(name: str, invalid: Any) -> None:
-    option = "cmc_off" if name == "deepocsort" else "use_cmc"
+    option = "use_cmc"
     with pytest.raises(TypeError, match=option):
         _python_tracker(name, **{option: invalid})
 

@@ -360,7 +360,7 @@ def test_tracker_config_accepts_builtin_preset(mode) -> None:
 
     options = _tracker_spec(args, "aabb").option_dict if mode == "track" else dict(_tracker_options(args, None))
 
-    assert options["track_buffer"] == 40
+    assert options["max_lost_frames"] == 40
     assert "tracker" not in options
 
 

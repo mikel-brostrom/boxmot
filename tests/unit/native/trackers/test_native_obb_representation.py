@@ -83,7 +83,8 @@ def _native_sfsort(match_th_first: float = 0.01):
     )
 
 
-def _native_occluboost(obb_iou_threshold: float = 0.99):
+def _native_occluboost(iou_threshold: float = 0.99) -> occluboost.NativeOccluBoostTracker:
+    """Configure oriented overlap checks through the canonical IoU threshold."""
     library = occluboost_binding.OccluBoostLibrary(
         occluboost_binding.ensure_occluboost_cpp_library()
     )
@@ -94,10 +95,10 @@ def _native_occluboost(obb_iou_threshold: float = 0.99):
             "use_dlo_boost": False,
             "use_duo_boost": False,
             "use_second_pass": False,
-            "obb_det_thresh": 0.1,
-            "obb_iou_threshold": obb_iou_threshold,
-            "obb_new_track_thresh": 0.1,
-            "obb_instant_confirm_thresh": 0.1,
+            "det_thresh": 0.1,
+            "iou_threshold": iou_threshold,
+            "new_track_thresh": 0.1,
+            "instant_confirm_thresh": 0.1,
             "confirm_hits": 1,
             "min_hits": 0,
             "min_box_area": 1,
@@ -121,7 +122,7 @@ STRICT_TRACKER_FACTORIES: tuple[tuple[str, Callable], ...] = (
     ("botsort", lambda: _native_botsort(match_thresh=5.0e-7)),
     ("ocsort", lambda: _native_ocsort(iou_threshold=0.999999)),
     ("sfsort", lambda: _native_sfsort(match_th_first=3.0e-7)),
-    ("occluboost", lambda: _native_occluboost(obb_iou_threshold=0.999999)),
+    ("occluboost", lambda: _native_occluboost(iou_threshold=0.999999)),
 )
 
 

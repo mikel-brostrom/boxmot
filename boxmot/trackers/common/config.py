@@ -1,8 +1,9 @@
 """Tracker configuration loading.
 
 Typed algorithm configurations own runtime defaults. Built-in tracker YAMLs
-define tuning metadata and component profiles. This module resolves scalar runtime values;
-interpretation of search metadata remains owned by :mod:`boxmot.engine.tuning`.
+repeat searchable defaults alongside tuning metadata and component profiles.
+This module resolves runtime values; interpretation of search metadata remains
+owned by :mod:`boxmot.engine.tuning`.
 Reusable presets and custom runtime configs group Kalman settings under
 ``kalman`` and mask-guidance settings under ``edgetam``. Engine/search code
 addresses those leaves using dotted paths.
@@ -29,8 +30,28 @@ TRACKER_PRESETS_DIR = TRACKER_CONFIGS_DIR / "presets"
 TRACKER_METADATA_KEY = "tracker"
 
 
+def _is_kalman_vector_path(name: str) -> bool:
+    """Recognize vector covariance leaves without importing runtimes for scalars."""
+    if not name.startswith("kalman.noise.") or not name.endswith(("_diagonal", ".measurement_confidence_floor")):
+        return False
+    from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_VECTOR_OPTIONS
+
+    return name in KALMAN_VECTOR_OPTIONS or (
+        name.startswith("kalman.noise.by_class.")
+        and len(name.split(".")) == 5
+        and f"kalman.noise.{name.rsplit('.', 1)[-1]}" in KALMAN_VECTOR_OPTIONS
+    )
+
+
+def _is_runtime_value(name: str, value: Any) -> bool:
+    """Allow scalar settings and the explicitly supported coordinate vectors."""
+    return isinstance(value, (str, int, float, bool, type(None))) or (
+        _is_kalman_vector_path(name) and isinstance(value, (list, tuple))
+    )
+
+
 def flatten_tracker_options(config: Mapping[str, Any]) -> dict[str, Any]:
-    """Normalize authored Kalman and EdgeTAM settings to scalar parameter paths.
+    """Normalize authored Kalman and EdgeTAM settings to parameter paths.
 
     Nested YAML mappings and the public immutable configuration object resolve
     to the same fields. Other tracker options retain their original values.
@@ -42,7 +63,11 @@ def flatten_tracker_options(config: Mapping[str, Any]) -> dict[str, Any]:
     def insert(name: str, value: Any) -> None:
         if name in flattened:
             raise ValueError(f"Tracker configuration specifies {name!r} more than once.")
-        if name.startswith("kalman.") and not isinstance(value, (str, int, float, bool, type(None))):
+        if _is_kalman_vector_path(name):
+            if not isinstance(value, (list, tuple)):
+                raise TypeError(f"Kalman vector option {name!r} must contain a list or tuple.")
+            value = list(value)
+        elif name.startswith("kalman.") and not isinstance(value, (str, int, float, bool, type(None))):
             raise TypeError(
                 "Dotted Kalman option paths must address scalar leaves; use the 'kalman' group for mappings."
             )
@@ -189,9 +214,11 @@ def get_tracker_preset_path(preset_name: str) -> Path:
 
 
 def _load_mapping(path: Path, *, label: str) -> dict[str, Any]:
+    """Read fresh configuration values with the available safe YAML parser."""
+    loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
     try:
         with path.open("r", encoding="utf-8") as handle:
-            payload = yaml.safe_load(handle) or {}
+            payload = yaml.load(handle, Loader=loader) or {}
     except yaml.YAMLError as exc:
         raise ValueError(f"Failed to parse {label} config {path}: {exc}") from exc
 
@@ -204,9 +231,7 @@ def _load_mapping(path: Path, *, label: str) -> dict[str, Any]:
 def _load_scalar_mapping(path: Path, *, label: str) -> dict[str, Any]:
     payload = flatten_tracker_options(_load_mapping(path, label=label))
 
-    non_scalar = [
-        str(key) for key, value in payload.items() if not isinstance(value, (str, int, float, bool, type(None)))
-    ]
+    non_scalar = [str(key) for key, value in payload.items() if not _is_runtime_value(key, value)]
     if non_scalar:
         names = ", ".join(non_scalar)
         raise ValueError(
@@ -285,9 +310,13 @@ def load_tracker_schema(tracker_name: str) -> dict[str, Any]:
     entries = _flatten_tracker_entries(schema, path=path)
     for parameter, details in entries.items():
         if parameter in defaults:
-            if "default" in details:
+            if "default" in details and (
+                type(details["default"]) is not type(defaults[parameter])
+                or details["default"] != defaults[parameter]
+            ):
                 raise ValueError(
-                    f"Tracker config {path} duplicates the typed default for {parameter!r}; "
+                    f"Tracker config {path} default for {parameter!r} must match its typed default "
+                    f"{defaults[parameter]!r}; "
                     "put runtime overrides in a preset."
                 )
             details["default"] = defaults[parameter]
@@ -309,9 +338,7 @@ def load_tracker_defaults(tracker_name: str) -> dict[str, Any]:
         raise ValueError(f"Tracker config {path} must define a runtime default for: {', '.join(missing)}")
 
     defaults = {parameter: details["default"] for parameter, details in entries.items()}
-    non_scalar = sorted(
-        parameter for parameter, value in defaults.items() if not isinstance(value, (str, int, float, bool, type(None)))
-    )
+    non_scalar = sorted(parameter for parameter, value in defaults.items() if not _is_runtime_value(parameter, value))
     if non_scalar:
         raise ValueError(
             f"Tracker config {path} runtime defaults must be scalar values; invalid entries: {', '.join(non_scalar)}"
@@ -346,7 +373,7 @@ def load_tracker_config(
     *overrides: Mapping[str, Any] | None,
     include_defaults: bool = True,
 ) -> dict[str, Any]:
-    """Resolve one tracker config to scalar paths using deterministic overlays.
+    """Resolve one tracker config to parameter paths using deterministic overlays.
 
     Built-in defaults are loaded first. ``tracker_config`` may be a partial
     runtime YAML or a built-in preset and overlays those defaults. Additional

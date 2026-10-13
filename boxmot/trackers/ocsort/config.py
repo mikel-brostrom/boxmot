@@ -30,5 +30,8 @@ class OcSortConfig(TrackerConfig):
     use_byte: bool = False
     det_thresh: float = field(default=0.6, metadata={"ge": 0.0, "le": 1.0})
 
+    use_cmc: bool = False
+    cmc_method: str = field(default="sof", metadata={"choices": ("ecc", "orb", "sof", "sift")})
+    cmc_min_conf: float | None = field(default=None, metadata={"ge": 0.0, "le": 1.0})
 
 __all__ = ("OcSortConfig",)

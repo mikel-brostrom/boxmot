@@ -38,7 +38,6 @@ private:
     int association_frame_height_ = 0;
     int frame_count_ = 0;
     std::int64_t next_track_id_ = 1;
-    int max_time_lost_ = 30;
     KalmanFilterXYAH kalman_filter_;
     KalmanFilterXYWH kalman_filter_obb_{5};
     bool detection_mode_ready_ = false;

@@ -41,7 +41,6 @@ private:
     int association_frame_height_ = 0;
     int frame_count_ = 0;
     std::int64_t next_track_id_ = 1;
-    int max_time_lost_ = 30;
     KalmanFilterXYWH kalman_filter_{4};
     std::unique_ptr<CameraMotionCompensator> cmc_;
     std::vector<Track::Ptr> active_tracks_;

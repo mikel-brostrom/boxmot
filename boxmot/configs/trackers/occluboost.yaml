@@ -1,186 +1,254 @@
+# Shared AABB/OBB ranges include both geometries' operating points.
 max_age:
-  geometry: aabb
   type: randint
-  range: [15, 200]
-
-# Display history capacity; AMS has its own kalman.ams.buffer_size.
-max_obs: {}
+  default: 146
+  range: [1, 200]
 
 min_hits:
   type: randint
+  default: 1
   range: [1, 5]
 
 det_thresh:
-  geometry: aabb
   type: uniform
-  range: [0.1, 0.9]
+  default: 0.5678626013369781
+  range: [0.05, 0.9]
 
 iou_threshold:
-  geometry: aabb
   type: uniform
-  range: [0.05, 0.99]
+  default: 0.2957128153631725
+  range: [0.01, 0.99]
+  association: [iou, giou, diou, ciou, hmiou]
 
 asso_func:
   type: choice
+  default: iou
   options: [iou, giou, diou, ciou, hmiou, centroid]
+
+# Maximum centroid displacement as a fraction of the frame diagonal.
+# The sole geometric cutoff for centroid; other geometric thresholds are inactive.
+centroid_max_distance:
+  association: [centroid]
+  type: uniform
+  default: 0.05
+  range: [0.005, 0.1]
 
 use_cmc:
   type: choice
+  default: true
   options: [False, True]
   activates:
     cmc_method:
       type: choice
+      default: sof
       options: [sof, ecc]
+
+# Keep camera estimation settings fixed across tracker trials.
+cmc_min_conf: {}
+sof_target_width: {}
+sof_ransac_reproj_threshold: {}
 
 min_box_area:
   type: randint
+  default: 73
   range: [5, 100]
 
 aspect_ratio_thresh:
   type: uniform
+  default: 1.4888137942764672
   range: [0.1, 2.0]
 
 lambda_iou:
   type: uniform
+  default: 1.0784558316374715
   range: [0.1, 2.0]
 
 lambda_mhd:
   geometry: aabb
   type: uniform
+  default: 0.304435887183232
   range: [0.1, 2.0]
 
 lambda_shape:
   geometry: aabb
   type: uniform
+  default: 1.6709449476805447
   range: [0.1, 2.0]
+
+# Track confidence during warmup and missed observations.
+track_confidence_decay:
+  type: uniform
+  default: 0.9
+  range: [0.7, 0.99]
+
+track_confidence_warmup:
+  type: randint
+  default: 7
+  range: [1, 15]
 
 use_dlo_boost:
   type: choice
+  default: true
   options: [False, True]
   activates:
     dlo_boost_coef:
       type: uniform
+      default: 1.2061962091907352
       range: [0.3, 2.0]
     use_rich_s:
       type: choice
+      default: false
       options: [False, True]
     use_sb:
       type: choice
+      default: true
       options: [False, True]
+      activates:
+        dlo_soft_alpha:
+          type: uniform
+          default: 0.65
+          range: [0.3, 0.9]
+        dlo_soft_power:
+          type: uniform
+          default: 1.5
+          range: [0.5, 3.0]
     use_vt:
       type: choice
+      default: true
       options: [False, True]
+      activates:
+        dlo_threshold_start:
+          type: uniform
+          default: 0.95
+          range: [0.8, 1.0]
+        dlo_threshold_end:
+          type: uniform
+          default: 0.8
+          range: [0.5, 0.8]
 
 use_duo_boost:
   type: choice
+  default: false
   options: [False, True]
+  activates:
+    duo_mahalanobis_thresh:
+      type: uniform
+      default: 13.2767
+      range: [5.0, 25.0]
+    duo_iou_thresh:
+      type: uniform
+      default: 0.3
+      range: [0.1, 0.7]
 
 s_sim_corr:
   geometry: aabb
   type: choice
+  default: false
   options: [False, True]
 
 use_embeddings:
   type: choice
+  default: true
   options: [False, True]
   activates:
+    alpha_fixed_emb:
+      type: uniform
+      default: 0.95
+      range: [0.7, 1.0]
+    appearance_thresh:
+      geometry: aabb
+      association: [iou, giou, diou, ciou, hmiou]
+      type: uniform
+      default: 0.75
+      range: [0.5, 0.95]
+    appearance_iou_fraction:
+      geometry: aabb
+      association: [iou, giou, diou, ciou, hmiou]
+      type: uniform
+      default: 0.5
+      range: [0.1, 1.0]
     recovery_appearance_thresh:
       type: uniform
+      default: 0.6732855110134396
       range: [0.2, 0.99]
     recovery_iou_thresh:
       type: uniform
+      default: 0.24380051350243462
       range: [0.0, 0.5]
+      association: [iou, giou, diou, ciou, hmiou]
     recovery_max_age:
-      geometry: aabb
       type: randint
+      default: 113
       range: [1, 120]
     feat_alpha:
       type: uniform
+      default: 0.8324072665785186
       range: [0.7, 1.0]
     lambda_emb_multiplier:
       geometry: aabb
       type: uniform
+      default: 2.9476295884842885
       range: [0.1, 8.0]
 
 use_second_pass:
   type: choice
+  default: true
   options: [False, True]
   activates:
     track_low_thresh:
       type: uniform
+      default: 0.04473431588067598
       range: [0.01, 0.3]
     second_iou_thresh:
-      geometry: aabb
       type: uniform
-      range: [0.3, 0.9]
+      default: 0.8131671757478834
+      range: [0.05, 0.9]
+      association: [iou, giou, diou, ciou, hmiou]
     second_appearance_thresh:
       type: uniform
+      default: 0.364089272226479
       range: [0.2, 0.9]
     second_pass_max_age:
       type: randint
+      default: 8
       range: [1, 10]
     second_pass_min_hits:
       type: randint
+      default: 7
       range: [1, 20]
 
 new_track_thresh:
-  geometry: aabb
   type: uniform
-  range: [0.3, 0.9]
+  default: 0.7128242784621849
+  range: [0.05, 0.9]
 
 confirm_hits:
   type: randint
+  default: 2
   range: [1, 8]
 
 instant_confirm_thresh:
-  geometry: aabb
   type: uniform
-  range: [0.5, 0.95]
+  default: 0.6783889178413256
+  range: [0.1, 0.95]
 
 tentative_max_age:
   type: randint
+  default: 3
   range: [0, 5]
 
 duplicate_iou_thresh:
   type: uniform
+  default: 0.9571823233925608
   range: [0.5, 1.0]
 
-obb_det_thresh:
-  geometry: obb
-  type: uniform
-  range: [0.05, 0.8]
-
-obb_iou_threshold:
-  geometry: obb
-  type: uniform
-  range: [0.01, 0.8]
-
-obb_new_track_thresh:
-  geometry: obb
-  type: uniform
-  range: [0.05, 0.9]
-
-obb_instant_confirm_thresh:
-  geometry: obb
-  type: uniform
-  range: [0.1, 0.95]
-
-obb_max_age:
-  geometry: obb
-  type: randint
-  range: [1, 200]
-
-obb_recovery_max_age:
-  geometry: obb
-  type: randint
-  range: [1, 120]
-
-obb_second_iou_thresh:
-  geometry: obb
-  type: uniform
-  range: [0.05, 0.9]
-
 kalman:
+  # Search filter types from this tracker's explicit default.
+  type:
+    type: choice
+    default: xyhr
+    options: [xyah, xywh, xysr, xyhr, xyscr]
+
   # Fixed KF mode; select it before calibration.
   adaptive_kf:
     default: False

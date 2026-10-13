@@ -2,14 +2,32 @@
 
 from collections import defaultdict
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
 
 import numpy as np
 
 from boxmot.trackers.common.motion.kalman_filters import batch
+from boxmot.trackers.common.motion.kalman_filters.base import BaseKalmanFilter
 
-if TYPE_CHECKING:
-    from boxmot.trackers.common.motion.kalman_filters.base import BaseKalmanFilter
+
+def constrain_area_state(
+    mean: np.ndarray, *, dim_z: int, ratio_index: int, angle_index: int | None = None
+) -> np.ndarray:
+    """Keep area means positive and stop outward area velocity at the floor.
+
+    States use their last axis for coordinates. Only the mean is constrained;
+    callers retain covariance so a new observation can recover a collapsed
+    box. Valid shrinking motion, inward velocity, and confidence are unchanged.
+    """
+    result = np.asarray(mean, dtype=float).copy()
+    at_floor = result[..., 2] <= 1e-6
+    result[..., (2, ratio_index)] = np.maximum(result[..., (2, ratio_index)], 1e-6)
+    velocity_index = dim_z + 2
+    if velocity_index < result.shape[-1]:
+        velocity = result[..., velocity_index]
+        result[..., velocity_index] = np.where(at_floor & (velocity < 0.0), 0.0, velocity)
+    if angle_index is not None:
+        result[..., angle_index] = BaseKalmanFilter._wrap_angle(result[..., angle_index])
+    return result
 
 
 def matrix_overrides(value, count: int) -> list:
@@ -55,7 +73,7 @@ def predict_many(
             transition, integrated = kf._elapsed_motion(noise, interval, motion_mat=kf.F)
         transition = supplied_f if supplied_f is not None else (kf.F if interval is None else transition)
         noise = noise if supplied_q is not None else integrated
-        if interval is not None:
+        if interval is not None or supplied_f is not None or supplied_q is not None:
             kf._time_aware = True
             if kf._unrecorded_prediction:
                 kf._prediction_history_overflowed = True
@@ -73,11 +91,12 @@ def predict_many(
             np.stack([noise for _, _, noise in group]),
             alpha_sq=np.array([kf._alpha_sq for kf, _, _ in group]),
         )
-        constrained_means = means.copy()
-        positive_indices = (2, 4) if score_state else (2, 3)
-        constrained_means[:, positive_indices] = np.maximum(constrained_means[:, positive_indices], 1e-6)
-        if not score_state and group[0][0]._is_obb:
-            constrained_means[:, 4] = group[0][0]._wrap_angle(constrained_means[:, 4])
+        constrained_means = constrain_area_state(
+            means,
+            dim_z=group[0][0].dim_z,
+            ratio_index=4 if score_state else 3,
+            angle_index=(5 if score_state else 4) if group[0][0]._is_obb else None,
+        )
         constrained_covariances = 0.5 * (covariances + covariances.swapaxes(-1, -2))
         for index, (kf, _, _) in enumerate(group):
             kf.x = constrained_means[index, :, None].copy()
@@ -113,12 +132,9 @@ def update_many(
         if z is None or not kf.observed:
             kf.update(z, R=supplied_r, H=supplied_h)
             continue
-        if score_state:
-            measurement = kf._prepare_measurement(z)
-        else:
-            measurement = kf._prepare_measurement(z, reference_state=kf._measurement_reference_state())
+        measurement = kf._prepare_measurement(z, reference_state=kf._measurement_reference_state())
         kf.history_obs.append(measurement.copy())
-        if not score_state and kf._time_aware:
+        if (not score_state and kf._time_aware) or (score_state and kf._is_obb):
             measurement = kf._prepare_measurement(measurement, reference_state=kf._measurement_reference_state())
         noise = kf.noise_config.measurement_covariance(kf.R) if supplied_r is None else supplied_r
         if np.isscalar(noise):
@@ -144,7 +160,7 @@ def update_many(
             kf.S, kf.SI = projected[index].copy(), inverses[index].copy()
             kf.z = measurement.copy()
             kf.x_post, kf.P_post = kf.x.copy(), kf.P.copy()
-            if not score_state and kf._is_obb and kf.dim_x >= 9:
+            if kf._is_obb and kf.dim_x >= 9:
                 kf.x = kf._damp_theta_velocity(kf.x, damping=0.8)
             kf._enforce_state_constraints()
             kf._remember_observation(measurement)

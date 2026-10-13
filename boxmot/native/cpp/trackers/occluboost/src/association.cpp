@@ -131,7 +131,12 @@ AssociationResult Associate(const Eigen::MatrixXd& detections,
                             const double lambda_emb_multiplier,
                             const boxmot::trackers::base::AssociationMode association_mode,
                             const int frame_width,
-                            const int frame_height) {
+                            const int frame_height,
+                            const double centroid_max_distance,
+                            const double appearance_thresh,
+                            const double appearance_iou_fraction) {
+    const double geometry_threshold = boxmot::trackers::base::GeometrySimilarityThreshold(
+        association_mode, similarity_threshold);
     AssociationResult result;
     const int nd = static_cast<int>(detections.rows());
     const int nt = static_cast<int>(trackers.rows());
@@ -153,7 +158,7 @@ AssociationResult Associate(const Eigen::MatrixXd& detections,
     }
 
     Eigen::MatrixXd geometry_matrix = boxmot::trackers::base::AabbAssociationMatrix(
-        detections, trackers, association_mode, frame_width, frame_height);
+        detections, trackers, association_mode, frame_width, frame_height, centroid_max_distance);
     Eigen::MatrixXd cost_matrix = geometry_matrix;
 
     // Confidence-weighted geometry contribution.
@@ -163,7 +168,7 @@ AssociationResult Associate(const Eigen::MatrixXd& detections,
         for (int i = 0; i < nd; ++i) {
             for (int j = 0; j < nt; ++j) {
                 conf(i, j) = detection_confidence(i) * track_confidence(j);
-                if (geometry_matrix(i, j) < similarity_threshold) {
+                if (geometry_matrix(i, j) < geometry_threshold) {
                     conf(i, j) = 0.0;
                 }
             }
@@ -191,6 +196,7 @@ AssociationResult Associate(const Eigen::MatrixXd& detections,
     // base solver clamps an infinite threshold internally so the rectangular
     // padding stays finite.
     Eigen::MatrixXd hungarian_cost = -cost_matrix;
+    boxmot::trackers::base::GateCentroidCosts(hungarian_cost, geometry_matrix, association_mode);
     boxmot::trackers::base::AssignmentResult hungarian = boxmot::trackers::base::LinearAssignment(
         hungarian_cost, std::numeric_limits<double>::infinity());
 
@@ -199,10 +205,10 @@ AssociationResult Associate(const Eigen::MatrixXd& detections,
     for (const auto& match : hungarian.matches) {
         const int d = match.first;
         const int t = match.second;
-        const bool geometry_ok = geometry_matrix(d, t) >= similarity_threshold;
+        const bool geometry_ok = geometry_matrix(d, t) >= geometry_threshold;
         bool emb_ok = false;
-        if (emb_cost.size() > 0 && geometry_matrix(d, t) >= 0.5 * similarity_threshold &&
-            emb_cost(d, t) >= 0.75) {
+        if (emb_cost.size() > 0 && geometry_matrix(d, t) >= appearance_iou_fraction * geometry_threshold &&
+            emb_cost(d, t) >= appearance_thresh) {
             emb_ok = true;
         }
         if (geometry_ok || emb_ok) {

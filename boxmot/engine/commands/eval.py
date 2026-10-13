@@ -11,6 +11,7 @@ import click
 
 from boxmot.engine.commands._options import (
     association_function_option,
+    cmc_policy_option,
     data_root_option,
     dataset_fps_option,
     edgetam_option,
@@ -351,6 +352,7 @@ def _prepare_sensor_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -
 )
 @tracker_backend_option(default=BOXMOT_DEFAULTS.eval.tracker_backend)
 @tracker_config_option
+@cmc_policy_option
 @click.option(
     "--class-config",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
@@ -423,6 +425,24 @@ def eval(
     """Evaluate a tracker, materializing the selected configuration when needed."""
 
     _require_replay_input(experiment, dataset, "eval")
+    if kwargs.get("cmc_policy") is not None:
+        from boxmot.engine.config.cmc import SequenceCMCPolicy, load_cmc_policy, validate_cmc_analysis
+        from boxmot.trackers.common.specs import parse_tracker_spec
+
+        if calibrate_kf:
+            raise click.UsageError(
+                "--cmc-policy evaluates a fixed KF profile and cannot be combined with --calibrate-kf; "
+                "use tune --select-kf --select-cmc for joint camera/KF calibration."
+            )
+        try:
+            spec = parse_tracker_spec(kwargs["tracker"], default_backend=kwargs["tracker_backend"])
+            if kwargs["cmc_policy"] == "auto":
+                validate_cmc_analysis(spec.name, spec.backend)
+            else:
+                policy = SequenceCMCPolicy() if kwargs["cmc_policy"] == "off" else load_cmc_policy(kwargs["cmc_policy"])
+                policy.validate(spec, (name for name, _ in policy.sequences))
+        except (TypeError, ValueError, OSError) as exc:
+            raise click.UsageError(str(exc)) from exc
     try:
         kwargs["postprocessing"] = normalize_postprocessing(kwargs.get("postprocessing"))
     except ValueError as exc:

@@ -18,7 +18,7 @@ class _FakeLibrary:
         self.calls: list[tuple] = []
 
     def create(self, cfg):
-        self.calls.append(("create", cfg["frame_rate"], cfg["use_embeddings"]))
+        self.calls.append(("create", cfg["max_lost_frames"], cfg["use_embeddings"]))
         return "handle"
 
     def reset(self, handle):
@@ -66,7 +66,7 @@ def test_native_botsort_requirements_follow_resolved_config(options, embeddings,
 def test_native_botsort_forwards_supplied_embeddings():
     library = _FakeLibrary()
     tracker = native_module.NativeBotSortTracker(
-        {"frame_rate": 15, "use_embeddings": True, "use_cmc": False},
+        {"max_lost_frames": 15, "use_embeddings": True, "use_cmc": False},
         library=library,
     )
     embeddings = torch.tensor([[1.0, 0.0], [0.0, 1.0]], dtype=torch.float32)
@@ -121,12 +121,11 @@ def test_native_botsort_obb_motion_matches_python_without_internal_reid():
         "track_high_thresh": 0.5,
         "track_low_thresh": 0.1,
         "new_track_thresh": 0.5,
-        "track_buffer": 30,
+        "max_lost_frames": 30,
         "match_thresh": 0.95,
         "proximity_thresh": 0.9,
         "appearance_thresh": 0.25,
         "use_cmc": False,
-        "frame_rate": 30,
         "fuse_first_associate": False,
         "use_embeddings": False,
         "second_match_thresh": 0.5,

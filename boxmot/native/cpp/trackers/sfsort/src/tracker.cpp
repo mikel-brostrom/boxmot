@@ -212,7 +212,8 @@ Eigen::MatrixXd CalculateAabbCost(
     const bool geometry_only,
     const boxmot::trackers::base::AssociationMode association_mode,
     const int frame_width,
-    const int frame_height
+    const int frame_height,
+    const double centroid_max_distance
 ) {
     Eigen::MatrixXd cost(static_cast<int>(tracks.size()), static_cast<int>(detections.size()));
     for (int row = 0; row < static_cast<int>(tracks.size()); ++row) {
@@ -229,8 +230,12 @@ Eigen::MatrixXd CalculateAabbCost(
             const double rhs_cx = (rhs[0] + rhs[2]) / 2.0;
             const double rhs_cy = (rhs[1] + rhs[3]) / 2.0;
             const double geometry = boxmot::trackers::base::AabbAssociationSimilarity(
-                lhs, rhs, association_mode, frame_width, frame_height
+                lhs, rhs, association_mode, frame_width, frame_height, centroid_max_distance
             );
+            if (association_mode == boxmot::trackers::base::AssociationMode::kCentroid && geometry < 0.0) {
+                cost(row, col) = std::numeric_limits<double>::infinity();
+                continue;
+            }
             if (geometry_only) {
                 cost(row, col) = 1.0 - geometry;
                 continue;
@@ -252,7 +257,8 @@ Eigen::MatrixXd CalculateObbCost(
     const bool geometry_only,
     const boxmot::trackers::base::AssociationMode association_mode,
     const int frame_width,
-    const int frame_height
+    const int frame_height,
+    const double centroid_max_distance
 ) {
     Eigen::MatrixXd cost(static_cast<int>(tracks.size()), static_cast<int>(detections.size()));
     for (int row = 0; row < static_cast<int>(tracks.size()); ++row) {
@@ -262,8 +268,12 @@ Eigen::MatrixXd CalculateObbCost(
         for (int col = 0; col < static_cast<int>(detections.size()); ++col) {
             const Detection& detection = detections[static_cast<std::size_t>(col)];
             const double geometry = boxmot::trackers::base::ObbAssociationSimilarity(
-                track->xywha, detection.xywha, association_mode, frame_width, frame_height
+                track->xywha, detection.xywha, association_mode, frame_width, frame_height, centroid_max_distance
             );
+            if (association_mode == boxmot::trackers::base::AssociationMode::kCentroid && geometry < 0.0) {
+                cost(row, col) = std::numeric_limits<double>::infinity();
+                continue;
+            }
             if (geometry_only) {
                 cost(row, col) = 1.0 - geometry;
                 continue;
@@ -313,7 +323,9 @@ void SFSORTTracker::TrackData::Update(const Detection& detection, const int fram
 
 SFSORTTracker::SFSORTTracker(Config config)
     : config_(std::move(config)),
-      association_mode_(boxmot::trackers::base::ParseAssociationMode(config_.asso_func)) {}
+      association_mode_(boxmot::trackers::base::ParseAssociationMode(config_.asso_func)) {
+    boxmot::trackers::base::ValidateCentroidMaxDistance(config_.centroid_max_distance);
+}
 
 void SFSORTTracker::Reset() {
     frame_count_ = 0;
@@ -438,18 +450,19 @@ Eigen::MatrixXd SFSORTTracker::CalculateCost(
     const bool geometry_only,
     const boxmot::trackers::base::AssociationMode association_mode,
     const int frame_width,
-    const int frame_height
+    const int frame_height,
+    const double centroid_max_distance
 ) {
     if (tracks.empty() || detections.empty()) {
         return Eigen::MatrixXd(static_cast<int>(tracks.size()), static_cast<int>(detections.size()));
     }
     if (detections.front().is_obb) {
         return CalculateObbCost(
-            tracks, detections, geometry_only, association_mode, frame_width, frame_height
+            tracks, detections, geometry_only, association_mode, frame_width, frame_height, centroid_max_distance
         );
     }
     return CalculateAabbCost(
-        tracks, detections, geometry_only, association_mode, frame_width, frame_height
+        tracks, detections, geometry_only, association_mode, frame_width, frame_height, centroid_max_distance
     );
 }
 
@@ -531,9 +544,11 @@ std::vector<TrackOutput> SFSORTTracker::Update(const std::vector<Detection>& det
                     false,
                     association_mode_,
                     association_frame_width_,
-                    association_frame_height_
+                    association_frame_height_,
+                    config_.centroid_max_distance
                 ),
-                static_cast<double>(mth)
+                association_mode_ == boxmot::trackers::base::AssociationMode::kCentroid
+                    ? std::numeric_limits<double>::infinity() : static_cast<double>(mth)
             );
             for (const auto& match : first_matches.matches) {
                 auto* track = track_pool[static_cast<std::size_t>(match.first)];
@@ -576,9 +591,10 @@ std::vector<TrackOutput> SFSORTTracker::Update(const std::vector<Detection>& det
                 true,
                 association_mode_,
                 association_frame_width_,
-                association_frame_height_
+                association_frame_height_,
+                config_.centroid_max_distance
             ),
-            static_cast<double>(config_.match_th_second)
+            boxmot::trackers::base::GeometryCostThreshold(association_mode_, config_.match_th_second)
         );
         for (const auto& match : second_matches.matches) {
             auto* track = unmatched_track_pool[static_cast<std::size_t>(match.first)];

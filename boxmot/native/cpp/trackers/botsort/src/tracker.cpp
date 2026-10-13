@@ -3,12 +3,14 @@
 #include "boxmot/trackers/base/assignment.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <unordered_set>
 
 namespace botsort {
 
 using boxmot::trackers::base::AssignmentResult;
+using boxmot::trackers::base::GeometryCostThreshold;
 using boxmot::trackers::base::LinearAssignment;
 
 namespace {
@@ -87,14 +89,15 @@ std::vector<Track::Ptr> SubTracks(const std::vector<Track::Ptr>& lhs,
 }
 
 std::pair<std::vector<Track::Ptr>, std::vector<Track::Ptr>> RemoveDuplicateTracks(
-    const std::vector<Track::Ptr>& lhs, const std::vector<Track::Ptr>& rhs) {
+    const std::vector<Track::Ptr>& lhs, const std::vector<Track::Ptr>& rhs,
+    const double duplicate_distance_thresh) {
     const Eigen::MatrixXd distances = boxmot::trackers::base::TrackAssociationDistance(
         lhs, rhs, boxmot::trackers::base::AssociationMode::kIou);
     std::unordered_set<int> dup_lhs;
     std::unordered_set<int> dup_rhs;
     for (int row = 0; row < distances.rows(); ++row) {
         for (int col = 0; col < distances.cols(); ++col) {
-            if (distances(row, col) < 0.15) {
+            if (distances(row, col) < duplicate_distance_thresh) {
                 const int lhs_time = lhs[row]->frame_id - lhs[row]->start_frame;
                 const int rhs_time = rhs[col]->frame_id - rhs[col]->start_frame;
                 if (lhs_time > rhs_time) {
@@ -126,21 +129,23 @@ std::pair<std::vector<Track::Ptr>, std::vector<Track::Ptr>> RemoveDuplicateTrack
 BotSortTracker::BotSortTracker(Config config)
     : config_(std::move(config)),
       association_mode_(boxmot::trackers::base::ParseAssociationMode(config_.asso_func)),
-      max_time_lost_(static_cast<int>((static_cast<double>(config_.frame_rate) / 30.0) *
-                                      static_cast<double>(config_.track_buffer))),
       cmc_(CreateCameraMotionCompensator(config_.cmc_method)) {
-    if (max_time_lost_ <= 0) {
-        max_time_lost_ = config_.track_buffer;
+    boxmot::trackers::base::ValidateCentroidMaxDistance(config_.centroid_max_distance);
+    if (config_.max_lost_frames < 0) {
+        throw std::invalid_argument("BotSort max_lost_frames must be nonnegative.");
+    }
+    if (!std::isfinite(config_.alpha_fixed_emb) || config_.alpha_fixed_emb < 0.0F ||
+        config_.alpha_fixed_emb > 1.0F) {
+        throw std::invalid_argument("BotSort alpha_fixed_emb must lie in [0, 1].");
+    }
+    if (!std::isfinite(config_.duplicate_distance_thresh) || config_.duplicate_distance_thresh < 0.0F ||
+        config_.duplicate_distance_thresh > 1.0F) {
+        throw std::invalid_argument("BotSort duplicate_distance_thresh must lie in [0, 1].");
     }
 }
 
 void BotSortTracker::Reset() {
     frame_count_ = 0;
-    max_time_lost_ = static_cast<int>((static_cast<double>(config_.frame_rate) / 30.0) *
-                                      static_cast<double>(config_.track_buffer));
-    if (max_time_lost_ <= 0) {
-        max_time_lost_ = config_.track_buffer;
-    }
     detection_mode_ready_ = false;
     is_obb_mode_ = false;
     association_frame_width_ = 0;
@@ -158,7 +163,7 @@ std::vector<Track::Ptr> BotSortTracker::CreateDetectionTracks(
     std::vector<Track::Ptr> result;
     result.reserve(detections.size());
     for (const auto& detection : detections) {
-        result.push_back(std::make_shared<Track>(detection));
+        result.push_back(std::make_shared<Track>(detection, config_.alpha_fixed_emb));
     }
     return result;
 }
@@ -203,7 +208,7 @@ void BotSortTracker::ApplyCameraMotionCompensation(const cv::Mat& image,
 
 void BotSortTracker::UpdateTrackStates(std::vector<Track::Ptr>& removed_tracks) {
     for (const auto& track : lost_tracks_) {
-        if ((frame_count_ - track->frame_id) > max_time_lost_) {
+        if ((frame_count_ - track->frame_id) > config_.max_lost_frames) {
             track->MarkRemoved();
             removed_tracks.push_back(track);
         }
@@ -229,7 +234,8 @@ std::vector<TrackOutput> BotSortTracker::PrepareOutput(
     lost_tracks_ = SubTracks(lost_tracks_, removed_tracks_);
     removed_tracks_.insert(removed_tracks_.end(), removed_tracks.begin(), removed_tracks.end());
 
-    auto [dedup_active, dedup_lost] = RemoveDuplicateTracks(active_tracks_, lost_tracks_);
+    auto [dedup_active, dedup_lost] =
+        RemoveDuplicateTracks(active_tracks_, lost_tracks_, config_.duplicate_distance_thresh);
     active_tracks_ = std::move(dedup_active);
     lost_tracks_ = std::move(dedup_lost);
 
@@ -314,7 +320,8 @@ std::vector<TrackOutput> BotSortTracker::Update(const std::vector<Detection>& de
                                                          detections_first,
                                                          association_mode_,
                                                          association_frame_width_,
-                                                         association_frame_height_);
+                                                         association_frame_height_,
+                                                         config_.centroid_max_distance);
     Eigen::MatrixXd dist_first =
         config_.fuse_first_associate ? FuseScore(geometry_first, detections_first) : geometry_first;
 
@@ -323,7 +330,7 @@ std::vector<TrackOutput> BotSortTracker::Update(const std::vector<Detection>& de
         for (int row = 0; row < emb_first.rows(); ++row) {
             for (int col = 0; col < emb_first.cols(); ++col) {
                 if (emb_first(row, col) > config_.appearance_thresh ||
-                    geometry_first(row, col) > config_.proximity_thresh) {
+                    geometry_first(row, col) > GeometryCostThreshold(association_mode_, config_.proximity_thresh)) {
                     emb_first(row, col) = 1.0;
                 }
                 dist_first(row, col) = std::min(dist_first(row, col), emb_first(row, col));
@@ -331,7 +338,11 @@ std::vector<TrackOutput> BotSortTracker::Update(const std::vector<Detection>& de
         }
     }
 
-    const AssignmentResult first_matches = LinearAssignment(dist_first, config_.match_thresh);
+    boxmot::trackers::base::GateCentroidCosts(
+        dist_first, Eigen::MatrixXd::Ones(geometry_first.rows(), geometry_first.cols()) - geometry_first,
+        association_mode_);
+    const AssignmentResult first_matches =
+        LinearAssignment(dist_first, GeometryCostThreshold(association_mode_, config_.match_thresh));
     for (const auto& match : first_matches.matches) {
         const auto& track = strack_pool[match.first];
         const auto& detection = detections_first[match.second];
@@ -356,9 +367,10 @@ std::vector<TrackOutput> BotSortTracker::Update(const std::vector<Detection>& de
                                                          detections_second,
                                                          association_mode_,
                                                          association_frame_width_,
-                                                         association_frame_height_);
+                                                         association_frame_height_,
+                                                         config_.centroid_max_distance);
     const AssignmentResult second_matches =
-        LinearAssignment(second_dist, config_.second_match_thresh);
+        LinearAssignment(second_dist, GeometryCostThreshold(association_mode_, config_.second_match_thresh));
     for (const auto& match : second_matches.matches) {
         const auto& track = remaining_tracked[match.first];
         const auto& detection = detections_second[match.second];
@@ -389,15 +401,17 @@ std::vector<TrackOutput> BotSortTracker::Update(const std::vector<Detection>& de
                                                          remaining_high,
                                                          association_mode_,
                                                          association_frame_width_,
-                                                         association_frame_height_);
-    Eigen::MatrixXd dist_unc = FuseScore(geometry_unc, remaining_high);
+                                                         association_frame_height_,
+                                                         config_.centroid_max_distance);
+    Eigen::MatrixXd dist_unc =
+        config_.fuse_unconfirmed_associate ? FuseScore(geometry_unc, remaining_high) : geometry_unc;
     if (config_.use_embeddings && dist_unc.size() > 0) {
         Eigen::MatrixXd emb_unc = EmbeddingDistance(unconfirmed, remaining_high);
         emb_unc /= std::max(static_cast<double>(config_.unconfirmed_emb_scale), 1.0e-12);
         for (int row = 0; row < emb_unc.rows(); ++row) {
             for (int col = 0; col < emb_unc.cols(); ++col) {
                 if (emb_unc(row, col) > config_.appearance_thresh ||
-                    geometry_unc(row, col) > config_.proximity_thresh) {
+                    geometry_unc(row, col) > GeometryCostThreshold(association_mode_, config_.proximity_thresh)) {
                     emb_unc(row, col) = 1.0;
                 }
                 dist_unc(row, col) = std::min(dist_unc(row, col), emb_unc(row, col));
@@ -405,8 +419,11 @@ std::vector<TrackOutput> BotSortTracker::Update(const std::vector<Detection>& de
         }
     }
 
+    boxmot::trackers::base::GateCentroidCosts(
+        dist_unc, Eigen::MatrixXd::Ones(geometry_unc.rows(), geometry_unc.cols()) - geometry_unc,
+        association_mode_);
     const AssignmentResult unconfirmed_matches =
-        LinearAssignment(dist_unc, config_.unconfirmed_match_thresh);
+        LinearAssignment(dist_unc, GeometryCostThreshold(association_mode_, config_.unconfirmed_match_thresh));
     for (const auto& match : unconfirmed_matches.matches) {
         const auto& track = unconfirmed[match.first];
         track->Update(*remaining_high[match.second], kalman_filter_, frame_count_);

@@ -10,8 +10,9 @@ import yaml
 
 from boxmot.datasets.inputs import DatasetInputs
 from boxmot.engine.calibration import kalman_sensor
-from boxmot.engine.calibration.kalman import calibrate_kalman, fit_kalman_noise, validate_kf_calibration
+from boxmot.engine.calibration.kalman import calibrate_kalman, validate_kf_calibration
 from boxmot.engine.calibration.kalman_data import CalibrationData, CalibrationTrack
+from boxmot.engine.calibration.kalman_fit import fit_kalman_noise
 from boxmot.engine.calibration.kalman_model_3d import CalibrationModel3D
 from boxmot.engine.eval.eagermot_kitti import load_kitti_profiles
 from boxmot.engine.eval.results import ValidationResult

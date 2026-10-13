@@ -1,9 +1,11 @@
 det_thresh:
   type: uniform
+  default: 0.5
   range: [0.3, 0.6]
 
 max_age:
   type: qrandint
+  default: 30
   range: [10, 61, 10]  # step size of 10, upper bound exclusive
 
 # History capacity; runtime expands it beyond the searchable lost-track lifetime.
@@ -11,51 +13,81 @@ max_obs: {}
 
 min_hits:
   type: randint
+  default: 3
   range: [1, 6]  # upper bound exclusive
 
 iou_threshold:
   type: uniform
+  default: 0.3
   range: [0.1, 0.4]
+  association: [iou, giou, diou, ciou, hmiou]
 
 delta_t:
   type: randint
+  default: 3
   range: [1, 6]  # upper bound exclusive
 
 asso_func:
   type: choice
+  default: iou
   options: [iou, giou, diou, ciou, hmiou, centroid]
+
+# Maximum centroid displacement as a fraction of the frame diagonal.
+# The sole geometric cutoff for centroid; other geometric thresholds are inactive.
+centroid_max_distance:
+  association: [centroid]
+  type: uniform
+  default: 0.05
+  range: [0.005, 0.1]
 
 inertia:
   type: uniform
+  default: 0.2
   range: [0.1, 0.4]
 
 w_association_emb:
   type: uniform
+  default: 0.75
   range: [0.5, 0.9]
 
 alpha_fixed_emb:
   type: uniform
+  default: 0.95
   range: [0.9, 0.999]
 
 aw_param:
   type: uniform
+  default: 0.5
   range: [0.3, 0.7]
 
 use_embeddings:
   type: choice
+  default: true
   options: [True, False]
 
-cmc_off:
+use_cmc:
   type: choice
+  default: true
   options: [True, False]
+
+# Keep the estimator and camera mask threshold fixed across tracker trials.
+cmc_method: {}
+cmc_min_conf: {}
 
 aw_off:
   type: choice
+  default: false
   options: [True, False]
 
 # Timing and reference-prior units stay fixed across all tuning trials.
 
 kalman:
+  # Search filter types from this tracker's explicit default.
+  type:
+    type: choice
+    default: xysr
+    options: [xyah, xywh, xysr, xyhr, xyscr]
+
   variable_dt:
     default: false
 

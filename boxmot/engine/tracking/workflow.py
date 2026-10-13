@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from boxmot import create_tracker
+from boxmot.components.resolution import component_options
 from boxmot.detectors import Detector, DetectorSpec, create_detector
 from boxmot.detectors.config import resolve_detector_spec
 from boxmot.engine.config.trackers import edgetam_checkpoint, resolve_tracker_options
@@ -125,7 +126,7 @@ def _tracker_spec(args: Any, geometry: str) -> TrackerSpec:
         geometry=geometry,
         per_class=bool(getattr(args, "per_class", False) or options.get("per_class", False)),
         class_ids=_classes(getattr(args, "classes", None)),
-        options=tuple(sorted(options.items())),
+        options=component_options(options),
     )
 
 

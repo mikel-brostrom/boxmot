@@ -73,3 +73,27 @@ def create_cmc(method: str | None, *, enabled: bool = True, **kwargs) -> BaseCMC
         return None
     cls = get_cmc_method(method)
     return None if cls is None else cls(**kwargs)
+
+
+def sof_options(config: object) -> dict[str, int | float | None]:
+    """Resolve SOF settings from a tracker's resolved config or flat options.
+
+    Configurations without tracker-specific SOF fields retain the generic
+    profile. Runtime, camera analysis, and fitted-profile metadata share this
+    resolution so changing an estimator cannot silently reuse different warps.
+    """
+    from boxmot.trackers.common.motion.cmc.sof import (
+        SOF_DEFAULT_RANSAC_REPROJ_THRESHOLD,
+        SOF_DEFAULT_TARGET_WIDTH,
+    )
+
+    defaults = {
+        "target_width": SOF_DEFAULT_TARGET_WIDTH,
+        "ransac_reproj_threshold": SOF_DEFAULT_RANSAC_REPROJ_THRESHOLD,
+    }
+    return {
+        name: config.get(f"sof_{name}", default)
+        if isinstance(config, Mapping)
+        else getattr(config, f"sof_{name}", default)
+        for name, default in defaults.items()
+    }

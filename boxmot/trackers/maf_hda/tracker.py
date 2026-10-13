@@ -108,6 +108,7 @@ class MafHda(BaseTracker):
             min_hits=config.min_hits,
             iou_threshold=config.iou_threshold,
             asso_func=config.asso_func,
+            centroid_max_distance=config.centroid_max_distance,
             **kwargs,
         )
         self.velocity_alpha = config.velocity_alpha
@@ -119,6 +120,18 @@ class MafHda(BaseTracker):
         self.t2ta_mode = config.t2ta_mode
         self.template_size = config.template_size
         self._tracks: list[_Track] = []
+
+    def _new_appearance(self, image: np.ndarray, bbox: np.ndarray, mask: np.ndarray) -> MaskedKCF:
+        """Build one appearance model using the configured KCF learning policy."""
+        return MaskedKCF(
+            image, bbox, mask,
+            template_size=self.template_size,
+            padding=self.config.kcf_padding,
+            interp_factor=self.config.kcf_interp_factor,
+            sigma=self.config.kcf_sigma,
+            regularization=self.config.kcf_regularization,
+            output_sigma_factor=self.config.kcf_output_sigma_factor,
+        )
 
     def reset(self) -> None:
         """Discard all sequence state while preserving configuration."""
@@ -156,7 +169,7 @@ class MafHda(BaseTracker):
         """Create a birth component with the source motion and appearance priors."""
         appearance = None
         if self.s2ta_mode != "motion" or self.t2ta_mode != "motion":
-            appearance = MaskedKCF(image, observation.bbox, observation.mask, template_size=self.template_size)
+            appearance = self._new_appearance(image, observation.bbox, observation.mask)
         return _Track(
             id=self.id_allocator.alloc(),
             bbox=observation.bbox.copy(),
@@ -191,6 +204,7 @@ class MafHda(BaseTracker):
         allowed = np.zeros(shape, dtype=bool)
         posteriors = []
         recovery = candidates is not None
+        gate_geometry = self._asso_func_base_name != "centroid"
         mode = self.t2ta_mode if recovery else self.s2ta_mode
         boxes = np.asarray([observation.bbox for observation in observations], dtype=np.float64).reshape(-1, 4)
         for row, track in enumerate(tracks):
@@ -205,7 +219,10 @@ class MafHda(BaseTracker):
                         continue
                     predicted = track.bbox + np.tile(velocity * gap, 2)
                     likelihood, _ = gaussian_affinity(
-                        candidate.first_bbox[None], predicted, track.covariance, recovery=True
+                        candidate.first_bbox[None], predicted, track.covariance, recovery=True,
+                        gate_geometry=gate_geometry,
+                        max_area_ratio=self.config.max_area_ratio,
+                        min_intersection_ratio=self.config.min_intersection_ratio,
                     )
                     motion[row, col] = track.weight * likelihood[0]
                     # The temporal bridge ends at the candidate's birth frame.
@@ -214,14 +231,19 @@ class MafHda(BaseTracker):
                     overlap[row, col] = np.clip(
                         self.asso_func(predicted[None], candidate.first_bbox[None])[0, 0], 0.0, 1.0
                     )
-                    allowed[row, col] = True
+                    allowed[row, col] = self.association_eligibility(predicted[None], candidate.first_bbox[None])[0, 0]
             else:
                 predicted = track.bbox + np.tile(track.velocity, 2)
                 covariance = predict_covariance(track.covariance)
-                likelihood, posterior = gaussian_affinity(boxes, predicted, covariance)
+                likelihood, posterior = gaussian_affinity(
+                    boxes, predicted, covariance, gate_geometry=gate_geometry,
+                    max_area_ratio=self.config.max_area_ratio,
+                    min_intersection_ratio=self.config.min_intersection_ratio,
+                )
                 motion[row] = track.weight * likelihood
                 overlap[row] = np.clip(self.asso_func(predicted[None], boxes)[0], 0.0, 1.0)
                 allowed[row] = [observation.cls == track.cls for observation in observations]
+                allowed[row] &= self.association_eligibility(predicted[None], boxes)[0]
             posteriors.append(posterior)
             if mode != "motion" and track.appearance is not None:
                 for col, observation in enumerate(observations):
@@ -237,9 +259,12 @@ class MafHda(BaseTracker):
             appearance_lower=self.appearance_lower,
             appearance_upper=self.appearance_upper,
             overlap_lower=self.iou_threshold,
+            gate_geometry=gate_geometry,
+            recovery_overlap_thresh=self.config.recovery_overlap_thresh,
         )
-        costs[~allowed] = MAX_COST
-        matches, _, _ = linear_assignment(costs, thresh=np.nextafter(MAX_COST, 0.0))
+        costs[~allowed] = MAX_COST if gate_geometry else np.inf
+        cost_limit = np.nextafter(MAX_COST, 0.0) if gate_geometry else None
+        matches, _, _ = linear_assignment(costs, thresh=cost_limit)
         totals = motion.sum(axis=0, keepdims=True)
         weights = np.divide(motion, totals, out=np.zeros_like(motion), where=totals > 0)
         return matches, posteriors, weights
@@ -268,9 +293,11 @@ class MafHda(BaseTracker):
         track.hits += 1
         track.history_observations.append(track.bbox.copy())
         if track.appearance is not None:
-            # The released source reinitializes appearance after every accepted
-            # S2TA match (APPEARANCE_STRICT_UPDATE_ON=0).
-            track.appearance = MaskedKCF(image, track.bbox, track.mask, template_size=self.template_size)
+            if self.config.kcf_update_mode == "interpolate":
+                track.appearance.update(image, track.bbox, track.mask)
+            else:
+                # Preserve the source's APPEARANCE_STRICT_UPDATE_ON=0 policy.
+                track.appearance = self._new_appearance(image, track.bbox, track.mask)
 
     def _merge_tracks(self, tracks: list[_Track], image: np.ndarray | None) -> list[_Track]:
         """Merge current duplicate masks, retaining the oldest identity."""
@@ -287,7 +314,7 @@ class MafHda(BaseTracker):
                 track.bbox = np.r_[boxes[:, :2].min(axis=0), boxes[:, 2:].max(axis=0)]
                 track.history_observations[-1] = track.bbox.copy()
                 if track.appearance is not None:
-                    track.appearance = MaskedKCF(image, track.bbox, track.mask, template_size=self.template_size)
+                    track.appearance = self._new_appearance(image, track.bbox, track.mask)
             merged.append(track)
         return merged
 

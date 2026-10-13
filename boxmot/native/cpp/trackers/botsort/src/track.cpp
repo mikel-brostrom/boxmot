@@ -212,11 +212,12 @@ Eigen::Matrix<double, 5, 1> WarpObbMeasurement(
 
 }  // namespace
 
-Track::Track(const Detection& detection)
+Track::Track(const Detection& detection, const float alpha_fixed_emb)
         : conf(detection.conf),
       cls(detection.cls),
             det_ind(detection.det_ind),
-            is_obb_(detection.is_obb) {
+            is_obb_(detection.is_obb),
+            alpha_(alpha_fixed_emb) {
     if (is_obb_) {
         xywha_ = detection.xywha;
         xywha_[2] = std::max(xywha_[2], 1.0e-4);

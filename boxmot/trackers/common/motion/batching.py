@@ -8,12 +8,15 @@ from typing import Any
 
 def predict_tracks(tracks: Sequence[Any], *, dt: float | None = None) -> list[Any]:
     """Predict independent filters, then complete each track's frame counters."""
-    groups: dict[type, list[Any]] = {}
+    groups: dict[tuple, tuple[Any, list[Any]]] = {}
     for track in tracks:
         track._prepare_prediction(dt=dt)
-        groups.setdefault(type(track.kf), []).append(track.kf)
-    for filter_type, filters in groups.items():
-        filter_type.predict_many(filters, dt=dt)
+        model = track.motion_model
+        observation_centric = track.observation_centric
+        _, filters = groups.setdefault((model.kind, model.is_obb, observation_centric), (model, []))
+        filters.append(track.kf)
+    for (_, _, observation_centric), (model, filters) in groups.items():
+        model.predict_filters(filters, dt=dt, observation_centric=observation_centric)
     return [track._finish_prediction() for track in tracks]
 
 
@@ -25,7 +28,7 @@ def update_tracks(tracks: Sequence[Any], *arguments: Sequence[Any], **keywords: 
     """
     if any(len(column) != len(tracks) for column in (*arguments, *keywords.values())):
         raise ValueError("Every update argument must contain one value per track")
-    groups: dict[type, tuple[list[Any], list[Any]]] = {}
+    groups: dict[tuple, tuple[Any, list[Any], list[Any], list[float]]] = {}
     measurements = []
     for index, track in enumerate(tracks):
         measurement = track._prepare_update(
@@ -33,10 +36,14 @@ def update_tracks(tracks: Sequence[Any], *arguments: Sequence[Any], **keywords: 
             **{name: column[index] for name, column in keywords.items()},
         )
         measurements.append(measurement)
-        filters, observations = groups.setdefault(type(track.kf), ([], []))
+        model = track.motion_model
+        _, filters, observations, confidences = groups.setdefault(
+            (model.kind, model.is_obb, track.observation_centric), (model, [], [], [])
+        )
         filters.append(track.kf)
         observations.append(measurement)
-    for filter_type, (filters, observations) in groups.items():
-        filter_type.update_many(filters, observations)
+        confidences.append(float(track.conf))
+    for (_, _, observation_centric), (model, filters, observations, confidences) in groups.items():
+        model.update_filters(filters, observations, observation_centric=observation_centric, confidence=confidences)
     for track, measurement in zip(tracks, measurements, strict=True):
         track._finish_update(measurement)

@@ -21,7 +21,6 @@ def test_expired_track_gets_a_new_identity_despite_identical_appearance(is_obb: 
             use_duo_boost=False,
             min_hits=1,
             max_age=2,
-            obb_max_age=2,
         ),
         is_obb=is_obb,
     )

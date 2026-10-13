@@ -1,11 +1,11 @@
 from collections import defaultdict
 from collections.abc import Sequence
-from copy import deepcopy
 from typing import Optional, Tuple
 
 import numpy as np
 import scipy.linalg
 
+from boxmot.trackers.common.geometry.obb import align_obb_measurement
 from boxmot.trackers.common.motion.kalman_filters import batch
 from boxmot.trackers.common.motion.kalman_filters.base import BaseKalmanFilter
 from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
@@ -114,9 +114,10 @@ class ConstantNoiseXYHR:
 class AdaptiveNoiseXYHR(ConstantNoiseXYHR):
     """Innovation-based adaptive Q estimation (Mehra 1970).
 
-    Maintains a sliding window of innovations and derives Q from the
-    empirical innovation covariance.  Automatically accounts for CMC
-    since innovations are computed after camera compensation.
+    Maintains a sliding window of covariance-matched process-noise samples.
+    Each sample uses its innovation's predicted covariance and gain.
+    Automatically accounts for CMC since innovations are computed after
+    camera compensation.
 
     Explicit elapsed intervals use a separate window of covariance-matched
     spectral densities, normalized before averaging so different intervals
@@ -314,11 +315,8 @@ class KalmanFilterXYHR(BaseKalmanFilter):
         self.P = np.asarray(value, dtype=float)
 
     def _reshape_measurement_vector(self, z: np.ndarray) -> np.ndarray:
-        measurement = np.asarray(z, dtype=float)
-        if measurement.ndim == 2:
-            measurement = deepcopy(measurement.reshape((-1,)))
-        else:
-            measurement = measurement.reshape(-1)
+        """Normalize a measurement without mutating the caller's observation."""
+        measurement = np.asarray(z, dtype=float).reshape(-1).copy()
         if measurement.size < self.dim_z:
             raise ValueError(f"measurement must have at least {self.dim_z} values, got {measurement.size}")
         measurement = measurement[: self.dim_z]
@@ -328,14 +326,41 @@ class KalmanFilterXYHR(BaseKalmanFilter):
             measurement[4] = float(self._wrap_angle(measurement[4]))
         return measurement
 
+    def _prepare_measurement(self, z: np.ndarray, reference: np.ndarray) -> np.ndarray:
+        """Align equivalent XYHR rectangles to the reference before correction."""
+        measurement = self._reshape_measurement_vector(z)
+        if self._is_obb:
+            reference = np.asarray(reference, dtype=float).reshape(-1)
+            box = np.array([*measurement[:2], measurement[2] * measurement[3], measurement[2], measurement[4]])
+            reference_box = np.array([*reference[:2], reference[2] * reference[3], reference[2], reference[4]])
+            aligned = align_obb_measurement(box, reference_box)
+            measurement[2:] = aligned[3], aligned[2] / aligned[3], aligned[4]
+        return measurement
+
     def _enforce_state_constraints(self) -> None:
-        self.x = self._enforce_state_geometry(
-            self.x,
-            positive_indices=(2, 3),
-            angle_index=4 if self._is_obb else None,
-            min_size=1e-4,
-        )
+        self.x = self.constrain_state(self.x, self.dim_z)
         self.covariance = 0.5 * (self.covariance + self.covariance.T)
+
+    @classmethod
+    def constrain_state(cls, mean: np.ndarray, dim_z: int) -> np.ndarray:
+        """Keep shape means feasible and stop motion out of their lower bound.
+
+        Positive height/ratio evolution and velocities pointing into the
+        feasible region are unchanged. This constrains the mean only: callers
+        retain Gaussian covariance so reaching the bound does not create
+        artificial certainty that would prevent recovery from observations.
+        Inputs may be one state or batches with state coordinates last.
+        """
+        result = np.asarray(mean, dtype=float).copy()
+        if dim_z not in (4, 5) or result.ndim == 0 or result.shape[-1] < 2 * dim_z:
+            raise ValueError("XYHR states require dim_z=4 or 5 and at least 2 * dim_z coordinates")
+        at_floor = result[..., 2:4] <= 1e-4
+        result[..., 2:4] = np.maximum(result[..., 2:4], 1e-4)
+        velocities = result[..., dim_z + 2 : dim_z + 4]
+        velocities[...] = np.where(at_floor & (velocities < 0.0), 0.0, velocities)
+        if dim_z == 5:
+            result[..., 4] = cls._wrap_angle(result[..., 4])
+        return result
 
     def _get_initial_covariance_std(self, measurement: np.ndarray) -> np.ndarray:
         del measurement
@@ -393,6 +418,8 @@ class KalmanFilterXYHR(BaseKalmanFilter):
         motion_mat, motion_cov = self._elapsed_motion(self.cov_update_policy.get_q(dt=dt), dt)
         mean = np.dot(motion_mat, mean)
         covariance = np.linalg.multi_dot((motion_mat, covariance, motion_mat.T)) + motion_cov
+        mean = self.constrain_state(mean, self.dim_z)
+        covariance = 0.5 * (covariance + covariance.T)
 
         if update:
             self._last_motion_mat = motion_mat
@@ -414,6 +441,8 @@ class KalmanFilterXYHR(BaseKalmanFilter):
         mean = np.dot(mean, motion_mat.T)
         left = np.dot(motion_mat, covariance).transpose((1, 0, 2))
         covariance = np.dot(left, motion_mat.T) + motion_cov
+        mean = self.constrain_state(mean, self.dim_z)
+        covariance = 0.5 * (covariance + covariance.swapaxes(-1, -2))
         return mean, covariance
 
     @classmethod
@@ -434,9 +463,7 @@ class KalmanFilterXYHR(BaseKalmanFilter):
                 np.stack([transition for _, transition, _, _ in group]),
                 np.stack([noise for _, _, noise, _ in group]),
             )
-            means[:, 2:4] = np.maximum(means[:, 2:4], 1e-4)
-            if group[0][0]._is_obb:
-                means[:, 4] = group[0][0]._wrap_angle(means[:, 4])
+            means = cls.constrain_state(means, group[0][0].dim_z)
             covariances = 0.5 * (covariances + covariances.swapaxes(-1, -2))
             for index, (kf, transition, noise, interval) in enumerate(group):
                 kf._last_motion_mat = transition
@@ -462,9 +489,7 @@ class KalmanFilterXYHR(BaseKalmanFilter):
             return
         groups = defaultdict(list)
         for kf, z, gain_scale in zip(filters, measurements, alphas):
-            measurement = kf._reshape_measurement_vector(z)
-            if kf._is_obb:
-                measurement[4] = kf._align_angle_to_reference(measurement[4], float(kf.x[4]))
+            measurement = kf._prepare_measurement(z, kf.x)
             noise = kf.noise_config.measurement_covariance(kf.cov_update_policy.get_r())
             groups[kf.dim_x, kf.dim_z].append((kf, measurement, noise, gain_scale))
         for group in groups.values():
@@ -518,10 +543,7 @@ class KalmanFilterXYHR(BaseKalmanFilter):
         trusts the (potentially abnormal) observation less. ``alpha=1.0``
         reproduces the standard update.
         """
-        measurement = self._reshape_measurement_vector(z)
-        if self._is_obb:
-            reference_theta = float(self.x[4])
-            measurement[4] = self._align_angle_to_reference(measurement[4], reference_theta)
+        measurement = self._prepare_measurement(z, self.x)
         projected_mean, projected_cov = self.project()
 
         chol_factor, lower = scipy.linalg.cho_factor(projected_cov, lower=True, check_finite=False)
@@ -551,3 +573,21 @@ class KalmanFilterXYHR(BaseKalmanFilter):
         self._enforce_state_constraints()
 
         return self.x, self.covariance
+
+    def gating_distance(
+        self,
+        mean: np.ndarray,
+        covariance: np.ndarray,
+        measurements: np.ndarray,
+        only_position: bool = False,
+        metric: str = "maha",
+    ) -> np.ndarray:
+        """Gate equivalent OBB representations using the same residual as update."""
+        projected, uncertainty, measurements = self._prepare_gating_inputs(mean, covariance, measurements, self.project)
+        if only_position:
+            projected, uncertainty, measurements = projected[:2], uncertainty[:2, :2], measurements[:, :2]
+        elif self._is_obb:
+            measurements = np.asarray([self._prepare_measurement(z, projected) for z in measurements]).reshape(
+                -1, self.dim_z
+            )
+        return self._gating_from_residuals(measurements - projected, uncertainty, metric)

@@ -1,38 +1,104 @@
-# Shared history/display controls; track_buffer owns lost-track lifetime.
-max_age: {}
-max_obs: {}
-min_hits: {}
-
-# Association uses match_thresh and the tracker's second-pass cost thresholds.
-iou_threshold: {}
-
 min_conf:
   type: uniform
+  default: 0.1
   range: [0.1, 0.3]
+
+fuse_first_associate:
+  type: choice
+  default: true
+  options: [False, True]
+
+fuse_unconfirmed_associate:
+  type: choice
+  default: true
+  options: [False, True]
+
+# IoU distance cutoff, independent of the selected association metric.
+duplicate_distance_thresh:
+  type: uniform
+  default: 0.15
+  range: [0.0, 0.3]
 
 track_thresh:
   type: uniform
+  default: 0.6
   range: [0.4, 0.7]
 
-track_buffer:
-  type: qrandint
-  range: [10, 61, 10]  # step size of 10, upper bound exclusive
+# Lost-track lifetime in tracker updates, without FPS scaling.
+max_lost_frames:
+  type: randint
+  default: 30
+  range: [1, 200]
 
 match_thresh:
   type: uniform
+  default: 0.9
   range: [0.7, 0.9]
+  association: [iou, giou, diou, ciou, hmiou]
+  depends_on: asso_func
+  cases:
+    giou:
+      range: [0.4, 0.85]
+    diou:
+      range: [0.4, 0.85]
+    ciou:
+      range: [0.4, 0.85]
+
+second_match_thresh:
+  type: uniform
+  default: 0.5
+  range: [0.1, 0.9]
+  association: [iou, giou, diou, ciou, hmiou]
+  depends_on: asso_func
+  cases:
+    giou:
+      range: [0.05, 0.45]
+    diou:
+      range: [0.05, 0.45]
+    ciou:
+      range: [0.05, 0.45]
+
+unconfirmed_match_thresh:
+  type: uniform
+  default: 0.7
+  range: [0.4, 0.9]
+  association: [iou, giou, diou, ciou, hmiou]
+  depends_on: asso_func
+  cases:
+    giou:
+      range: [0.4, 0.85]
+    diou:
+      range: [0.4, 0.85]
+    ciou:
+      range: [0.4, 0.85]
 
 asso_func:
   type: choice
+  default: iou
   options: [iou, giou, diou, ciou, hmiou, centroid]
 
-frame_rate:
-  type: choice
-  options: [25, 30]  # static choice for Ray Search
+# Maximum centroid displacement as a fraction of the frame diagonal.
+# The sole geometric cutoff for centroid; other geometric thresholds are inactive.
+centroid_max_distance:
+  association: [centroid]
+  type: uniform
+  default: 0.05
+  range: [0.005, 0.1]
+
+# Camera settings stay fixed unless supplied by CMC selection.
+use_cmc: {}
+cmc_method: {}
+cmc_min_conf: {}
 
 # Timing and reference-prior units stay fixed across all tuning trials.
 
 kalman:
+  # Search filter types from this tracker's explicit default.
+  type:
+    type: choice
+    default: xyah
+    options: [xyah, xywh, xysr, xyhr, xyscr]
+
   variable_dt:
     default: false
 

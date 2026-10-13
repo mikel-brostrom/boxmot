@@ -246,7 +246,7 @@ def test_live_native_tracker_uses_selected_aabb_association(
 
     for mode in ("iou", "centroid"):
         tracker = tracker_cls(
-            {**options, "asso_func": mode},
+            {**options, "asso_func": mode, "centroid_max_distance": 0.5},
             geometry="aabb",
             library=library_cls(library_path),
         )

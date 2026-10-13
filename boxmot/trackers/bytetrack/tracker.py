@@ -9,9 +9,9 @@ from boxmot.trackers.common.association import AssociationStage, run_association
 from boxmot.trackers.common.association.matching import fuse_score
 from boxmot.trackers.common.box.base import BoxTracker
 from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runtime_options
+from boxmot.trackers.common.motion.cmc.registry import create_cmc
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
-from boxmot.trackers.common.motion.kalman_filters.xyah import KalmanFilterXYAH
-from boxmot.trackers.common.motion.kalman_filters.xywh import KalmanFilterXYWH
+from boxmot.trackers.common.motion.models import create_motion_model, resolve_motion_model_kind
 from boxmot.trackers.common.tracking.lifecycle import joint_stracks, remove_duplicate_stracks, sub_stracks
 
 
@@ -26,8 +26,7 @@ class ByteTrack(BoxTracker):
         active_tracks (list[STrack]): Currently active tracks.
         lost_stracks (list[STrack]): Tracks kept in the lost state.
         removed_stracks (list[STrack]): Recently removed tracks retained for display and lifecycle cleanup.
-        buffer_size (int): Track buffer size after frame-rate scaling.
-        max_time_lost (int): Maximum number of frames a track may stay lost.
+        max_lost_frames (int): Maximum missed tracker updates before lost-track removal.
         kalman_filter: XYAH motion model for AABB, or XYWH with angle for OBB.
     """
 
@@ -40,7 +39,7 @@ class ByteTrack(BoxTracker):
         kalman: KalmanConfig | None = None,
         **kwargs: Unpack[BoxTrackerOptions],
     ) -> None:
-        """Configure ByteTrack's confidence stages and lost-track buffer.
+        """Configure ByteTrack's confidence stages and lost-track lifetime.
 
         Args:
             config: Immutable algorithm settings. None selects ByteTrackConfig defaults.
@@ -59,32 +58,45 @@ class ByteTrack(BoxTracker):
             min_hits=config.min_hits,
             iou_threshold=config.iou_threshold,
             asso_func=config.asso_func,
+            centroid_max_distance=config.centroid_max_distance,
             kalman=kalman,
             **kwargs,
         )
 
         # Track lifecycle parameters
         self.frame_id = 0
-        self.track_buffer = config.track_buffer
-        self.buffer_size = int(config.frame_rate / 30.0 * config.track_buffer)
-        self.max_time_lost = self.buffer_size
+        self.max_lost_frames = config.max_lost_frames
 
         # Detection thresholds
         self.min_conf = config.min_conf
         self.track_thresh = config.track_thresh
-        self.match_thresh = config.match_thresh
+        self.match_thresh = self._geometry_cost_threshold(config.match_thresh)
+        self.second_match_thresh = self._geometry_cost_threshold(config.second_match_thresh)
+        self.unconfirmed_match_thresh = self._geometry_cost_threshold(config.unconfirmed_match_thresh)
         self.det_thresh = config.track_thresh  # Same as track_thresh
 
         # Motion model
-        self.kalman_filter = (
-            KalmanFilterXYWH(ndim=5, noise_config=self.kalman_noise_config)
-            if self.is_obb
-            else KalmanFilterXYAH(noise_config=self.kalman_noise_config)
+        self.motion_model = create_motion_model(
+            resolve_motion_model_kind("bytetrack", self.kalman_config.type, is_obb=self.is_obb),
+            is_obb=self.is_obb,
+            max_obs=self.max_obs,
         )
+        self.kalman_filter = self.motion_model.create_filter(noise_config=self.kalman_noise_config)
+
+        self.cmc = create_cmc(config.cmc_method, enabled=config.use_cmc)
+        self._requires_frame = self._requires_frame or self.cmc is not None
+        if self.cmc is not None:
+            self._requires_frame_dimensions_only = False
 
         self.active_tracks = []  # type: list[STrack]
         self.lost_stracks = []  # type: list[STrack]
         self.removed_stracks = []  # type: list[STrack]
+
+    def cmc_detection_boxes(self, dets: np.ndarray) -> np.ndarray:
+        """Mask accepted detection scores using the fixed calibration threshold."""
+        threshold = self.min_conf if self.config.cmc_min_conf is None else self.config.cmc_min_conf
+        accepted = self.detection_layout.confidences(dets) >= threshold
+        return self.detection_layout.boxes(dets[accepted])
 
     def _track_detections(
         self,
@@ -93,6 +105,7 @@ class ByteTrack(BoxTracker):
         embs: np.ndarray = None,
         masks: np.ndarray = None,
     ) -> np.ndarray:
+        cmc_dets = dets
         batch = self._make_detection_batch(dets, embs=embs, masks=masks)
         self.frame_count += 1
         activated_starcks = []
@@ -114,6 +127,7 @@ class ByteTrack(BoxTracker):
                     max_obs=self.max_obs,
                     id_allocator=self.id_allocator,
                     is_obb=self.is_obb,
+                    motion_model=self.motion_model,
                 )
                 for det in dets
             ]
@@ -133,6 +147,9 @@ class ByteTrack(BoxTracker):
         strack_pool = joint_stracks(tracked_stracks, self.lost_stracks)
         # Predict the current location with KF
         STrack.multi_predict(strack_pool, dt=self._prediction_dt)
+        if self.cmc is not None:
+            warp = self.cmc.apply(img, self.cmc_detection_boxes(cmc_dets))
+            STrack.multi_camera_update(strack_pool + unconfirmed, warp)
         first_stage = AssociationStage(
             name="bytetrack_high",
             cost=self._fused_association_cost,
@@ -167,6 +184,7 @@ class ByteTrack(BoxTracker):
                     max_obs=self.max_obs,
                     id_allocator=self.id_allocator,
                     is_obb=self.is_obb,
+                    motion_model=self.motion_model,
                 )
                 for det_second in dets_second
             ]
@@ -176,7 +194,7 @@ class ByteTrack(BoxTracker):
         second_stage = AssociationStage(
             name="bytetrack_low",
             cost=self._low_association_cost,
-            threshold=0.5,
+            threshold=self.second_match_thresh,
         )
         second_result = run_association_stage(
             second_stage,
@@ -210,7 +228,7 @@ class ByteTrack(BoxTracker):
         unconfirmed_stage = AssociationStage(
             name="bytetrack_unconfirmed",
             cost=self._unconfirmed_association_cost,
-            threshold=0.7,
+            threshold=self.unconfirmed_match_thresh,
         )
         unconfirmed_result = run_association_stage(
             unconfirmed_stage,
@@ -237,7 +255,7 @@ class ByteTrack(BoxTracker):
             activated_starcks.append(track)
         """ Step 5: Update state"""
         for track in self.lost_stracks:
-            if self.frame_count - track.end_frame > self.max_time_lost:
+            if self.frame_count - track.end_frame > self.max_lost_frames:
                 track.mark_removed()
                 removed_stracks.append(track)
 
@@ -251,7 +269,7 @@ class ByteTrack(BoxTracker):
         # Removal is applied to the lost pool on the following frame. Keep
         # that lifecycle behavior and the removed-track display window, but
         # release older identities instead of archiving every track forever.
-        removed_cutoff = self.frame_count - self.max_time_lost - max(1, int(self.removed_display_frames))
+        removed_cutoff = self.frame_count - self.max_lost_frames - max(1, int(self.removed_display_frames))
         recent_removals = []
         for track in self.removed_stracks:
             if track.end_frame >= removed_cutoff:
@@ -261,33 +279,42 @@ class ByteTrack(BoxTracker):
                 self._removed_first_seen.pop(display_key, None)
                 self._removed_expired.discard(display_key)
         self.removed_stracks = recent_removals
-        self.active_tracks, self.lost_stracks = remove_duplicate_stracks(self.active_tracks, self.lost_stracks)
+        self.active_tracks, self.lost_stracks = remove_duplicate_stracks(
+            self.active_tracks,
+            self.lost_stracks,
+            duplicate_threshold=self.config.duplicate_distance_thresh,
+        )
         # get confs of lost tracks
         output_stracks = [track for track in self.active_tracks if track.is_activated]
         return self.format_outputs(output_stracks, dtype=np.float32)
 
     def _fused_association_cost(self, tracks: list[STrack], detections: list[STrack]) -> np.ndarray:
         """Build the ByteTrack score-fused geometric distance matrix."""
-        costs = fuse_score(self.association_distance(tracks, detections), detections)
+        costs = self.association_distance(tracks, detections)
+        if self.config.fuse_first_associate:
+            costs = fuse_score(costs, detections)
         return self._condition_association(costs, tracks, detections, threshold=self.match_thresh)
 
     def _low_association_cost(self, tracks: list[STrack], detections: list[STrack]) -> np.ndarray:
         """Condition the low-confidence association pass at its own threshold."""
         return self._condition_association(
-            self.association_distance(tracks, detections), tracks, detections, threshold=0.5
+            self.association_distance(tracks, detections), tracks, detections, threshold=self.second_match_thresh
         )
 
     def _unconfirmed_association_cost(self, tracks: list[STrack], detections: list[STrack]) -> np.ndarray:
-        """Condition confirmation using the reference's 0.7 cost threshold."""
-        costs = fuse_score(self.association_distance(tracks, detections), detections)
-        return self._condition_association(costs, tracks, detections, threshold=0.7)
+        """Condition tentative matches using their configured cost threshold."""
+        costs = self.association_distance(tracks, detections)
+        if self.config.fuse_unconfirmed_associate:
+            costs = fuse_score(costs, detections)
+        return self._condition_association(costs, tracks, detections, threshold=self.unconfirmed_match_thresh)
 
     def reset(self) -> None:
         """Reset tracks and temporal mask memory for a new pass over the source."""
         self._reset_common_state()
         self.frame_id = 0
-        self.kalman_filter = (
-            KalmanFilterXYWH(ndim=5, noise_config=self.kalman_noise_config)
-            if self.is_obb
-            else KalmanFilterXYAH(noise_config=self.kalman_noise_config)
+        self.motion_model = create_motion_model(
+            resolve_motion_model_kind("bytetrack", self.kalman_config.type, is_obb=self.is_obb),
+            is_obb=self.is_obb,
+            max_obs=self.max_obs,
         )
+        self.kalman_filter = self.motion_model.create_filter(noise_config=self.kalman_noise_config)

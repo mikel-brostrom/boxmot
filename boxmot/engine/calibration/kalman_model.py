@@ -20,6 +20,7 @@ from boxmot.trackers.common.motion.kalman_filters.config import normalize_kalman
 from boxmot.trackers.common.motion.kalman_filters.noise import (
     KALMAN_NOISE_OPTIONS,
     KALMAN_TRACKER_NAMES,
+    KALMAN_VECTOR_OPTIONS,
 )
 from boxmot.trackers.common.motion.kalman_filters.profile import (
     calibration_profile_signature,
@@ -63,7 +64,7 @@ def validate_calibration_options(tracker_name: str, options: Mapping[str, Any], 
 class CalibrationModel:
     """Expose the selected tracker's unscaled P0, R, F(dt), and Q(dt).
 
-    The five shared covariance multipliers are reset to one when constructing
+    Shared covariance multipliers are reset to one and diagonals cleared when constructing
     the bases. Tracker-specific priors and the selected time units remain in
     effect. No perception models, association, or track lifecycles are run.
 
@@ -72,8 +73,9 @@ class CalibrationModel:
     identify coordinates supported by box ground truth. HybridSORT's
     confidence and confidence velocity are deliberately excluded.
 
-    XYHR calibration uses the fixed startup noise policy. Its optional online
-    adaptation and camera compensation are outside this reference model.
+    XYHR calibration uses its fixed startup noise policy.
+    Online adaptation is outside this reference model. Camera compensation
+    uses the shared runtime state transform and its local covariance Jacobian.
     """
 
     def __init__(
@@ -92,9 +94,11 @@ class CalibrationModel:
         self.options = load_tracker_config(tracker_name, None, options)
         validate_calibration_options(tracker_name, self.options, geometry=self.geometry.value)
         noise = normalize_kalman_config(self.options, tracker_name=tracker_name).noise
+        selected_noise = noise.for_class(cls_id) if cls_id is not None else noise
         self.noise_config = replace(
-            noise.for_class(cls_id) if cls_id is not None else noise,
+            selected_noise,
             **{name.removeprefix("kalman.noise."): 1.0 for name in KALMAN_NOISE_OPTIONS},
+            **{name.removeprefix("kalman.noise."): () for name in KALMAN_VECTOR_OPTIONS},
             by_class={},
         )
         signature_fields = calibration_profile_signature(tracker_name, self.geometry.value, self.options)
@@ -105,8 +109,7 @@ class CalibrationModel:
         self.dim_z = self.motion_model.dim_z
         self._filter = self.motion_model.create_filter(noise_config=self.noise_config)
         self._matrix_filter = kind in {MotionModelKind.XYSR, MotionModelKind.XYSCR}
-        if self._matrix_filter:
-            self._configure_sort_priors()
+        self.motion_model.configure_filter(self._filter)
 
         self.measurement_indices = tuple(
             index for index in range(self.dim_z) if kind is not MotionModelKind.XYSCR or index != 3
@@ -120,17 +123,18 @@ class CalibrationModel:
         ]
         self.velocity_indices = tuple(pair[0] for pair in pairs)
         self.velocity_measurement_indices = tuple(pair[1] for pair in pairs)
-
-    def _configure_sort_priors(self) -> None:
-        """Apply the priors installed by SORT-family track constructors."""
-        kalman = self._filter
-        kalman.R[2:, 2:] *= 10.0
-        kalman.P[self.dim_z :, self.dim_z :] *= 1000.0
-        kalman.P *= 10.0
-        if self.kind is MotionModelKind.XYSCR:
-            kalman.Q[-1, -1] *= 0.01
-            kalman.Q[-2, -2] *= 0.01
-            kalman.Q[self.dim_z :, self.dim_z :] *= 0.01
+        names = {
+            MotionModelKind.XYAH: ("x", "y", "aspect_ratio", "height"),
+            MotionModelKind.XYWH: ("x", "y", "width", "height"),
+            MotionModelKind.XYHR: ("x", "y", "height", "aspect_ratio"),
+            MotionModelKind.XYSR: ("x", "y", "area", "aspect_ratio"),
+            MotionModelKind.XYSCR: ("x", "y", "area", "confidence", "aspect_ratio"),
+        }[kind]
+        self.measurement_names = names + (("angle",) if self.is_obb else ())
+        self.velocity_names = tuple(
+            "v_" + self.measurement_names[int(np.flatnonzero(generator[:, index])[0])]
+            for index in range(self.dim_z, self.dim_x)
+        )
 
     def to_measurement(
         self,
@@ -152,16 +156,17 @@ class CalibrationModel:
         measurement = self.motion_model.to_measurement(values, column=False)
         if self.is_obb and reference is not None:
             reference = self._measurement(reference)
-            if self.kind in {MotionModelKind.XYWH, MotionModelKind.XYSR}:
+            if self.kind in {MotionModelKind.XYWH, MotionModelKind.XYSR, MotionModelKind.XYSCR}:
                 measurement = self._filter._align_obb_measurement(measurement, reference)
             else:
                 reference_box = self.motion_model.to_box(reference)[0]
                 # to_box normally returns a wrapped angle; calibration tracks
                 # retain the preceding angle so crossing +/-pi stays smooth.
-                reference_box[4] = reference[4]
+                angle_index = self.motion_model.angle_measurement_index
+                reference_box[4] = reference[angle_index]
                 aligned_box = align_obb_measurement(box, reference_box)
                 measurement = self.motion_model.to_measurement(aligned_box, column=False)
-                measurement[4] = aligned_box[4]
+                measurement[angle_index] = aligned_box[4]
         return measurement
 
     def _measurement(self, measurement: np.ndarray) -> np.ndarray:
@@ -174,31 +179,23 @@ class CalibrationModel:
     def initial_state(self, measurement: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Return runtime's zero-velocity initial mean and base P0."""
         measurement = self._measurement(measurement)
-        if self._matrix_filter:
-            mean = np.zeros(self.dim_x, dtype=float)
-            mean[: self.dim_z] = measurement
-            return mean, self._filter.P.copy()
-        mean, covariance = self._filter.initiate(measurement)
+        mean, covariance = self.motion_model.initiate(self._filter, measurement)
         return mean.reshape(-1), covariance
 
     def measurement_covariance(self, measurement: np.ndarray, score: float = 1.0) -> np.ndarray:
         """Return base R with the same confidence handling used by the tracker.
 
-        StrongSORT's confidence-one observations have zero modeled R. Those
-        coordinates provide no positive reference variance for scale fitting.
+        Legacy StrongSORT priors can assign zero R to confidence-one
+        observations, leaving no positive reference variance for scale fitting.
         """
         measurement = self._measurement(measurement)
         if not np.isfinite(score) or not 0.0 <= score <= 1.0:
             raise ValueError("Detection confidence must be finite and between zero and one.")
-        if self._matrix_filter:
-            return self._filter.noise_config.measurement_covariance(self._filter.R).copy()
         mean = np.zeros(self.dim_x, dtype=float)
         mean[: self.dim_z] = measurement
         covariance = np.zeros((self.dim_x, self.dim_x), dtype=float)
-        if self.kind is MotionModelKind.XYHR:
-            return self._filter.project(mean, covariance)[1]
         confidence = score if self.tracker_name == "strongsort" else 0.0
-        return self._filter.project(mean, covariance, confidence=confidence)[1]
+        return self.motion_model.project(self._filter, mean, covariance, confidence=confidence)[1]
 
     def transition(self, dt: float | None = None) -> np.ndarray:
         """Return discrete fixed-step F or continuous F(dt) in configured units."""
@@ -212,6 +209,19 @@ class CalibrationModel:
         before runtime discretization retains the integrated cross covariance
         induced by velocity noise, including its contribution to position.
         """
+        raw = self._raw_process_covariance(mean, dt)
+        position = np.zeros_like(raw)
+        position[: self.dim_z, : self.dim_z] = raw[: self.dim_z, : self.dim_z]
+        velocity = np.zeros_like(raw)
+        velocity[self.dim_z :, self.dim_z :] = raw[self.dim_z :, self.dim_z :]
+        motion = self._filter.F if self._matrix_filter else self._filter._motion_mat
+        return (
+            self._filter._elapsed_motion(position, dt, motion_mat=motion)[1],
+            self._filter._elapsed_motion(velocity, dt, motion_mat=motion)[1],
+        )
+
+    def _raw_process_covariance(self, mean: np.ndarray, dt: float | None) -> np.ndarray:
+        """Resolve the native reference Q before coordinate scaling/integration."""
         mean = np.asarray(mean, dtype=float).reshape(-1)
         if mean.size != self.dim_x or not np.all(np.isfinite(mean)):
             raise ValueError(f"Expected {self.dim_x} finite Kalman state values.")
@@ -222,12 +232,36 @@ class CalibrationModel:
         else:
             std_position, std_velocity = self._filter._get_process_noise_std(mean)
             raw = np.diag(np.square(np.r_[std_position, std_velocity]))
-        position = np.zeros_like(raw)
-        position[: self.dim_z, : self.dim_z] = raw[: self.dim_z, : self.dim_z]
-        velocity = np.zeros_like(raw)
-        velocity[self.dim_z :, self.dim_z :] = raw[self.dim_z :, self.dim_z :]
+        return raw
+
+    def process_coordinate_covariance_bases(self, mean: np.ndarray, dt: float | None = None) -> np.ndarray:
+        """Discretize one Q basis per supervised native position/velocity axis.
+
+        Camera rotation can mix axes, so the diagonal multipliers must be
+        fitted together after each basis has been propagated into the image.
+        Confidence remains outside the supervised coordinate set.
+        """
+        raw = self._raw_process_covariance(mean, dt)
+        if np.any(raw != np.diag(np.diag(raw))):
+            raise ValueError("Camera-compensated calibration requires diagonal reference process noise.")
+        coordinates = np.asarray(self.measurement_indices + self.velocity_indices, dtype=int)
+        bases = np.zeros((len(coordinates), self.dim_x, self.dim_x))
+        bases[np.arange(len(coordinates)), coordinates, coordinates] = np.diag(raw)[coordinates]
         motion = self._filter.F if self._matrix_filter else self._filter._motion_mat
-        return (
-            self._filter._elapsed_motion(position, dt, motion_mat=motion)[1],
-            self._filter._elapsed_motion(velocity, dt, motion_mat=motion)[1],
+        return self._filter._elapsed_motion(bases, dt, motion_mat=motion)[1]
+
+    def camera_transform(self, mean: np.ndarray, warp: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Return the runtime warped mean and its exact covariance Jacobian."""
+        transformed, _, jacobian = self.motion_model.transform_states(
+            np.asarray(mean).reshape(1, self.dim_x),
+            np.zeros((1, self.dim_x, self.dim_x)),
+            warp,
+            return_jacobian=True,
         )
+        transformed = transformed[0]
+        if self.is_obb:
+            # Runtime wraps angles; GT residuals need the equivalent branch
+            # nearest the unwarped prediction rather than a spurious 2*pi jump.
+            angle = self.motion_model.angle_measurement_index
+            transformed[angle] += 2.0 * np.pi * np.round((mean[angle] - transformed[angle]) / (2.0 * np.pi))
+        return transformed, jacobian[0]

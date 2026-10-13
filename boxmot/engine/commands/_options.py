@@ -494,6 +494,16 @@ def tracker_config_option(func: Callable) -> Callable:
     )(func)
 
 
+def cmc_policy_option(func: Callable) -> Callable:
+    """Select sequence-specific camera compensation during build evaluation."""
+    return click.option(
+        "--cmc-policy",
+        type=str,
+        default=None,
+        help="CMC policy: auto analyzes sequences during setup (Python 2D Kalman trackers), off disables CMC, or YAML.",
+    )(func)
+
+
 def eval_masks_option(func: Callable) -> Callable:
     """Select segmentation scoring for KITTI-MOTS evaluation and tuning."""
 

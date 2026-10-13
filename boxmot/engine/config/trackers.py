@@ -90,6 +90,10 @@ def resolve_tracker_options(
         tracker_name=tracker_name,
         backend=backend,
     )
+    if tracker_name in KALMAN_TRACKER_NAMES:
+        from boxmot.trackers.common.motion.models import resolve_motion_model_kind
+
+        resolve_motion_model_kind(tracker_name, kalman.type, is_obb=getattr(args, "geometry", "aabb") == "obb")
     if backend == "python" and tracker_name in KALMAN_TRACKER_NAMES and (include_defaults or stamp_timing):
         options.update(flatten_tracker_options({"kalman": kalman}))
         options["kalman.variable_dt"] = variable_dt

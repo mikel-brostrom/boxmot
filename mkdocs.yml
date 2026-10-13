@@ -167,6 +167,7 @@ nav:
           - Migrating to v24: guides/v24-migration.md
           - Experiment Workflows: guides/experiments.md
           - Evaluation and Postprocessing: guides/evaluation.md
+          - Kalman Calibration: guides/kalman-calibration.md
       - ReID Research:
           - CSL-TinyViT-7M HP-GRD: guides/csl-tinyvit-7m-hpgrd.md
   - Integrations:

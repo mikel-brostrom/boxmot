@@ -16,7 +16,7 @@ namespace {
 
 thread_local std::string g_last_error;
 
-occluboost::Config ConvertConfig(const BoxMOTOccluBoostConfig& config) {
+occluboost::Config ConvertConfig(const BoxMOTOccluBoostConfigV3& config) {
     occluboost::Config c;
     c.max_age = config.max_age;
     c.min_hits = config.min_hits;
@@ -37,6 +37,17 @@ occluboost::Config ConvertConfig(const BoxMOTOccluBoostConfig& config) {
     c.use_embeddings = config.use_embeddings != 0;
     c.cmc_method = config.cmc_method == nullptr ? "ecc" : std::string(config.cmc_method);
     c.max_obs = config.max_obs;
+    c.alpha_fixed_emb = config.alpha_fixed_emb;
+    c.appearance_thresh = config.appearance_thresh;
+    c.appearance_iou_fraction = config.appearance_iou_fraction;
+    c.dlo_soft_alpha = config.dlo_soft_alpha;
+    c.dlo_soft_power = config.dlo_soft_power;
+    c.dlo_threshold_start = config.dlo_threshold_start;
+    c.dlo_threshold_end = config.dlo_threshold_end;
+    c.duo_mahalanobis_thresh = config.duo_mahalanobis_thresh;
+    c.duo_iou_thresh = config.duo_iou_thresh;
+    c.track_confidence_decay = config.track_confidence_decay;
+    c.track_confidence_warmup = config.track_confidence_warmup;
 
     c.recovery_appearance_thresh = config.recovery_appearance_thresh;
     c.recovery_iou_thresh = config.recovery_iou_thresh;
@@ -59,14 +70,8 @@ occluboost::Config ConvertConfig(const BoxMOTOccluBoostConfig& config) {
     c.ams_buffer_size = config.ams_buffer_size;
     c.ams_shrink_ratio = config.ams_shrink_ratio;
     c.lambda_emb_multiplier = config.lambda_emb_multiplier;
-    c.obb_det_thresh = config.obb_det_thresh;
-    c.obb_iou_threshold = config.obb_iou_threshold;
-    c.obb_new_track_thresh = config.obb_new_track_thresh;
-    c.obb_instant_confirm_thresh = config.obb_instant_confirm_thresh;
-    c.obb_max_age = config.obb_max_age;
-    c.obb_recovery_max_age = config.obb_recovery_max_age;
-    c.obb_second_iou_thresh = config.obb_second_iou_thresh;
 
+    c.centroid_max_distance = config.centroid_max_distance;
     c.asso_func = config.asso_func == nullptr ? "iou" : std::string(config.asso_func);
     return c;
 }
@@ -84,7 +89,7 @@ struct BoxMOTOccluBoostHandle {
 
 extern "C" {
 
-BoxMOTOccluBoostHandle* boxmot_occluboost_create(const BoxMOTOccluBoostConfig* config) {
+BoxMOTOccluBoostHandle* boxmot_occluboost_create_v3(const BoxMOTOccluBoostConfigV3* config) {
     try {
         if (config == nullptr) {
             throw std::runtime_error("Native OccluBoost config is required.");

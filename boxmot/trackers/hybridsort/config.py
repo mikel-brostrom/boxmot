@@ -27,6 +27,8 @@ class HybridSortConfig(TrackerConfig):
         adapfs: Enable confidence-adaptive feature smoothing for AABB tracks.
         track_thresh: Clamp separating high and low AABB confidence predictions;
             does not select input detections.
+        confidence_floor: Lower clamp for the low AABB confidence prediction;
+            must not exceed track_thresh.
         eg_weight_high_score: Appearance-distance weight for high-confidence matches.
         eg_weight_low_score: Appearance-distance weight for low-confidence AABB matches.
         tcm_first_step: Enable the first AABB association pass with motion-direction cues.
@@ -57,6 +59,7 @@ class HybridSortConfig(TrackerConfig):
     alpha: float = field(default=0.9189916764734039, metadata={"ge": 0.0, "le": 1.0})
     adapfs: bool = True
     track_thresh: float = field(default=0.3190991353484191, metadata={"ge": 0.0, "le": 1.0})
+    confidence_floor: float = field(default=0.1, metadata={"ge": 0.0, "le": 1.0})
     eg_weight_high_score: float = field(default=3.8961609177336562, metadata={"ge": 0})
     eg_weight_low_score: float = field(default=0.5096125821683565, metadata={"ge": 0})
     tcm_first_step: bool = True
@@ -68,6 +71,15 @@ class HybridSortConfig(TrackerConfig):
     longterm_reid_correction_thresh: float = field(default=0.11310432273756706, metadata={"ge": 0})
     longterm_reid_correction_thresh_low: float = field(default=0.3479740001301599, metadata={"ge": 0})
     det_thresh: float = field(default=0.38633684113126876, metadata={"ge": 0.0, "le": 1.0})
+
+    use_cmc: bool = True
+    cmc_min_conf: float | None = field(default=None, metadata={"ge": 0.0, "le": 1.0})
+
+    def __post_init__(self) -> None:
+        """Validate scalar fields and the confidence prediction interval."""
+        TrackerConfig.__post_init__(self)
+        if self.confidence_floor > self.track_thresh:
+            raise ValueError("confidence_floor must not exceed track_thresh.")
 
 
 __all__ = ("HybridSortConfig",)

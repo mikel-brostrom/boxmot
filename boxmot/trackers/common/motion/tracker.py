@@ -11,7 +11,8 @@ class TrackerMotionMixin:
 
     def cmc_detection_boxes(self, dets: np.ndarray) -> np.ndarray:
         """Return native AABB/OBB boxes used for camera-motion estimation."""
-        return cmc_utils.cmc_detection_boxes(dets, self.detection_layout)
+        threshold = getattr(getattr(self, "config", None), "cmc_min_conf", None)
+        return cmc_utils.cmc_detection_boxes(dets, self.detection_layout, min_conf=threshold)
 
     def aabb_detections_for_association(self, dets: np.ndarray) -> np.ndarray:
         """Return AABB-layout detections for AABB-only association functions."""
@@ -47,6 +48,7 @@ class TrackerMotionMixin:
             dets,
             self.detection_layout,
             tracks,
+            mask_boxes=self.cmc_detection_boxes(dets),
         )
 
     def _reset_cmc_state(self) -> None:

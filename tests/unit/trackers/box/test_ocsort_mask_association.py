@@ -20,7 +20,7 @@ Tracker = OcSort | DeepOcSort
 def _tracker(kind: str, **kwargs: object) -> Tracker:
     if kind == "deepocsort":
         return DeepOcSort(
-            config=DeepOcSortConfig(use_embeddings=False, cmc_off=True, min_hits=1, **kwargs),
+            config=DeepOcSortConfig(use_embeddings=False, use_cmc=False, min_hits=1, **kwargs),
         )
     return OcSort(
         config=OcSortConfig(min_hits=1, **kwargs),

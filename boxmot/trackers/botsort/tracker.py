@@ -18,7 +18,7 @@ from boxmot.trackers.common.box.base import BoxTracker
 from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runtime_options
 from boxmot.trackers.common.motion.cmc.registry import create_cmc
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
-from boxmot.trackers.common.motion.kalman_filters.xywh import KalmanFilterXYWH
+from boxmot.trackers.common.motion.models import create_motion_model, resolve_motion_model_kind
 from boxmot.trackers.common.tracking.lifecycle import joint_stracks, remove_duplicate_stracks, sub_stracks
 
 
@@ -28,8 +28,7 @@ class BotSort(BoxTracker):
     Attributes:
         lost_stracks (list[STrack]): Tracks kept in the lost state.
         removed_stracks (list[STrack]): Tracks removed from the tracker state.
-        buffer_size (int): Track buffer size after frame-rate scaling.
-        max_time_lost (int): Maximum number of frames a track may stay lost.
+        max_lost_frames (int): Maximum missed tracker updates before lost-track removal.
         kalman_filter (KalmanFilterXYWH): Motion model used for prediction.
         cmc: Camera-motion compensation method.
     """
@@ -49,7 +48,7 @@ class BotSort(BoxTracker):
         """Configure confidence stages, lost-track retention, and appearance matching.
 
         Detection filtering uses track_high_thresh and track_low_thresh; lost-track
-        retention uses track_buffer scaled by frame_rate.
+        retention uses max_lost_frames counted in tracker updates.
 
         Args:
             config: Immutable algorithm settings. None selects BotSortConfig defaults.
@@ -70,6 +69,7 @@ class BotSort(BoxTracker):
             min_hits=config.min_hits,
             iou_threshold=config.iou_threshold,
             asso_func=config.asso_func,
+            centroid_max_distance=config.centroid_max_distance,
             kalman=kalman,
             reid=reid,
             **kwargs,
@@ -80,16 +80,20 @@ class BotSort(BoxTracker):
         self.track_high_thresh = config.track_high_thresh
         self.track_low_thresh = config.track_low_thresh
         self.new_track_thresh = config.new_track_thresh
-        self.match_thresh = config.match_thresh
+        self.match_thresh = self._geometry_cost_threshold(config.match_thresh)
 
-        self.buffer_size = int(config.frame_rate / 30.0 * config.track_buffer)
-        self.max_time_lost = self.buffer_size
-        self.kalman_filter = KalmanFilterXYWH(ndim=5 if self.is_obb else 4, noise_config=self.kalman_noise_config)
+        self.max_lost_frames = config.max_lost_frames
+        self.motion_model = create_motion_model(
+            resolve_motion_model_kind("botsort", self.kalman_config.type, is_obb=self.is_obb),
+            is_obb=self.is_obb,
+            max_obs=self.max_obs,
+        )
+        self.kalman_filter = self.motion_model.create_filter(noise_config=self.kalman_noise_config)
 
-        self.proximity_thresh = config.proximity_thresh
+        self.proximity_thresh = self._geometry_cost_threshold(config.proximity_thresh)
         self.appearance_thresh = config.appearance_thresh
-        self.second_match_thresh = config.second_match_thresh
-        self.unconfirmed_match_thresh = config.unconfirmed_match_thresh
+        self.second_match_thresh = self._geometry_cost_threshold(config.second_match_thresh)
+        self.unconfirmed_match_thresh = self._geometry_cost_threshold(config.unconfirmed_match_thresh)
         self.unconfirmed_emb_scale = config.unconfirmed_emb_scale
         self.use_embeddings = config.use_embeddings
 
@@ -237,7 +241,9 @@ class BotSort(BoxTracker):
                         f,
                         id_allocator=self.id_allocator,
                         max_obs=self.max_obs,
+                        alpha=self.config.alpha_fixed_emb,
                         is_obb=self.is_obb,
+                        motion_model=self.motion_model,
                     )
                     for (det, f) in zip(dets_first, features_high)
                 ]
@@ -247,7 +253,9 @@ class BotSort(BoxTracker):
                         det,
                         id_allocator=self.id_allocator,
                         max_obs=self.max_obs,
+                        alpha=self.config.alpha_fixed_emb,
                         is_obb=self.is_obb,
+                        motion_model=self.motion_model,
                     )
                     for det in dets_first
                 ]
@@ -345,7 +353,9 @@ class BotSort(BoxTracker):
                     det,
                     id_allocator=self.id_allocator,
                     max_obs=self.max_obs,
+                    alpha=self.config.alpha_fixed_emb,
                     is_obb=self.is_obb,
+                    motion_model=self.motion_model,
                 )
                 for det in dets_second
             ]
@@ -433,7 +443,8 @@ class BotSort(BoxTracker):
     def _unconfirmed_association_cost(self, tracks, detections) -> np.ndarray:
         geometry_dists = self.association_distance(tracks, detections)
         geometry_dists_mask = geometry_dists > self.proximity_thresh
-        geometry_dists = fuse_score(geometry_dists, detections)
+        if self.config.fuse_unconfirmed_associate:
+            geometry_dists = fuse_score(geometry_dists, detections)
 
         costs = geometry_dists
         if self.use_embeddings:
@@ -484,7 +495,7 @@ class BotSort(BoxTracker):
 
     def _update_track_states(self, removed_stracks):
         for track in self.lost_stracks:
-            if self.frame_count - track.end_frame > self.max_time_lost:
+            if self.frame_count - track.end_frame > self.max_lost_frames:
                 track.mark_removed()
                 removed_stracks.append(track)
 
@@ -496,7 +507,11 @@ class BotSort(BoxTracker):
         self.lost_stracks.extend(lost_stracks)
         self.lost_stracks = sub_stracks(self.lost_stracks, self.removed_stracks)
         self.removed_stracks.extend(removed_stracks)
-        self.active_tracks, self.lost_stracks = remove_duplicate_stracks(self.active_tracks, self.lost_stracks)
+        self.active_tracks, self.lost_stracks = remove_duplicate_stracks(
+            self.active_tracks,
+            self.lost_stracks,
+            duplicate_threshold=self.config.duplicate_distance_thresh,
+        )
 
         return self.format_outputs(
             [t for t in self.active_tracks if t.is_activated],
@@ -505,4 +520,9 @@ class BotSort(BoxTracker):
 
     def reset(self) -> None:
         self._reset_common_state()
-        self.kalman_filter = KalmanFilterXYWH(ndim=5 if self.is_obb else 4, noise_config=self.kalman_noise_config)
+        self.motion_model = create_motion_model(
+            resolve_motion_model_kind("botsort", self.kalman_config.type, is_obb=self.is_obb),
+            is_obb=self.is_obb,
+            max_obs=self.max_obs,
+        )
+        self.kalman_filter = self.motion_model.create_filter(noise_config=self.kalman_noise_config)

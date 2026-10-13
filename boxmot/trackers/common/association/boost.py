@@ -145,14 +145,25 @@ def linear_assignment(
     cost_matrix: np.ndarray,
     threshold: float,
     emb_cost: Optional[np.ndarray] = None,
+    gate_before_assignment: bool = False,
+    appearance_thresh: float = 0.75,
+    appearance_iou_fraction: float = 0.5,
 ):
+    """Assign pairs, allowing appearance rescue through its configured geometry gate."""
     if similarity_matrix is None and cost_matrix is None:
         raise ValueError("Both similarity_matrix and cost_matrix are None")
     if similarity_matrix is None:
         similarity_matrix = deepcopy(cost_matrix)
     if cost_matrix is None:
         cost_matrix = deepcopy(similarity_matrix)
-    matched_indices = match(cost_matrix, threshold)
+    if gate_before_assignment or not np.isfinite(similarity_matrix).all():
+        allowed = similarity_matrix >= threshold
+        if emb_cost is not None:
+            allowed |= (similarity_matrix >= threshold * appearance_iou_fraction) & (emb_cost >= appearance_thresh)
+        cost_matrix = np.where(allowed, cost_matrix, -np.inf)
+    # Centroid fusion ranks every radius-eligible pair, including pairs whose
+    # appearance contribution makes the combined similarity nonpositive.
+    matched_indices = solve_assignment(-cost_matrix) if gate_before_assignment else match(cost_matrix, threshold)
     unmatched_detections = []
     for d, _det in enumerate(detections):
         if d not in matched_indices[:, 0]:
@@ -164,10 +175,16 @@ def linear_assignment(
 
     matches = []
     for m in matched_indices:
-        valid_match = similarity_matrix[m[0], m[1]] >= threshold or (
-            False
-            if emb_cost is None
-            else (similarity_matrix[m[0], m[1]] >= threshold / 2 and emb_cost[m[0], m[1]] >= 0.75)
+        valid_match = np.isfinite(similarity_matrix[m[0], m[1]]) and (
+            similarity_matrix[m[0], m[1]] >= threshold
+            or (
+                False
+                if emb_cost is None
+                else (
+                    similarity_matrix[m[0], m[1]] >= threshold * appearance_iou_fraction
+                    and emb_cost[m[0], m[1]] >= appearance_thresh
+                )
+            )
         )
         if valid_match:
             matches.append(m.reshape(1, 2))
@@ -195,7 +212,11 @@ def associate(
     geometry_matrix: Optional[np.ndarray] = None,
     shape_matrix: Optional[np.ndarray] = None,
     geometry_conditioner: Callable[[np.ndarray], np.ndarray] | None = None,
+    gate_before_assignment: bool = False,
+    appearance_thresh: float = 0.75,
+    appearance_iou_fraction: float = 0.5,
 ):
+    """Combine geometry, motion, shape, and weighted appearance before gated matching."""
     if len(trackers) == 0:
         return (
             np.empty((0, 2), dtype=int),
@@ -248,4 +269,7 @@ def associate(
         cost_matrix,
         similarity_threshold,
         emb_cost,
+        gate_before_assignment=gate_before_assignment,
+        appearance_thresh=appearance_thresh,
+        appearance_iou_fraction=appearance_iou_fraction,
     )

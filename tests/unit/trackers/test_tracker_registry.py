@@ -97,7 +97,7 @@ def test_registered_capabilities_describe_every_tracker_family_and_input() -> No
     assert {name for name, item in definitions.items() if item.capabilities.accepts_ego_motion} == {"eagermot"}
     assert not any(item.capabilities.requires_ego_motion for item in definitions.values())
     assert all(item.capabilities.accepts_frame for item in definitions.values())
-    assert {name for name, item in definitions.items() if item.capabilities.requires_frame} == {"strongsort"}
+    assert not any(item.capabilities.requires_frame for item in definitions.values())
 
 
 def test_configurable_maf_frames_and_optional_ego_poses_match_static_requirements() -> None:
@@ -198,13 +198,13 @@ def test_tracker_config_precedence_and_partial_custom_overlay(tmp_path) -> None:
     resolved = load_tracker_config(
         "bytetrack",
         custom_path,
-        {"track_buffer": 45, "match_thresh": 0.8},
+        {"max_lost_frames": 45, "match_thresh": 0.8},
         {"match_thresh": 0.75},
     )
 
     assert resolved["min_conf"] == 0.1
     assert resolved["track_thresh"] == 0.7
-    assert resolved["track_buffer"] == 45
+    assert resolved["max_lost_frames"] == 45
     assert resolved["match_thresh"] == 0.75
 
 
@@ -213,12 +213,15 @@ def test_sfsort_config_includes_default_obb_angle_damping() -> None:
 
 
 @pytest.mark.parametrize("tracker_name", tuple(tracker_registry.TRACKER_DEFINITIONS))
-def test_all_python_configs_expose_canonical_association_choices(tracker_name: str) -> None:
+def test_python_configs_search_only_supported_association_choices(tracker_name: str) -> None:
+    """IoU-only EagerMOT stays fixed; other trackers search their supported metrics."""
     association = load_tracker_schema(tracker_name)["asso_func"]
 
-    assert association["type"] == "choice"
-    expected = ["iou"] if tracker_name == "eagermot" else ["iou", "giou", "diou", "ciou", "hmiou", "centroid"]
-    assert association["options"] == expected
+    if tracker_name == "eagermot":
+        assert association == {"default": "iou"}
+    else:
+        assert association["type"] == "choice"
+        assert association["options"] == ["iou", "giou", "diou", "ciou", "hmiou", "centroid"]
     assert load_tracker_config(tracker_name)["asso_func"] == association["default"]
 
 
@@ -243,15 +246,15 @@ def test_create_tracker_merges_spec_options_then_applies_fixed_spec_fields(monke
                 ("asso_func", "giou"),
                 ("is_obb", False),
                 ("match_thresh", 0.75),
+                ("max_lost_frames", 45),
                 ("per_class", False),
-                ("track_buffer", 45),
             ),
         )
     )
 
     assert captured["config"].asso_func == "giou"
     assert captured["config"].match_thresh == 0.75
-    assert captured["config"].track_buffer == 45
+    assert captured["config"].max_lost_frames == 45
     assert captured["is_obb"] is True
     assert captured["per_class"] is True
     assert captured["class_ids"] == (0, 3)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+from copy import copy
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
@@ -130,19 +131,38 @@ def _plan_with_version(
     return rebuilt, fingerprint(components["reid"])
 
 
-@pytest.fixture
-def published_case(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> PublishedCase:
-    """Publish tiny but fully validated detection and embedding artifacts."""
+@pytest.fixture(scope="module")
+def published_template(tmp_path_factory: pytest.TempPathFactory) -> PublishedCase:
+    """Materialize the common immutable publication once for this module."""
 
+    tmp_path = tmp_path_factory.mktemp("published-build-template")
     root = tmp_path / "materializations"
-    previous, encoder_fingerprint = _plan_with_version(root, "0.1.0", monkeypatch)
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        previous, encoder_fingerprint = _plan_with_version(root, "0.1.0", monkeypatch)
+        requested, _ = _plan_with_version(root, __version__, monkeypatch)
     samples = _samples(tmp_path)
     detector = CountingDetector()
     encoder = CountingEncoder(1.0)
     output = _run_derived_build(previous, samples, detector, encoder, encoder_fingerprint, use_cache=False)
-    requested, _ = _plan_with_version(root, __version__, monkeypatch)
     assert previous.build_id != requested.build_id
     return PublishedCase(output, previous, requested, samples, detector, encoder, encoder_fingerprint)
+
+
+@pytest.fixture
+def published_case(tmp_path: Path, published_template: PublishedCase) -> PublishedCase:
+    """Give every reuse/corruption check independent real publication files."""
+
+    root = tmp_path / "materializations"
+    previous = replace(published_template.previous, build_root=root)
+    shutil.copytree(published_template.output, previous.output_root)
+    return replace(
+        published_template,
+        output=previous.output_root,
+        previous=previous,
+        requested=replace(published_template.requested, build_root=root),
+        detector=copy(published_template.detector),
+        encoder=copy(published_template.encoder),
+    )
 
 
 def _snapshot(root: Path) -> dict[str, tuple[bytes, int]]:

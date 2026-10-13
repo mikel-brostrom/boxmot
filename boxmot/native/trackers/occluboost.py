@@ -1,4 +1,4 @@
-"""Low-level typed-v2 binding for the native OccluBoost library."""
+"""Native OccluBoost configuration ABI v3 and typed update ABI v2 binding."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ def ensure_occluboost_cpp_library(force_rebuild: bool = False) -> Path:
     )
 
 
-class _OccluBoostCConfig(ctypes.Structure):
+class _OccluBoostCConfigV3(ctypes.Structure):
     _fields_ = [
         ("max_age", ctypes.c_int),
         ("min_hits", ctypes.c_int),
@@ -71,20 +71,25 @@ class _OccluBoostCConfig(ctypes.Structure):
         ("ams_buffer_size", ctypes.c_int),
         ("ams_shrink_ratio", ctypes.c_float),
         ("lambda_emb_multiplier", ctypes.c_float),
-        ("obb_det_thresh", ctypes.c_float),
-        ("obb_iou_threshold", ctypes.c_float),
-        ("obb_new_track_thresh", ctypes.c_float),
-        ("obb_instant_confirm_thresh", ctypes.c_float),
-        ("obb_max_age", ctypes.c_int),
-        ("obb_recovery_max_age", ctypes.c_int),
-        ("obb_second_iou_thresh", ctypes.c_float),
         ("asso_func", ctypes.c_char_p),
+        ("centroid_max_distance", ctypes.c_double),
+        ("alpha_fixed_emb", ctypes.c_double),
+        ("appearance_thresh", ctypes.c_double),
+        ("appearance_iou_fraction", ctypes.c_double),
+        ("dlo_soft_alpha", ctypes.c_double),
+        ("dlo_soft_power", ctypes.c_double),
+        ("dlo_threshold_start", ctypes.c_double),
+        ("dlo_threshold_end", ctypes.c_double),
+        ("duo_mahalanobis_thresh", ctypes.c_double),
+        ("duo_iou_thresh", ctypes.c_double),
+        ("track_confidence_decay", ctypes.c_double),
+        ("track_confidence_warmup", ctypes.c_int),
     ]
 
 
-def _build_c_config(cfg: Mapping[str, Any]) -> _OccluBoostCConfig:
+def _build_c_config(cfg: Mapping[str, Any]) -> _OccluBoostCConfigV3:
     cmc_method = str(cfg["cmc_method"]) if bool(cfg["use_cmc"]) else "none"
-    return _OccluBoostCConfig(
+    return _OccluBoostCConfigV3(
         max_age=int(cfg["max_age"]),
         min_hits=int(cfg["min_hits"]),
         det_thresh=float(cfg["det_thresh"]),
@@ -125,14 +130,19 @@ def _build_c_config(cfg: Mapping[str, Any]) -> _OccluBoostCConfig:
         ams_buffer_size=int(cfg["ams_buffer_size"]),
         ams_shrink_ratio=float(cfg["ams_shrink_ratio"]),
         lambda_emb_multiplier=float(cfg["lambda_emb_multiplier"]),
-        obb_det_thresh=float(cfg["obb_det_thresh"]),
-        obb_iou_threshold=float(cfg["obb_iou_threshold"]),
-        obb_new_track_thresh=float(cfg["obb_new_track_thresh"]),
-        obb_instant_confirm_thresh=float(cfg["obb_instant_confirm_thresh"]),
-        obb_max_age=int(cfg["obb_max_age"]),
-        obb_recovery_max_age=int(cfg["obb_recovery_max_age"]),
-        obb_second_iou_thresh=float(cfg["obb_second_iou_thresh"]),
         asso_func=str(cfg["asso_func"]).encode(),
+        centroid_max_distance=float(cfg["centroid_max_distance"]),
+        alpha_fixed_emb=float(cfg["alpha_fixed_emb"]),
+        appearance_thresh=float(cfg["appearance_thresh"]),
+        appearance_iou_fraction=float(cfg["appearance_iou_fraction"]),
+        dlo_soft_alpha=float(cfg["dlo_soft_alpha"]),
+        dlo_soft_power=float(cfg["dlo_soft_power"]),
+        dlo_threshold_start=float(cfg["dlo_threshold_start"]),
+        dlo_threshold_end=float(cfg["dlo_threshold_end"]),
+        duo_mahalanobis_thresh=float(cfg["duo_mahalanobis_thresh"]),
+        duo_iou_thresh=float(cfg["duo_iou_thresh"]),
+        track_confidence_decay=float(cfg["track_confidence_decay"]),
+        track_confidence_warmup=int(cfg["track_confidence_warmup"]),
     )
 
 
@@ -142,8 +152,13 @@ class OccluBoostLibrary:
             os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
         self.library_path = Path(library_path)
         self._library = ctypes.CDLL(str(self.library_path))
-        self._library.boxmot_occluboost_create.argtypes = [ctypes.POINTER(_OccluBoostCConfig)]
-        self._library.boxmot_occluboost_create.restype = ctypes.c_void_p
+        self._create = getattr(self._library, "boxmot_occluboost_create_v3", None)
+        if self._create is None:
+            raise RuntimeError(
+                "Native OccluBoost library has an incompatible configuration ABI; rebuild the native library."
+            )
+        self._create.argtypes = [ctypes.POINTER(_OccluBoostCConfigV3)]
+        self._create.restype = ctypes.c_void_p
         self._library.boxmot_occluboost_destroy.argtypes = [ctypes.c_void_p]
         self._library.boxmot_occluboost_destroy.restype = None
         self._library.boxmot_occluboost_reset.argtypes = [ctypes.c_void_p]
@@ -158,7 +173,7 @@ class OccluBoostLibrary:
 
     def create(self, cfg: Mapping[str, Any]):
         c_cfg = _build_c_config(cfg)
-        handle = self._library.boxmot_occluboost_create(ctypes.byref(c_cfg))
+        handle = self._create(ctypes.byref(c_cfg))
         if not handle:
             raise RuntimeError(self._last_error())
         return handle

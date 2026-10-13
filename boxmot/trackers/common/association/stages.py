@@ -145,11 +145,13 @@ def detection_track_similarity_assignment(
     similarity_matrix: np.ndarray,
     threshold: float,
     assignment_solver: DetectionTrackAssignmentSolver,
+    *,
+    gate_before_assignment: bool = False,
 ) -> AssociationResult:
     """Adapt detector-row/track-column similarity matching to canonical stage output."""
     similarity_matrix = np.asarray(similarity_matrix, dtype=float)
     n_dets, n_tracks = similarity_matrix.shape
-    if similarity_matrix.size == 0 or similarity_matrix.max(initial=0.0) <= threshold:
+    if similarity_matrix.size == 0 or similarity_matrix.max(initial=-np.inf) < threshold:
         return AssociationResult(
             matches=np.empty((0, 2), dtype=int),
             unmatched_tracks=np.arange(n_tracks, dtype=int),
@@ -157,7 +159,10 @@ def detection_track_similarity_assignment(
             cost_matrix=1.0 - similarity_matrix.T,
         )
 
-    matched_indices = np.asarray(assignment_solver(-similarity_matrix), dtype=int).reshape(-1, 2)
+    costs = -similarity_matrix
+    if gate_before_assignment or not np.isfinite(similarity_matrix).all():
+        costs = np.where(similarity_matrix >= threshold, costs, np.inf)
+    matched_indices = np.asarray(assignment_solver(costs), dtype=int).reshape(-1, 2)
     matches = []
     matched_dets = set()
     matched_tracks = set()

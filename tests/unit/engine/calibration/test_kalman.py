@@ -23,6 +23,7 @@ from boxmot.trackers.common.motion.kalman_filters.config import (
 )
 from boxmot.trackers.common.motion.kalman_filters.fitting import MIN_COVARIANCE_SCALE
 from boxmot.trackers.common.motion.kalman_filters.noise import (
+    KALMAN_DIAGONAL_OPTIONS,
     KALMAN_NOISE_OPTIONS,
     KALMAN_TRACKER_NAMES,
 )
@@ -97,17 +98,17 @@ def test_calibration_fits_errors_without_replay_and_holds_other_settings(monkeyp
     assert inputs[0].variable_dt is variable_dt
     assert result.matched_detections == 12
     assert result.gt_transitions == 8
-    assert set(KALMAN_NOISE_OPTIONS) <= set(result.fitted_parameters)
-    assert result.parameter_count == 10
-    assert len(result.fitted_parameters) == 10
+    assert all("_diagonal[" in key for key in result.fitted_parameters)
+    assert result.parameter_count == 40
+    assert len(result.fitted_parameters) == 40
     assert saved["kalman.variable_dt"] is variable_dt
     assert saved["kalman.noise.time_unit"] == ("seconds" if variable_dt else "frames")
     assert saved["asso_func"] == "giou"
-    assert saved["kalman.noise.measurement_noise_scale"] == pytest.approx(0.04)
-    assert saved["kalman.noise.initial_position_scale"] == pytest.approx(0.01)
+    assert saved["kalman.noise.measurement_noise_diagonal"] == pytest.approx([0.16, 1e-6, 1e-6, 1e-6])
+    assert saved["kalman.noise.initial_position_diagonal"] == pytest.approx([0.04, 1e-6, 1e-6, 1e-6])
     report = json.loads(result.report_path.read_text())
     for key, value in report["baseline_config"].items():
-        if key not in KALMAN_NOISE_OPTIONS:
+        if key not in (*KALMAN_NOISE_OPTIONS, *KALMAN_DIAGONAL_OPTIONS):
             assert saved[key] == value
     assert report["method"] == "supervised_covariance_moments"
     assert report["score_scope"] == "calibrated_on_selected_split"
@@ -119,7 +120,7 @@ def test_calibration_fits_errors_without_replay_and_holds_other_settings(monkeyp
     assert report["classes"]["0"]["statistics"]["matched"] == 12
     raw_config = yaml.safe_load(result.config_path.read_text())
     assert not any(name.startswith("kalman.noise.") for name in raw_config)
-    assert raw_config["kalman"]["noise"]["by_class"]["0"]["measurement_noise_scale"] == pytest.approx(0.04)
+    assert raw_config["kalman"]["noise"]["by_class"]["0"]["measurement_noise_diagonal"][0] == pytest.approx(0.16)
     assert "final_summary" not in report
     assert "trials" not in report
     assert result.config_path.name == "calibrated.yaml"
@@ -135,10 +136,12 @@ def test_irregular_intervals_preserve_constant_velocity_process_residuals(monkey
     for variable_dt in (False, True):
         result = calibrate_kalman(_args(tmp_path, variable_dt=variable_dt), output_dir=tmp_path / str(variable_dt))
         results.append(load_tracker_config("bytetrack", result.config_path))
-    assert results[1]["kalman.noise.process_position_scale"] == MIN_COVARIANCE_SCALE
-    assert results[1]["kalman.noise.process_velocity_scale"] == MIN_COVARIANCE_SCALE
-    assert results[0]["kalman.noise.process_velocity_scale"] > MIN_COVARIANCE_SCALE
-    assert results[0]["kalman.noise.measurement_noise_scale"] == results[1]["kalman.noise.measurement_noise_scale"]
+    assert results[1]["kalman.noise.process_position_diagonal"][0] == MIN_COVARIANCE_SCALE
+    assert results[1]["kalman.noise.process_velocity_diagonal"][0] == MIN_COVARIANCE_SCALE
+    assert results[0]["kalman.noise.process_position_diagonal"][0] > MIN_COVARIANCE_SCALE
+    assert (
+        results[0]["kalman.noise.measurement_noise_diagonal"] == results[1]["kalman.noise.measurement_noise_diagonal"]
+    )
 
 
 def test_per_class_calibration_saves_distinct_priors_and_global_fallback(monkeypatch, tmp_path):
@@ -155,20 +158,20 @@ def test_per_class_calibration_saves_distinct_priors_and_global_fallback(monkeyp
     saved = load_tracker_config("bytetrack", result.config_path)
     noise = normalize_kalman_config(saved, tracker_name="bytetrack").noise
     assert saved["per_class"] is True
-    assert noise.for_class(1).measurement_noise_scale == pytest.approx(9 * noise.for_class(0).measurement_noise_scale)
-    assert noise.for_class(2).measurement_noise_scale == noise.measurement_noise_scale
-    assert noise.for_class(3).measurement_noise_scale == noise.measurement_noise_scale
-    assert noise.for_class(99).measurement_noise_scale == noise.measurement_noise_scale
-    assert result.parameter_count == 25
+    assert noise.for_class(1).measurement_noise_diagonal[0] == pytest.approx(
+        9 * noise.for_class(0).measurement_noise_diagonal[0]
+    )
+    assert noise.for_class(2).measurement_noise_diagonal == noise.measurement_noise_diagonal
+    assert noise.for_class(3).measurement_noise_diagonal == noise.measurement_noise_diagonal
+    assert noise.for_class(99).measurement_noise_diagonal == noise.measurement_noise_diagonal
+    assert result.parameter_count == 100
     report = json.loads(result.report_path.read_text())
     assert report["classes"]["0"]["class_name"] == "car"
     for class_id in (2, 3):
         parameters = report["classes"][str(class_id)]["parameters"]
-        assert all(estimate["status"] == "global_fallback" for estimate in parameters.values())
-        assert all(
-            estimate["source"] == "pooled_classes" and estimate["global_events"] >= 2
-            for estimate in parameters.values()
-        )
+        entries = [entry for key in KALMAN_DIAGONAL_OPTIONS for entry in parameters[key]["coordinates"]]
+        assert all(entry["status"] == "global_fallback" for entry in entries)
+        assert all(entry["source"] == "pooled_classes" and entry["global_events"] >= 2 for entry in entries)
     assert report["classes"]["3"]["statistics"]["matched"] == 0
     assert report["classes"]["1"]["timing"] == report["timing"]
 
@@ -180,8 +183,9 @@ def test_larger_detector_errors_increase_r_and_initial_position_but_not_q(monkey
         result = calibrate_kalman(_args(tmp_path), output_dir=tmp_path / str(offset))
         configurations.append(load_tracker_config("bytetrack", result.config_path))
     small, large = configurations
-    for key in ("kalman.noise.measurement_noise_scale", "kalman.noise.initial_position_scale"):
-        assert large[key] == pytest.approx(9 * small[key])
+    for key in ("kalman.noise.measurement_noise_diagonal", "kalman.noise.initial_position_diagonal"):
+        assert large[key][0] == pytest.approx(9 * small[key][0])
+        assert large[key][1:] == small[key][1:]
     for key in (
         "kalman.noise.process_position_scale",
         "kalman.noise.process_velocity_scale",
@@ -203,7 +207,7 @@ def test_calibration_preserves_grouped_filter_policies(monkeypatch, tmp_path):
     restored = normalize_kalman_config(saved, tracker_name="occluboost")
     assert restored.adaptive_kf is True
     assert restored.ams == configured.ams
-    assert restored.noise.measurement_noise_scale != configured.noise.measurement_noise_scale
+    assert restored.noise.measurement_noise_diagonal != configured.noise.measurement_noise_diagonal
     authored = yaml.safe_load(result.config_path.read_text())
     assert authored["kalman"]["adaptive_kf"] is True
     assert authored["kalman"]["ams"]["enabled"] is False
@@ -254,7 +258,7 @@ def test_first_detection_after_obb_angle_wrap_has_no_artificial_birth_error(monk
         result = calibrate_kalman(
             _args(tmp_path, tracker=tracker, geometry="obb"), output_dir=tmp_path / str(crosses_wrap)
         )
-        scales.append(load_tracker_config(tracker, result.config_path)["kalman.noise.initial_position_scale"])
+        scales.append(load_tracker_config(tracker, result.config_path)["kalman.noise.initial_position_diagonal"])
     assert scales[0] == pytest.approx(scales[1])
 
 
@@ -266,12 +270,15 @@ def test_all_filter_families_produce_reusable_calibration(monkeypatch, tmp_path,
         _args(tmp_path, tracker=tracker, geometry=geometry, variable_dt=True), output_dir=tmp_path
     )
     saved = load_tracker_config(tracker, result.config_path)
-    assert set(result.fitted_parameters) == set(KALMAN_NOISE_OPTIONS)
-    assert all(np.isfinite(saved[key]) and saved[key] > 0 for key in KALMAN_NOISE_OPTIONS)
+    assert result.fitted_parameters
+    assert all("_diagonal[" in name for name in result.fitted_parameters)
+    assert all(saved[key] == 1.0 for key in KALMAN_NOISE_OPTIONS)
+    assert all(
+        np.all(np.isfinite(saved[key])) and np.all(np.asarray(saved[key]) > 0) for key in KALMAN_DIAGONAL_OPTIONS
+    )
     defaults = load_tracker_config(tracker)
-    assert {key: saved[key] for key in MASK_GUIDANCE_OPTIONS} == {
-        key: defaults[key] for key in MASK_GUIDANCE_OPTIONS
-    }
+    guidance_keys = defaults.keys() & MASK_GUIDANCE_OPTIONS.keys()
+    assert {key: saved[key] for key in guidance_keys} == {key: defaults[key] for key in guidance_keys}
 
 
 def test_sparse_evidence_retains_custom_baselines_and_resolves_implicit_timing(monkeypatch, tmp_path):
@@ -283,12 +290,18 @@ def test_sparse_evidence_retains_custom_baselines_and_resolves_implicit_timing(m
     calls = _load_fixture(monkeypatch, _data(count=1, tracks=1))
     result = calibrate_kalman(_args(tmp_path, variable_dt=None, tracker_config=config_path), output_dir=tmp_path)
     saved = load_tracker_config("bytetrack", result.config_path)
-    assert {key: saved[key] for key in KALMAN_NOISE_OPTIONS} == scales
+    assert all(saved[key] == 1.0 for key in KALMAN_NOISE_OPTIONS)
+    for scalar, diagonal in zip(KALMAN_NOISE_OPTIONS, KALMAN_DIAGONAL_OPTIONS, strict=True):
+        assert saved[diagonal] == [scales[scalar]] * 4
     assert calls[0].variable_dt is True
     assert saved["kalman.noise.time_unit"] == "seconds"
     assert result.fitted_parameters == ()
     report = json.loads(result.report_path.read_text())
-    assert all(entry["status"] == "retained" and entry["reason"] for entry in report["parameters"].values())
+    assert all(
+        entry["status"] == "retained" and entry["reason"]
+        for key in KALMAN_DIAGONAL_OPTIONS
+        for entry in report["parameters"][key]["coordinates"]
+    )
 
 
 def test_sparse_class_and_pool_preserve_authored_class_priors(monkeypatch, tmp_path):
@@ -312,12 +325,15 @@ def test_sparse_class_and_pool_preserve_authored_class_priors(monkeypatch, tmp_p
     )
     saved = load_tracker_config("bytetrack", result.config_path)
     assert saved["per_class"] is True
-    assert saved["kalman.noise.measurement_noise_scale"] == 4.0
-    assert saved["kalman.noise.by_class.2.measurement_noise_scale"] == 7.0
+    assert saved["kalman.noise.measurement_noise_diagonal"] == [4.0] * 4
+    assert saved["kalman.noise.by_class.2.measurement_noise_diagonal"] == [7.0] * 4
     assert result.fitted_parameters == ()
     report = json.loads(result.report_path.read_text())
     assert report["per_class"] is True
-    assert report["classes"]["2"]["parameters"]["kalman.noise.measurement_noise_scale"]["source"] == "configured"
+    assert all(
+        entry["source"] == "configured"
+        for entry in report["classes"]["2"]["parameters"]["kalman.noise.measurement_noise_diagonal"]["coordinates"]
+    )
 
 
 def test_detection_misses_contribute_process_evidence_but_annotation_gaps_do_not(monkeypatch, tmp_path):
@@ -413,7 +429,8 @@ def test_eval_main_calibrates_then_evaluates_once_with_display(monkeypatch, tmp_
     assert calls[0][0].show is True and calls[0][0].save is True
     assert result.exp_dir == tmp_path / "fixture" / "eval"
     saved = load_tracker_config("bytetrack", Path(args.tracker_config))
-    assert calls[0][1] == saved
+    actual = {key: list(value) if key in KALMAN_DIAGONAL_OPTIONS else value for key, value in calls[0][1].items()}
+    assert actual == saved
     report = json.loads((result.exp_dir / "kf-tuning" / "calibration.json").read_text())
     assert report["final_summary"] == {"HOTA": 64.0}
     assert Path(report["final_output_dir"]) == result.exp_dir

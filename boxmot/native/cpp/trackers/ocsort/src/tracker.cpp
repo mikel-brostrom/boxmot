@@ -236,7 +236,9 @@ Eigen::VectorXd OCSORTTracker::KalmanBoxTracker::CurrentOutputBox() const {
 
 OCSORTTracker::OCSORTTracker(Config config)
     : config_(std::move(config)),
-      association_mode_(boxmot::trackers::base::ParseAssociationMode(config_.asso_func)) {}
+      association_mode_(boxmot::trackers::base::ParseAssociationMode(config_.asso_func)) {
+    boxmot::trackers::base::ValidateCentroidMaxDistance(config_.centroid_max_distance);
+}
 
 void OCSORTTracker::Reset() {
     frame_count_ = 0;
@@ -320,7 +322,8 @@ OCSORTTracker::AssignmentResult OCSORTTracker::Associate(
     const bool is_obb_mode,
     const boxmot::trackers::base::AssociationMode association_mode,
     const int frame_width,
-    const int frame_height) {
+    const int frame_height,
+    const double centroid_max_distance) {
     AssignmentResult result;
     if (trackers.empty()) {
         result.unmatched_rows.resize(static_cast<int>(detections.size()));
@@ -334,11 +337,15 @@ OCSORTTracker::AssignmentResult OCSORTTracker::Associate(
                                                   is_obb_mode,
                                                   association_mode,
                                                   frame_width,
-                                                  frame_height);
+                                                  frame_height,
+                                                  centroid_max_distance);
     std::vector<std::pair<int, int>> matched_indices;
     if (std::min(similarity_matrix.rows(), similarity_matrix.cols()) > 0) {
-        const Eigen::ArrayXXi admissible =
+        Eigen::ArrayXXi admissible =
             (similarity_matrix.array() > static_cast<double>(similarity_threshold)).cast<int>();
+        if (association_mode == boxmot::trackers::base::AssociationMode::kCentroid) {
+            admissible *= (similarity_matrix.array() >= 0.0).cast<int>();
+        }
         const int max_row_sum = admissible.rows() == 0 ? 0 : admissible.rowwise().sum().maxCoeff();
         const int max_col_sum = admissible.cols() == 0 ? 0 : admissible.colwise().sum().maxCoeff();
         if (max_row_sum == 1 && max_col_sum == 1) {
@@ -355,21 +362,21 @@ OCSORTTracker::AssignmentResult OCSORTTracker::Associate(
             for (const auto& detection : detections) {
                 scores.push_back(static_cast<float>(detection[detection.size() - 1]));
             }
-            matched_indices =
-                LinearAssignment(
-                    -(similarity_matrix +
-                      DirectionCost(
-                          detections, previous_obs, velocities, scores, inertia, is_obb_mode)),
-                    kAssignmentThreshold)
-                    .matches;
+            Eigen::MatrixXd costs = -(similarity_matrix + DirectionCost(
+                detections, previous_obs, velocities, scores, inertia, is_obb_mode));
+            boxmot::trackers::base::GateCentroidCosts(costs, similarity_matrix, association_mode);
+            const double cost_limit = association_mode == boxmot::trackers::base::AssociationMode::kCentroid
+                                          ? std::numeric_limits<double>::infinity() : kAssignmentThreshold;
+            matched_indices = LinearAssignment(costs, cost_limit).matches;
         }
     }
 
     std::vector<bool> matched_det(detections.size(), false);
     std::vector<bool> matched_trk(trackers.size(), false);
     for (const auto& match : matched_indices) {
-        if (similarity_matrix(match.first, match.second) <
-            static_cast<double>(similarity_threshold)) {
+        if ((association_mode == boxmot::trackers::base::AssociationMode::kCentroid &&
+             similarity_matrix(match.first, match.second) < 0.0) ||
+            similarity_matrix(match.first, match.second) < static_cast<double>(similarity_threshold)) {
             continue;
         }
         matched_det[match.first] = true;
@@ -472,17 +479,19 @@ std::vector<TrackOutput> OCSORTTracker::Update(const std::vector<Detection>& det
         first_rows.push_back(DetectionRow(detection));
     }
 
-    const double association_threshold = static_cast<double>(config_.iou_threshold);
+    const double association_threshold = boxmot::trackers::base::GeometrySimilarityThreshold(
+        association_mode_, config_.iou_threshold);
     AssignmentResult matched = Associate(first_rows,
                                          predicted_tracks,
                                          velocities,
                                          k_observations,
-                                         config_.iou_threshold,
+                                         static_cast<float>(association_threshold),
                                          config_.inertia,
                                          is_obb_mode_,
                                          association_mode_,
                                          association_frame_width_,
-                                         association_frame_height_);
+                                         association_frame_height_,
+                                         config_.centroid_max_distance);
     for (const auto& match : matched.matches) {
         active_tracks_[match.second].Update(&detections_first[match.first]);
     }
@@ -505,10 +514,16 @@ std::vector<TrackOutput> OCSORTTracker::Update(const std::vector<Detection>& det
             is_obb_mode_,
             association_mode_,
             association_frame_width_,
-            association_frame_height_);
-        if (second_similarity.size() != 0 && second_similarity.maxCoeff() > association_threshold) {
-            const auto second_matches =
-                LinearAssignment(-second_similarity, kAssignmentThreshold).matches;
+            association_frame_height_,
+            config_.centroid_max_distance);
+        const double minimum_similarity = association_mode_ == boxmot::trackers::base::AssociationMode::kCentroid
+                                              ? std::max(0.0, association_threshold) : association_threshold;
+        const bool centroid = association_mode_ == boxmot::trackers::base::AssociationMode::kCentroid;
+        if (second_similarity.size() != 0 && (centroid ? second_similarity.maxCoeff() >= minimum_similarity
+                                                      : second_similarity.maxCoeff() > minimum_similarity)) {
+            Eigen::MatrixXd costs = -second_similarity;
+            boxmot::trackers::base::GateCentroidCosts(costs, second_similarity, association_mode_);
+            const auto second_matches = LinearAssignment(costs, kAssignmentThreshold).matches;
             std::vector<int> consumed_tracks;
             for (const auto& match_indices : second_matches) {
                 if (second_similarity(match_indices.first, match_indices.second) <
@@ -556,11 +571,16 @@ std::vector<TrackOutput> OCSORTTracker::Update(const std::vector<Detection>& det
                                                       is_obb_mode_,
                                                       association_mode_,
                                                       association_frame_width_,
-                                                      association_frame_height_);
-        if (rematch_similarity.size() != 0 &&
-            rematch_similarity.maxCoeff() > association_threshold) {
-            const auto rematched =
-                LinearAssignment(-rematch_similarity, kAssignmentThreshold).matches;
+                                                      association_frame_height_,
+                                                      config_.centroid_max_distance);
+        const double minimum_similarity = association_mode_ == boxmot::trackers::base::AssociationMode::kCentroid
+                                              ? std::max(0.0, association_threshold) : association_threshold;
+        const bool centroid = association_mode_ == boxmot::trackers::base::AssociationMode::kCentroid;
+        if (rematch_similarity.size() != 0 && (centroid ? rematch_similarity.maxCoeff() >= minimum_similarity
+                                                       : rematch_similarity.maxCoeff() > minimum_similarity)) {
+            Eigen::MatrixXd costs = -rematch_similarity;
+            boxmot::trackers::base::GateCentroidCosts(costs, rematch_similarity, association_mode_);
+            const auto rematched = LinearAssignment(costs, kAssignmentThreshold).matches;
             std::vector<int> consumed_det_indices;
             std::vector<int> consumed_trk_indices;
             for (const auto& match_indices : rematched) {

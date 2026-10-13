@@ -23,6 +23,19 @@ Direct construction accepts `reid=ReIDConfig(...)` or a prebuilt
 `AppearanceEncoder`, as described in the
 [Python API](../python/index.md#live-embeddings-in-reid-enabled-trackers).
 
+## Lost-track lifetime
+
+`max_lost_frames` controls lost-track expiry in tracker updates, including updates
+with no detections. It defaults to 40 for both AABB and OBB and for both backends.
+The value is used directly; input FPS does not rescale it. For example,
+`BotSortConfig(max_lost_frames=60)` sets a 60-update limit.
+
+Expiry keeps the existing association order: matching runs before the lost-track
+age check, and removed candidates leave the association pool on the following
+update. Newly lost tracks first enter that check on their next update, including
+when `max_lost_frames=0`. The built-in tuning profile searches integer values
+from 1 through 199 (`range: [1, 200]`, exclusive upper bound).
+
 ## Native C++ Backend
 
 BoxMOT also ships a native C++17 BotSort implementation under `boxmot/native/cpp/trackers/botsort/`. It supports:

@@ -237,13 +237,17 @@ Eigen::Vector4d XywhaToEnclosingXyxy(const Eigen::Matrix<double, 5, 1>& xywha) {
 
 KalmanBoxTracker::KalmanBoxTracker(const Detection& detection,
                                    const int max_obs,
-                                   const std::int64_t track_id)
+                                   const std::int64_t track_id,
+                                   const double confidence_decay,
+                                   const int confidence_warmup)
     : id(track_id),
       conf(detection.conf),
       cls(detection.cls),
       det_ind(detection.det_ind),
       max_obs_(std::max(max_obs, 1)),
-      is_obb_(detection.is_obb) {
+      is_obb_(detection.is_obb),
+      confidence_decay_(confidence_decay),
+      confidence_warmup_(confidence_warmup) {
     if (is_obb_) {
         const Eigen::Matrix<double, 5, 1> z = XywhaToZObb(detection.xywha);
         KalmanFilterXYHR::Vector measurement(5);
@@ -411,12 +415,11 @@ Eigen::Vector4d KalmanBoxTracker::xywh() const {
     return XyxyToCxcywh(xyxy());
 }
 
-double KalmanBoxTracker::GetConfidence(const double coef) const {
-    constexpr int n = 7;
-    if (age < n) {
-        return std::pow(coef, n - age);
+double KalmanBoxTracker::GetConfidence() const {
+    if (age < confidence_warmup_) {
+        return std::pow(confidence_decay_, confidence_warmup_ - age);
     }
-    return std::pow(coef, std::max(0, time_since_update - 1));
+    return std::pow(confidence_decay_, std::max(0, time_since_update - 1));
 }
 
 }  // namespace occluboost

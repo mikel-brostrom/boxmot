@@ -9,6 +9,7 @@ namespace ocsort {
 
 struct Config {
     std::string asso_func = "iou";
+    double centroid_max_distance = 0.05;
     float min_conf = 0.1F;
     float det_thresh = 0.6F;
     float iou_threshold = 0.3F;

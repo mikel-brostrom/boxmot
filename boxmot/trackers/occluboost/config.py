@@ -12,34 +12,30 @@ class OccluBoostConfig(BoostTrackConfig):
     """Configure recovery, track confirmation, and occlusion-aware motion updates.
 
     Shared history and association settings are inherited from ``BoostTrackConfig``.
+    Detection, matching, and lifetime settings apply to both AABB and OBB tracking.
+    First-pass, recovery, and second-pass geometric thresholds apply to overlap
+    metrics. Centroid mode uses ``centroid_max_distance`` for all three stages.
 
     Args:
         recovery_appearance_thresh: Minimum cosine similarity for appearance recovery.
         recovery_iou_thresh: Minimum geometric similarity for appearance recovery.
-        recovery_max_age: Maximum unmatched age after prediction for AABB recovery.
+        recovery_max_age: Maximum unmatched age after prediction for appearance recovery.
         feat_alpha: Previous-embedding weight for recovery and second-pass updates;
             higher values retain more history and adapt more slowly.
         track_low_thresh: Lower confidence bound for second-pass detections.
-        second_iou_thresh: Minimum geometric similarity for the AABB second pass.
+        second_iou_thresh: Minimum geometric similarity for the second pass.
         second_appearance_thresh: Minimum cosine similarity for second-pass matching
             when appearance is enabled.
         second_pass_max_age: Maximum unmatched age for second-pass recovery.
         second_pass_min_hits: Minimum hit streak of tracks eligible for the second pass.
         use_second_pass: Enable low-confidence matching to eligible confirmed tracks.
-        new_track_thresh: Minimum detection confidence to create an AABB track.
+        new_track_thresh: Minimum detection confidence to create a track.
         confirm_hits: Consecutive matched updates needed to activate tentative tracks.
-        instant_confirm_thresh: Confidence that immediately activates a new AABB track.
+        instant_confirm_thresh: Confidence that immediately activates a new track.
         tentative_max_age: Maximum unmatched age before a tentative track expires.
         duplicate_iou_thresh: Geometric similarity above which duplicate tracks
             are suppressed, retaining the older track.
         lambda_emb_multiplier: Appearance-weight multiplier in AABB first-pass matching.
-        obb_det_thresh: Detection confidence threshold for OBB first-pass matching.
-        obb_iou_threshold: Minimum geometric similarity for OBB first-pass matching.
-        obb_new_track_thresh: Minimum detection confidence to create an OBB track.
-        obb_instant_confirm_thresh: Confidence that immediately activates a new OBB track.
-        obb_max_age: Maximum unmatched age before an OBB track expires.
-        obb_recovery_max_age: Maximum unmatched age after prediction for OBB recovery.
-        obb_second_iou_thresh: Minimum geometric similarity for the OBB second pass.
         det_thresh: Minimum detection confidence for the shared tracking kernel.
     """
 
@@ -72,13 +68,8 @@ class OccluBoostConfig(BoostTrackConfig):
     tentative_max_age: int = field(default=3, metadata={"ge": 0})
     duplicate_iou_thresh: float = 0.9571823233925608
     lambda_emb_multiplier: float = field(default=2.9476295884842885, metadata={"ge": 0})
-    obb_det_thresh: float = field(default=0.2, metadata={"ge": 0.0, "le": 1.0})
-    obb_iou_threshold: float = 0.15
-    obb_new_track_thresh: float = field(default=0.3, metadata={"ge": 0.0, "le": 1.0})
-    obb_instant_confirm_thresh: float = field(default=0.5, metadata={"ge": 0.0, "le": 1.0})
-    obb_max_age: int = field(default=30, metadata={"ge": 0})
-    obb_recovery_max_age: int = field(default=15, metadata={"ge": 0})
-    obb_second_iou_thresh: float = 0.3
 
+    sof_target_width: int | None = field(default=None, metadata={"gt": 0})
+    sof_ransac_reproj_threshold: float = field(default=3.0, metadata={"gt": 0})
 
 __all__ = ("OccluBoostConfig",)

@@ -10,6 +10,19 @@ ByteTrack's main idea is simple: do not throw away low-confidence detections too
 - Supports both AABB and OBB detections in BoxMOT.
 - Good default when you want a fast, strong baseline and already trust the detector.
 
+## Lost-track lifetime
+
+`max_lost_frames` controls lost-track expiry in tracker updates, including updates
+with no detections. It defaults to 30 for both AABB and OBB and for both backends.
+The value is used directly; input FPS does not rescale it. For example,
+`ByteTrackConfig(max_lost_frames=40)` sets a 40-update limit.
+
+Expiry keeps the existing association order: matching runs before the lost-track
+age check, and removed candidates leave the association pool on the following
+update. Newly lost tracks first enter that check on their next update, including
+when `max_lost_frames=0`. The built-in tuning profile searches integer values
+from 1 through 199 (`range: [1, 200]`, exclusive upper bound).
+
 ## Optional McByte++ Mask Guidance
 
 Python ByteTrack can use the temporal mask cue described in

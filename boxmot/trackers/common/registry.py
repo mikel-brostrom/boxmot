@@ -81,7 +81,6 @@ _TRACKER_CAPABILITIES: dict[str, TrackerCapabilities] = {
         geometry_kinds=_BOX_GEOMETRIES,
         requires_embeddings=True,
         accepts_embeddings=True,
-        requires_frame=True,
         accepts_frame=True,
     ),
 }

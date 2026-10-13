@@ -27,6 +27,7 @@ ocsort::Config ConvertConfig(const BoxMOTOCSORTConfigV2& config) {
     native_config.use_byte = config.use_byte != 0;
     native_config.inertia = config.inertia;
     native_config.max_obs = config.max_obs;
+    native_config.centroid_max_distance = config.centroid_max_distance;
     native_config.asso_func = config.asso_func == nullptr ? "iou" : std::string(config.asso_func);
     return native_config;
 }

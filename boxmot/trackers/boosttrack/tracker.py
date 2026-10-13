@@ -26,9 +26,8 @@ from boxmot.trackers.common.box.base import BoxTracker
 from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runtime_options
 from boxmot.trackers.common.geometry.obb import xywha_to_xyxy
 from boxmot.trackers.common.motion.batching import predict_tracks, update_tracks
-from boxmot.trackers.common.motion.cmc.registry import create_cmc
+from boxmot.trackers.common.motion.cmc.registry import create_cmc, sof_options
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
-from boxmot.trackers.common.motion.models import MotionModelKind, create_motion_model
 
 
 class BoostTrack(BoxTracker):
@@ -75,6 +74,7 @@ class BoostTrack(BoxTracker):
             min_hits=config.min_hits,
             iou_threshold=config.iou_threshold,
             asso_func=config.asso_func,
+            centroid_max_distance=config.centroid_max_distance,
             kalman=kalman,
             reid=reid,
             **kwargs,
@@ -93,6 +93,10 @@ class BoostTrack(BoxTracker):
         self.lambda_iou = config.lambda_iou
         self.lambda_mhd = config.lambda_mhd
         self.lambda_shape = config.lambda_shape
+        self.lambda_emb_multiplier = config.lambda_emb_multiplier
+        self.alpha_fixed_emb = config.alpha_fixed_emb
+        self.appearance_thresh = config.appearance_thresh
+        self.appearance_iou_fraction = config.appearance_iou_fraction
         self.use_dlo_boost = config.use_dlo_boost
         self.use_duo_boost = config.use_duo_boost
         self.dlo_boost_coef = config.dlo_boost_coef
@@ -101,10 +105,17 @@ class BoostTrack(BoxTracker):
         self.use_rich_s = config.use_rich_s
         self.use_sb = config.use_sb
         self.use_vt = config.use_vt
+        self.dlo_soft_alpha = config.dlo_soft_alpha
+        self.dlo_soft_power = config.dlo_soft_power
+        self.dlo_threshold_start = config.dlo_threshold_start
+        self.dlo_threshold_end = config.dlo_threshold_end
+        self.duo_mahalanobis_thresh = config.duo_mahalanobis_thresh
+        self.duo_iou_thresh = config.duo_iou_thresh
 
         self.use_embeddings = config.use_embeddings
 
-        self.cmc = create_cmc(config.cmc_method, enabled=self.use_cmc)
+        cmc_options = sof_options(config) if config.cmc_method == "sof" else {}
+        self.cmc = create_cmc(config.cmc_method, enabled=self.use_cmc, **cmc_options)
         self._requires_frame = self._requires_frame or self.cmc is not None
         if self.cmc is not None:
             self._requires_frame_dimensions_only = False
@@ -134,14 +145,14 @@ class BoostTrack(BoxTracker):
 
         self.frame_count += 1
 
-        if self.cmc is not None:
-            self.apply_cmc(img, indexed_dets, self.trackers)
-
         trks = []
         trks_obb = []
         confs = []
 
         predictions = predict_tracks(self.trackers, dt=self._prediction_dt)
+        if self.cmc is not None:
+            self.apply_cmc(img, indexed_dets, self.trackers)
+            predictions = [track.get_state() for track in self.trackers]
         for trk, prediction in zip(self.trackers, predictions, strict=True):
             pos = prediction[0]
             conf = trk.get_confidence()
@@ -211,14 +222,18 @@ class BoostTrack(BoxTracker):
             lambda_mhd=self.lambda_mhd,
             lambda_shape=self.lambda_shape,
             s_sim_corr=self.s_sim_corr,
+            lambda_emb_multiplier=self.lambda_emb_multiplier,
+            appearance_thresh=self.appearance_thresh,
+            appearance_iou_fraction=self.appearance_iou_fraction,
             geometry_matrix=geometry_similarity,
             shape_matrix=oriented_shape,
+            gate_before_assignment=self._asso_func_base_name == "centroid",
             geometry_conditioner=lambda similarity: self._condition_similarity(
                 similarity, self.trackers, batch.boxes, threshold=self.iou_threshold
             ),
         )
 
-        dets_alpha = confidence_aware_alpha(batch.confs, self.det_thresh)
+        dets_alpha = confidence_aware_alpha(batch.confs, self.det_thresh, base_alpha=self.alpha_fixed_emb)
 
         update_tracks([self.trackers[t] for _, t in matched], [dets[d] for d, _ in matched])
         for m in matched:
@@ -235,6 +250,9 @@ class BoostTrack(BoxTracker):
                         adaptive_kf=self.kalman_config.adaptive_kf,
                         id_allocator=self.id_allocator,
                         noise_config=self.kalman_noise_config,
+                        kalman_type=self.kalman_config.type,
+                        track_confidence_decay=self.config.track_confidence_decay,
+                        track_confidence_warmup=self.config.track_confidence_warmup,
                     )
                 )
 
@@ -281,24 +299,20 @@ class BoostTrack(BoxTracker):
         )
 
     def get_mh_dist_matrix(self, detections: np.ndarray, n_dims: int | None = None) -> np.ndarray:
-        if len(self.trackers) == 0:
+        """Preserve host arithmetic unless an explicit policy selects aligned cues."""
+        if not self.trackers:
             return np.zeros((0, 0))
-        n_dims = self.detection_layout.box_cols if n_dims is None else n_dims
-        z = np.zeros((len(detections), n_dims), dtype=float)
-        x = np.zeros((len(self.trackers), n_dims), dtype=float)
-        sigma_inv = np.zeros((len(self.trackers), n_dims), dtype=float)
-        motion_model = create_motion_model(MotionModelKind.XYHR, is_obb=self.is_obb)
-
-        for i in range(len(detections)):
-            if self.is_obb:
-                z[i, :n_dims] = motion_model.to_measurement(detections[i, :5], column=False)[:n_dims]
-            else:
-                z[i, :n_dims] = motion_model.to_measurement(detections[i, :4], column=False)[:n_dims]
-        for i, trk in enumerate(self.trackers):
-            x[i] = trk.kf.x[:n_dims]
-            sigma_inv[i] = np.reciprocal(np.diag(trk.kf.covariance[:n_dims, :n_dims]))
+        model = self.trackers[0].motion_model
+        indices = np.asarray(model.geometry_measurement_indices)
+        if n_dims is not None:
+            indices = indices[:n_dims]
+        dimensions = len(indices)
+        measurements = model.to_measurements(detections)[:, indices]
+        means = np.asarray([np.asarray(track.kf.x).reshape(-1)[indices] for track in self.trackers])
+        inverse_variances = np.asarray([np.reciprocal(np.diag(track.kf.P)[indices]) for track in self.trackers])
         return (
-            (z.reshape((-1, 1, n_dims)) - x.reshape((1, -1, n_dims))) ** 2 * sigma_inv.reshape((1, -1, n_dims))
+            (measurements.reshape((-1, 1, dimensions)) - means.reshape((1, -1, dimensions))) ** 2
+            * inverse_variances.reshape((1, -1, dimensions))
         ).sum(axis=2)
 
     def duo_confidence_boost(self, detections: np.ndarray) -> np.ndarray:
@@ -306,7 +320,7 @@ class BoostTrack(BoxTracker):
             return detections
 
         n_dims = 4
-        limit = 13.2767
+        limit = self.duo_mahalanobis_thresh
         mh_dist = self.get_mh_dist_matrix(detections, n_dims)
 
         # If there are no existing trackers, bail out immediately
@@ -316,7 +330,7 @@ class BoostTrack(BoxTracker):
         min_dists = mh_dist.min(1)
         mask = (min_dists > limit) & (detections[:, 4] < self.det_thresh)
         boost_inds = np.where(mask)[0]
-        iou_limit = 0.3
+        iou_limit = self.duo_iou_thresh
         if len(boost_inds) == 0:
             return detections
 
@@ -365,11 +379,13 @@ class BoostTrack(BoxTracker):
 
         if self.use_sb:
             max_s = S.max(1)
-            alpha = 0.65
-            detections[:, 4] = np.maximum(detections[:, 4], alpha * detections[:, 4] + (1 - alpha) * max_s**1.5)
+            alpha = self.dlo_soft_alpha
+            detections[:, 4] = np.maximum(
+                detections[:, 4], alpha * detections[:, 4] + (1 - alpha) * max_s**self.dlo_soft_power
+            )
         if self.use_vt:
-            threshold_s = 0.95
-            threshold_e = 0.8
+            threshold_s = self.dlo_threshold_start
+            threshold_e = self.dlo_threshold_end
             tmp = (
                 S
                 > np.maximum(threshold_s - np.array([trk.time_since_update - 1 for trk in self.trackers]), threshold_e)
@@ -421,15 +437,15 @@ class BoostTrack(BoxTracker):
             return boosted
 
         if self.use_sb:
-            alpha = 0.65
+            alpha = self.dlo_soft_alpha
             boosted[:, conf_idx] = np.maximum(
                 boosted[:, conf_idx],
-                alpha * boosted[:, conf_idx] + (1 - alpha) * max_similarity**1.5,
+                alpha * boosted[:, conf_idx] + (1 - alpha) * max_similarity**self.dlo_soft_power,
             )
         if self.use_vt:
             visibility_thresholds = np.maximum(
-                0.95 - np.array([trk.time_since_update - 1 for trk in self.trackers]),
-                0.8,
+                self.dlo_threshold_start - np.array([trk.time_since_update - 1 for trk in self.trackers]),
+                self.dlo_threshold_end,
             )
             visible = (similarity > visibility_thresholds).max(axis=1)
             boosted[visible, conf_idx] = np.maximum(
@@ -453,7 +469,9 @@ class BoostTrack(BoxTracker):
             return detections
 
         conf_idx = self.detection_layout.conf_idx
-        boost_indices = np.flatnonzero((mh_dist.min(axis=1) > 13.2767) & (detections[:, conf_idx] < threshold))
+        boost_indices = np.flatnonzero(
+            (mh_dist.min(axis=1) > self.duo_mahalanobis_thresh) & (detections[:, conf_idx] < threshold)
+        )
         if not len(boost_indices):
             return detections
 
@@ -461,9 +479,9 @@ class BoostTrack(BoxTracker):
         pairwise_iou = AssociationFunction.iou_batch_obb(candidate_boxes, candidate_boxes)
         np.fill_diagonal(pairwise_iou, 0.0)
         max_iou = pairwise_iou.max(axis=1)
-        remaining = list(boost_indices[max_iou <= 0.3])
-        for local_index in np.flatnonzero(max_iou > 0.3):
-            neighbors = np.flatnonzero(pairwise_iou[local_index] > 0.3)
+        remaining = list(boost_indices[max_iou <= self.duo_iou_thresh])
+        for local_index in np.flatnonzero(max_iou > self.duo_iou_thresh):
+            neighbors = np.flatnonzero(pairwise_iou[local_index] > self.duo_iou_thresh)
             group = boost_indices[np.append(neighbors, local_index)]
             best = group[np.argmax(detections[group, conf_idx])]
             remaining.append(int(best))

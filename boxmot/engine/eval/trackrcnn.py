@@ -9,6 +9,7 @@ from typing import Any
 import torch
 
 from boxmot import __version__, create_tracker
+from boxmot.components.resolution import component_options
 from boxmot.datasets.readers.detections import TrackRcnnSequence
 from boxmot.datasets.readers.images import read_rgb_chw_uint8
 from boxmot.engine.config.trackers import resolve_tracker_options
@@ -25,7 +26,7 @@ def _run(args: Any) -> Path:
     """Replay each complete sequence using native class IDs and current RGB frames."""
     names = kitti_mots_sequences(args.split, tuple(args.sequence_names))
     options = resolve_tracker_options(args, include_defaults=True)
-    spec = TrackerSpec(args.tracker, per_class=True, options=tuple(sorted(options.items())))
+    spec = TrackerSpec(args.tracker, per_class=True, options=component_options(options))
     tracker = create_tracker(spec)
     if tracker.requirements.embeddings:
         raise ValueError(

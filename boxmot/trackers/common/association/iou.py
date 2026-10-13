@@ -356,7 +356,7 @@ def _iou_obb_matrix(bboxes1: np.ndarray, bboxes2: np.ndarray) -> np.ndarray:
 
 
 class AssociationFunction:
-    def __init__(self, w, h, asso_mode="iou"):
+    def __init__(self, w, h, asso_mode="iou", *, centroid_max_distance: float = 0.05):
         """
         Initializes the AssociationFunction class with the necessary parameters for bounding box operations.
         The association function is selected based on the `asso_mode` string provided during class creation.
@@ -368,6 +368,13 @@ class AssociationFunction:
         """
         self.w = w
         self.h = h
+        if (
+            isinstance(centroid_max_distance, (bool, np.bool_))
+            or not np.isfinite(centroid_max_distance)
+            or not 0 < centroid_max_distance <= 1
+        ):
+            raise ValueError("centroid_max_distance must be finite and in (0, 1].")
+        self.centroid_max_distance = float(centroid_max_distance)
         self.asso_func = self._get_asso_func(asso_mode)
 
     @staticmethod
@@ -614,7 +621,7 @@ class AssociationFunction:
         centroids2 = np.expand_dims(centroids2, 0)
 
         distances = np.sqrt(np.sum((centroids1 - centroids2) ** 2, axis=-1))
-        norm_factor = np.sqrt(self.w**2 + self.h**2)
+        norm_factor = self._centroid_radius()
         normalized_distances = distances / norm_factor
 
         return 1 - normalized_distances
@@ -627,10 +634,16 @@ class AssociationFunction:
         centroids2 = np.expand_dims(centroids2, 0)
 
         distances = np.sqrt(np.sum((centroids1 - centroids2) ** 2, axis=-1))
-        norm_factor = np.sqrt(self.w**2 + self.h**2)
+        norm_factor = self._centroid_radius()
         normalized_distances = distances / norm_factor
 
         return 1 - normalized_distances
+
+    def _centroid_radius(self) -> float:
+        """Resolve the distance budget from finite positive frame dimensions."""
+        if any(value is None or not np.isfinite(value) or value <= 0 for value in (self.w, self.h)):
+            raise ValueError("Centroid association requires finite positive frame width and height.")
+        return float(np.hypot(self.w, self.h) * self.centroid_max_distance)
 
     @staticmethod
     def ciou_batch(bboxes1, bboxes2) -> np.ndarray:

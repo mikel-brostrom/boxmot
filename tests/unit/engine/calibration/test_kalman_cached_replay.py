@@ -16,7 +16,7 @@ from boxmot.engine.eval import evaluator, replay
 from boxmot.engine.materialization import BuildPlan, PublishOptions, StagePlan, finalize_build, fingerprint
 from boxmot.trackers.bytetrack.tracker import ByteTrack
 from boxmot.trackers.common.config import load_tracker_config
-from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_OPTIONS
+from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_DIAGONAL_OPTIONS, KALMAN_NOISE_OPTIONS
 
 
 def _timestamped_build(tmp_path: Path) -> tuple[Path, Path, np.ndarray]:
@@ -145,23 +145,23 @@ def test_cached_kalman_calibration_runs_no_tracker_until_final_evaluation(monkey
     assert report["statistics"]["unmatched_ground_truth"] == 2
     assert calibration.gt_transitions == report["statistics"]["gt_transitions"] == len(timestamps) - 2
     assert set(calibration.fitted_parameters) == {
-        "kalman.noise.process_position_scale",
-        "kalman.noise.process_velocity_scale",
-        "kalman.noise.measurement_noise_scale",
+        f"kalman.noise.{group}_diagonal[{index}]"
+        for group in ("process_position", "process_velocity", "measurement_noise")
+        for index in range(4)
     }
     # One labelled birth cannot calibrate population initialization uncertainty.
-    for key in ("kalman.noise.initial_position_scale", "kalman.noise.initial_velocity_scale"):
+    for key in ("kalman.noise.initial_position_diagonal", "kalman.noise.initial_velocity_diagonal"):
         assert report["parameters"][key]["status"] == "retained"
-        assert saved[key] == report["baseline_config"][key]
+        assert saved[key] == [1.0] * 4
     assert saved["kalman.variable_dt"] is True
     assert saved["kalman.noise.time_unit"] == "seconds"
     assert saved["kalman.noise.reference_dt_s"] == pytest.approx(1.0 / 30.0)
     for key in ("kalman.variable_dt", "kalman.noise.time_unit", "kalman.noise.reference_dt_s"):
         assert report["timing"][key] == saved[key]
-    assert set(report["parameters"]) == set(KALMAN_NOISE_OPTIONS)
-    for key in KALMAN_NOISE_OPTIONS:
+    assert set(report["parameters"]) == set(KALMAN_NOISE_OPTIONS) | set(KALMAN_DIAGONAL_OPTIONS)
+    for key in (*KALMAN_NOISE_OPTIONS, *KALMAN_DIAGONAL_OPTIONS):
         assert saved[key] == report["parameters"][key]["value"]
-        assert np.isfinite(saved[key]) and saved[key] > 0
+        assert np.all(np.isfinite(saved[key])) and np.all(np.asarray(saved[key]) > 0)
 
     # A deployment-style replay loads units and timing solely from calibrated.yaml.
     args.tracker_config = calibration.config_path

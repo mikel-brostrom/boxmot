@@ -491,6 +491,37 @@ boxmot eval \
 Omit `--sequence data23-1` to evaluate every sequence. Canonical builds remain
 the default and do not need this flag.
 
+## CMC by sequence
+
+Evaluate a joint KF/CMC selection result using its saved tracker profile:
+
+```bash
+boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml \
+  --tracker botsort --tracker-config path/to/best.yaml
+```
+
+Replace the profile path with the output from
+[`tune --select-kf --select-cmc`](tune.md#joint-cmc-and-kf-selection).
+A saved automatic camera strategy analyzes the current sequences during setup
+and applies SOF only where camera motion is detected. The selected KF and
+tracker thresholds stay fixed. Source images must remain available.
+
+For a profile without a saved camera strategy, `--cmc-policy auto` requests
+sequence analysis, `--cmc-policy off` disables CMC, and `--cmc-policy PATH`
+loads explicit SOF decisions:
+
+```yaml
+method: sof
+default: false
+sequences:
+  moving-sequence: true
+  static-sequence: false
+```
+
+These policies require materialized image builds and Python 2D Kalman
+trackers. `--cmc-policy` cannot be combined with `--calibrate-kf`; use joint
+selection to fit noise under the candidate camera strategies.
+
 ## Kalman calibration
 
 EagerMOT supports [3D calibration](../trackers/eagermot.md#calibrate-3d-kalman-noise)
@@ -515,19 +546,19 @@ Omit `--variable-dt` to calibrate in fixed-step mode, or omit `--fps` to retain
 the original dataset rate during automatic preparation.
 
 Perception is materialized or reused once. Calibration matches detections to
-ground truth by class and IoU (at least `0.5`), then fits five dimensionless
-covariance multipliers from the observed errors:
+ground truth by class and IoU (at least `0.5`), then fits coordinate-wise
+covariance multipliers for five noise groups from the observed errors:
 
 | Parameter | What provides the calibration residuals |
 | --- | --- |
-| `kalman.noise.process_position_scale` | Position-noise contribution to ground-truth box prediction errors |
-| `kalman.noise.process_velocity_scale` | Velocity-noise contribution to the same prediction errors |
-| `kalman.noise.measurement_noise_scale` | Matched detector boxes minus ground-truth boxes |
-| `kalman.noise.initial_position_scale` | Detection errors at each GT object's first matched observation |
-| `kalman.noise.initial_velocity_scale` | Zero-initialized velocity errors relative to local ground-truth motion |
+| `kalman.noise.process_position_diagonal` | Position-noise contribution to ground-truth box prediction errors |
+| `kalman.noise.process_velocity_diagonal` | Velocity-noise contribution to the same prediction errors |
+| `kalman.noise.measurement_noise_diagonal` | Matched detector boxes minus ground-truth boxes |
+| `kalman.noise.initial_position_diagonal` | Detection errors at each GT object's first matched observation |
+| `kalman.noise.initial_velocity_diagonal` | Zero-initialized velocity errors relative to local ground-truth motion |
 
-Measurement and initialization scales use residual second moments. Both process
-scales are fitted together from constant-velocity prediction errors across
+Measurement and initialization vectors use residual second moments. Both process
+groups are fitted together from constant-velocity prediction errors across
 three consecutive annotated frames. The fit accounts for process noise from
 both intervening intervals and the covariance between adjacent prediction
 errors. Adjacent error pairs require four consecutive annotated frames and
@@ -536,8 +567,8 @@ Ground-truth motion contributes even when a detection is missed; missing
 annotations break the motion samples.
 The first matched detection for each object supplies an initialization proxy.
 Calibration requires at least one valid detection/ground-truth match. If a
-scale lacks sufficient evidence, its current value is retained and the report
-records why.
+coordinate lacks sufficient evidence, its configured prior is retained and the
+report records why.
 
 With `--per-class`, calibration also fits a profile for each selected class and
 saves it under `kalman.noise.by_class`. A class with insufficient evidence uses
@@ -548,8 +579,11 @@ when reused with `--tracker-config`.
 The estimates scale the selected filter's reference covariance priors. Values
 multiply covariance, not standard deviation. Calibration keeps all other
 tracker settings fixed, including the timing mode. The filter's internal
-base priors remain fixed; the five shared scales provide the noise-calibration
-interface.
+base priors remain fixed. The saved `*_diagonal` vectors preserve the selected
+filter's coordinate layout, and the five global `*_scale` multipliers are
+saved as `1.0`. Explicit scale refinement changes whole groups while keeping
+the fitted coordinate ratios fixed. StrongSORT also fits its
+measurement-confidence floor.
 
 `eval --calibrate-kf` does not launch Ray Tune or Optuna, replay HOTA trials, or
 require the `evolve` extra. Use [`boxmot tune`](tune.md#kalman-noise-and-timing)

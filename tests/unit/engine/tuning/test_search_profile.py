@@ -100,7 +100,7 @@ def test_changed_search_profile_rejects_resume_without_overwriting_metadata(tmp_
             {"tracker": "botsort", "tracker_backend": "cpp", "geometry": "obb", "search_alg": "random"}[changed],
         )
     elif changed == "schema":
-        schema["obb_max_age"] = {"type": "randint", "default": 30, "range": [1, 200]}
+        schema["recovery_max_age"] = {"type": "randint", "default": 113, "range": [1, 120]}
     elif changed == "condition":
         schema.update(schema["use_cmc"].pop("activates"))
     elif changed == "fixed_type":

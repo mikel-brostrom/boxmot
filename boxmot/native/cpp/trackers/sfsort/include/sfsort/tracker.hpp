@@ -52,7 +52,8 @@ private:
         bool geometry_only,
         boxmot::trackers::base::AssociationMode association_mode,
         int frame_width,
-        int frame_height);
+        int frame_height,
+        double centroid_max_distance);
 
     Config config_;
     boxmot::trackers::base::AssociationMode association_mode_;

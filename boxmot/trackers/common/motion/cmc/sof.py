@@ -10,6 +10,9 @@ import numpy as np
 from boxmot.trackers.common.motion.cmc.base import BaseCMC
 from boxmot.utils import logger as LOGGER
 
+SOF_DEFAULT_TARGET_WIDTH = None
+SOF_DEFAULT_RANSAC_REPROJ_THRESHOLD = 3.0
+
 
 class SOF(BaseCMC):
     """
@@ -22,13 +25,22 @@ class SOF(BaseCMC):
 
     def __init__(
         self,
-        scale: float = 0.15,
+        scale: float | None = None,
         min_inliers: int = 8,
         min_inlier_ratio: float = 0.2,
-        ransac_reproj_threshold: float = 3.0,
+        ransac_reproj_threshold: float = SOF_DEFAULT_RANSAC_REPROJ_THRESHOLD,
+        resize_before_grayscale: bool = False,
+        target_width: int | None = SOF_DEFAULT_TARGET_WIDTH,
     ) -> None:
-        self.scale = float(scale)
+        """Use the original SOF estimator, optionally constraining image width."""
+        if target_width is not None and (
+            isinstance(target_width, bool) or not isinstance(target_width, int) or target_width <= 0
+        ):
+            raise ValueError("target_width must be a positive integer pixel width or None.")
+        self.scale = 0.15 if scale is None and target_width is None else (None if scale is None else float(scale))
+        self.target_width = target_width
         self.grayscale = True
+        self.resize_before_grayscale = bool(resize_before_grayscale)
         self.min_inliers = int(min_inliers)
         self.min_inlier_ratio = float(min_inlier_ratio)
         self.ransac_reproj_threshold = float(ransac_reproj_threshold)

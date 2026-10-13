@@ -30,9 +30,10 @@ def validate_config_id(value: Any, *, path: str | Path, label: str) -> str:
 def load_yaml_mapping(path: str | Path) -> dict[str, Any]:
     """Load *path* and require its top-level YAML value to be a mapping."""
     config_path = Path(path)
+    loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
     try:
         with config_path.open(encoding="utf-8") as handle:
-            payload = yaml.safe_load(handle) or {}
+            payload = yaml.load(handle, Loader=loader) or {}
     except yaml.YAMLError as exc:
         raise ConfigurationError(f'Failed to parse configuration "{config_path}": {exc}') from exc
 

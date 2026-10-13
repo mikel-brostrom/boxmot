@@ -38,6 +38,7 @@ from boxmot.engine.eval.catalog_cache import (
     EvaluationArtifactResolver,
     catalog_mot_dataset_for_evaluation,
 )
+from boxmot.engine.eval.cmc import prepare_eval_cmc
 from boxmot.engine.eval.motmetrics import run_motmetrics as _run_motmetrics
 from boxmot.engine.eval.output import increment_path
 from boxmot.engine.eval.replay import replay_build
@@ -516,7 +517,12 @@ def _summary(results: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:
 
 
 def _validate_image_evaluation_options(args: Any) -> None:
-    """Keep sensor-only profile and 3D visualization controls out of image replay."""
+    """Keep incompatible profile and visualization controls out of image replay."""
+    if getattr(args, "cmc_policy", None) is not None and getattr(args, "calibrate_kf", False):
+        raise ValueError(
+            "--cmc-policy evaluates a fixed KF profile and cannot be combined with --calibrate-kf; "
+            "use tune --select-kf --select-cmc for joint camera/KF calibration."
+        )
     for name in ("class_config", "show_3d", "eval_3d", "eval_ap"):
         if getattr(args, name, None):
             option = "--" + name.replace("_", "-")
@@ -601,6 +607,7 @@ def _run_sensor_evaluation(
         "detector",
         "reid",
         "tracker_config",
+        "cmc_policy",
         "fps",
         "variable_dt",
         "allow_noncanonical_build",
@@ -738,7 +745,6 @@ def run_eval(
         )
     if pipeline is not None:
         _refresh_eval_pipeline_intro(getattr(pipeline, "workflow", None), args)
-        pipeline.advance("Replaying materialized detections through the tracker…")
     spec = _tracker_spec(args, evolve_config)
 
     mask_guidance_weights = edgetam_checkpoint(args)
@@ -750,6 +756,15 @@ def run_eval(
         mask_guidance_weights = args.mask_guidance_weights = resolve_edgetam_artifact(mask_guidance_weights)
 
     output_dir = _output_directory(args, evolve_config) if output_dir is None else Path(output_dir)
+    cmc_policy = prepare_eval_cmc(
+        args,
+        spec,
+        output_dir,
+        progress=getattr(pipeline, "update", None),
+        replay_session=replay_session,
+    )
+    if pipeline is not None:
+        pipeline.advance("Replaying materialized detections through the tracker…")
     presenter = None
     if pipeline is not None and show_progress is not False and getattr(args, "seq_info", None):
         presenter = EvalSequenceProgressPresenter(
@@ -760,6 +775,8 @@ def run_eval(
     visualization = None
     with ExitStack() as contexts:
         replay_callbacks = {}
+        if cmc_policy is not None:
+            replay_callbacks["cmc_policy"] = cmc_policy
         if mask_guidance_weights is not None:
             replay_callbacks["mask_guidance_weights"] = mask_guidance_weights
             replay_callbacks["mask_guidance_device"] = str(getattr(args, "device", "cpu"))

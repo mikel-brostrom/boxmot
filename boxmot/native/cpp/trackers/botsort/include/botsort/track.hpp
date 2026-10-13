@@ -12,7 +12,7 @@ class Track {
 public:
     using Ptr = std::shared_ptr<Track>;
 
-    explicit Track(const Detection& detection);
+    explicit Track(const Detection& detection, float alpha_fixed_emb = 0.9F);
 
     void Activate(const KalmanFilterXYWH& kalman_filter,
                   int frame_id,

@@ -11,6 +11,7 @@
   <p><b>Pluggable Python and C++ multi-object tracking modules for axis-aligned and oriented bounding box detections from any model.</b></p>
 
   [![CI](https://github.com/mikel-brostrom/boxmot/actions/workflows/ci.yml/badge.svg)](https://github.com/mikel-brostrom/boxmot/actions/workflows/ci.yml)
+  [![Coverage](https://codecov.io/gh/mikel-brostrom/boxmot/branch/master/graph/badge.svg)](https://app.codecov.io/gh/mikel-brostrom/boxmot/tree/master)
   [![PyPI version](https://badge.fury.io/py/boxmot.svg)](https://badge.fury.io/py/boxmot)
   [![downloads](https://static.pepy.tech/badge/boxmot)](https://pepy.tech/project/boxmot)
   [![license](https://img.shields.io/badge/license-AGPL%203.0-blue)](https://github.com/mikel-brostrom/boxmot/blob/master/LICENSE)
@@ -257,6 +258,17 @@ boxmot eval \
 
 See the [evaluation guide](docs/guides/evaluation.md) for `--fps` and
 `--calibrate-kf` usage.
+
+Python 2D Kalman trackers can select compatible filter types and noise profiles
+with `tune --select-kf`. Add `--select-cmc` to jointly compare CMC off and
+automatic SOF before tuning tracker parameters. See
+[Kalman calibration](docs/guides/kalman-calibration.md) for examples and saved
+profile reuse.
+
+Centroid association uses `centroid_max_distance` as its single geometric
+distance limit. Search profiles declare applicable metrics with `association`;
+centroid tuning searches that radius. See
+[association settings](docs/config/trackers.md#association-function).
 
 For saved KITTI predictions, choose the inputs your tracker needs:
 

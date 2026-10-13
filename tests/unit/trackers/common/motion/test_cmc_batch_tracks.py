@@ -12,7 +12,7 @@ from boxmot.trackers.common.detections.layout import AABB_DETECTIONS
 from boxmot.trackers.common.geometry.obb import transform_aabb, transform_obb
 from boxmot.trackers.common.motion.cmc.batching import transform_observation_histories
 from boxmot.trackers.common.motion.cmc.integration import apply_cmc_to_tracks
-from boxmot.trackers.common.motion.models import MotionModelKind, create_motion_model
+from boxmot.trackers.common.motion.models import create_motion_model, supported_motion_model_kinds
 from boxmot.trackers.common.tracking.track import TrackIdAllocator
 from boxmot.trackers.deepocsort.track import KalmanBoxTracker as DeepTrack
 from boxmot.trackers.hybridsort.track import KalmanBoxTracker as HybridTrack
@@ -21,7 +21,7 @@ from boxmot.trackers.ocsort.track import KalmanBoxTracker as OrientedTrack
 
 @pytest.mark.parametrize(
     "kind,is_obb",
-    [(kind, oriented) for kind in MotionModelKind for oriented in (False, True) if kind != "xyscr" or not oriented],
+    [(kind, oriented) for oriented in (False, True) for kind in supported_motion_model_kinds(is_obb=oriented)],
 )
 def test_batched_motion_conversion_matches_scalar_policy(kind, is_obb):
     """Retain the scalar models' different clamp, ratio and score conventions."""
@@ -171,7 +171,8 @@ def test_observation_cmc_warps_frozen_and_timed_measurements_together(family):
 
 
 @pytest.mark.parametrize("projective", [False, True])
-def test_boost_aabb_batch_preserves_diagonal_measurement_only_contract(projective):
+def test_boost_aabb_batch_uses_calibration_state_and_covariance_mapping(projective):
+    """Runtime warps must match the complete motion adapter used by selection."""
     tracks = [
         BoostTrack(np.array([10.0 + i, 20.0, 30.0, 50.0, 0.9, 1, i]), max_obs=5, id_allocator=TrackIdAllocator())
         for i in range(3)
@@ -181,11 +182,8 @@ def test_boost_aabb_batch_preserves_diagonal_measurement_only_contract(projectiv
     originals = [deepcopy(track) for track in tracks]
     BoostTrack.multi_camera_update(tracks, transform)
     for track, original in zip(tracks, originals):
-        box = original.get_state()[0]
-        first = matrix @ np.r_[box[:2], 1.0]
-        last = matrix @ np.r_[box[2:], 1.0]
-        width, height = last[:2] - first[:2]
-        expected = [first[0] + width / 2, first[1] + height / 2, height, width / height]
-        np.testing.assert_allclose(track.kf.x[:4], expected, rtol=1e-14, atol=1e-14)
-        np.testing.assert_array_equal(track.kf.x[4:], original.kf.x[4:])
-        np.testing.assert_array_equal(track.kf.covariance, original.kf.covariance)
+        means, covariances = original.motion_model.transform_states(
+            np.asarray(original.kf.x).reshape(1, -1), original.kf.covariance[None], transform
+        )
+        np.testing.assert_allclose(track.kf.x, means[0].reshape(track.kf.x.shape))
+        np.testing.assert_allclose(track.kf.covariance, covariances[0])

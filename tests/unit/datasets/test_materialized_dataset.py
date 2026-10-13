@@ -33,7 +33,7 @@ from boxmot.datasets.storage import (
 from boxmot.datasets.validation import DatasetValidationError, validate_dataset
 from boxmot.engine.eval.replay import ReplayProgressEvent, replay_build
 from boxmot.structures import Tracks
-from boxmot.trackers import TrackerRequirements, TrackerSpec
+from boxmot.trackers import TrackerRequirements, TrackerSpec, create_tracker
 
 
 def test_public_loader_and_sample_contract_is_exact() -> None:
@@ -862,18 +862,30 @@ def test_keyed_build_replays_precomputed_embeddings_through_live_tracker(materia
 
 
 def test_keyed_build_replays_sequences_in_spawned_workers(materialized_build, tmp_path) -> None:
+    """Real spawned workers must preserve serial ByteTrack output and progress."""
+    spec = TrackerSpec(name="bytetrack")
+    serial = replay_build(
+        materialized_build["root"],
+        spec,
+        output_dir=tmp_path / "serial-tracks",
+        tracker=create_tracker(spec),
+    )
     events: list[ReplayProgressEvent] = []
 
     replay = replay_build(
         materialized_build["root"],
-        TrackerSpec(name="bytetrack"),
+        spec,
         output_dir=tmp_path / "spawned-tracks",
         workers=2,
         progress_callback=events.append,
     )
 
-    assert replay.frames == 2
+    assert replay.frames == serial.frames == 2
+    assert replay.track_rows == serial.track_rows
     assert [path.name for path in replay.sequence_files] == ["seq-a.txt", "seq-b.txt"]
+    assert [path.read_bytes() for path in replay.sequence_files] == [
+        path.read_bytes() for path in serial.sequence_files
+    ]
     assert {(event.sequence_id, event.status) for event in events if event.status == "queued"} == {
         ("seq-a", "queued"),
         ("seq-b", "queued"),

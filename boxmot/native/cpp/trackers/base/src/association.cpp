@@ -108,13 +108,15 @@ double CentroidSimilarity(const double lhs_x,
                           const double rhs_x,
                           const double rhs_y,
                           const int frame_width,
-                          const int frame_height) {
+                          const int frame_height,
+                          const double centroid_max_distance) {
     if (frame_width <= 0 || frame_height <= 0) {
         throw std::runtime_error("Centroid association requires positive frame dimensions.");
     }
+    ValidateCentroidMaxDistance(centroid_max_distance);
     const double frame_diagonal =
         std::hypot(static_cast<double>(frame_width), static_cast<double>(frame_height));
-    return 1.0 - (std::hypot(lhs_x - rhs_x, lhs_y - rhs_y) / frame_diagonal);
+    return 1.0 - (std::hypot(lhs_x - rhs_x, lhs_y - rhs_y) / (frame_diagonal * centroid_max_distance));
 }
 
 bool ObbGeometryEquivalent(const ObbGeometry& lhs, const ObbGeometry& rhs) {
@@ -447,6 +449,35 @@ std::string AssociationModeName(const AssociationMode mode) {
     throw std::invalid_argument("Unknown association mode value.");
 }
 
+void ValidateCentroidMaxDistance(const double centroid_max_distance) {
+    if (!std::isfinite(centroid_max_distance) || centroid_max_distance <= 0.0 ||
+        centroid_max_distance > 1.0) {
+        throw std::invalid_argument("centroid_max_distance must be finite and in (0, 1].");
+    }
+}
+
+double GeometrySimilarityThreshold(const AssociationMode mode, const double threshold) noexcept {
+    return mode == AssociationMode::kCentroid ? 0.0 : threshold;
+}
+
+double GeometryCostThreshold(const AssociationMode mode, const double threshold) noexcept {
+    return mode == AssociationMode::kCentroid ? 1.0 : threshold;
+}
+
+void GateCentroidCosts(Eigen::MatrixXd& costs, const Eigen::MatrixXd& similarity,
+                       const AssociationMode mode) {
+    if (mode != AssociationMode::kCentroid) {
+        return;
+    }
+    for (int row = 0; row < costs.rows(); ++row) {
+        for (int col = 0; col < costs.cols(); ++col) {
+            if (similarity(row, col) < 0.0) {
+                costs(row, col) = std::numeric_limits<double>::infinity();
+            }
+        }
+    }
+}
+
 bool AssociationModeRequiresFrameDimensions(const AssociationMode mode) noexcept {
     return mode == AssociationMode::kCentroid;
 }
@@ -470,7 +501,8 @@ double AabbAssociationSimilarity(const Eigen::Vector4d& lhs,
                                  const Eigen::Vector4d& rhs,
                                  const AssociationMode mode,
                                  const int frame_width,
-                                 const int frame_height) {
+                                 const int frame_height,
+                                 const double centroid_max_distance) {
     const AabbTerms terms = ComputeAabbTerms(lhs, rhs);
     switch (mode) {
         case AssociationMode::kIou:
@@ -517,7 +549,8 @@ double AabbAssociationSimilarity(const Eigen::Vector4d& lhs,
                                       (rhs[0] + rhs[2]) / 2.0,
                                       (rhs[1] + rhs[3]) / 2.0,
                                       frame_width,
-                                      frame_height);
+                                      frame_height,
+                                      centroid_max_distance);
     }
     throw std::invalid_argument("Unknown association mode value.");
 }
@@ -526,12 +559,13 @@ double ObbAssociationSimilarity(const Eigen::Matrix<double, 5, 1>& lhs,
                                 const Eigen::Matrix<double, 5, 1>& rhs,
                                 const AssociationMode mode,
                                 const int frame_width,
-                                const int frame_height) {
+                                const int frame_height,
+                                const double centroid_max_distance) {
     ValidateAssociationModeForDetections(mode, true);
     ValidateObbGeometry(lhs);
     ValidateObbGeometry(rhs);
     if (mode == AssociationMode::kCentroid) {
-        return CentroidSimilarity(lhs[0], lhs[1], rhs[0], rhs[1], frame_width, frame_height);
+        return CentroidSimilarity(lhs[0], lhs[1], rhs[0], rhs[1], frame_width, frame_height, centroid_max_distance);
     }
     const ObbGeometry canonical_lhs = CanonicalizeObbGeometry(lhs);
     const ObbGeometry canonical_rhs = CanonicalizeObbGeometry(rhs);
@@ -608,7 +642,8 @@ Eigen::MatrixXd AabbAssociationMatrix(const Eigen::MatrixXd& lhs,
                                       const Eigen::MatrixXd& rhs,
                                       const AssociationMode mode,
                                       const int frame_width,
-                                      const int frame_height) {
+                                      const int frame_height,
+                                      const double centroid_max_distance) {
     Eigen::MatrixXd result = Eigen::MatrixXd::Zero(lhs.rows(), rhs.rows());
     if (lhs.cols() < 4 || rhs.cols() < 4) {
         return result;
@@ -619,7 +654,8 @@ Eigen::MatrixXd AabbAssociationMatrix(const Eigen::MatrixXd& lhs,
                                                          rhs.row(col).head<4>().transpose(),
                                                          mode,
                                                          frame_width,
-                                                         frame_height);
+                                                         frame_height,
+                                                         centroid_max_distance);
         }
     }
     return result;
@@ -629,7 +665,8 @@ Eigen::MatrixXd ObbAssociationMatrix(const Eigen::MatrixXd& lhs,
                                      const Eigen::MatrixXd& rhs,
                                      const AssociationMode mode,
                                      const int frame_width,
-                                     const int frame_height) {
+                                     const int frame_height,
+                                     const double centroid_max_distance) {
     ValidateAssociationModeForDetections(mode, true);
     Eigen::MatrixXd result = Eigen::MatrixXd::Zero(lhs.rows(), rhs.rows());
     if (lhs.cols() < 5 || rhs.cols() < 5) {
@@ -641,7 +678,8 @@ Eigen::MatrixXd ObbAssociationMatrix(const Eigen::MatrixXd& lhs,
                                                         rhs.row(col).head<5>().transpose(),
                                                         mode,
                                                         frame_width,
-                                                        frame_height);
+                                                        frame_height,
+                                                        centroid_max_distance);
         }
     }
     return result;
@@ -652,9 +690,10 @@ Eigen::MatrixXd AssociationMatrix(const Eigen::MatrixXd& lhs,
                                   const bool is_obb,
                                   const AssociationMode mode,
                                   const int frame_width,
-                                  const int frame_height) {
-    return is_obb ? ObbAssociationMatrix(lhs, rhs, mode, frame_width, frame_height)
-                  : AabbAssociationMatrix(lhs, rhs, mode, frame_width, frame_height);
+                                  const int frame_height,
+                                  const double centroid_max_distance) {
+    return is_obb ? ObbAssociationMatrix(lhs, rhs, mode, frame_width, frame_height, centroid_max_distance)
+                  : AabbAssociationMatrix(lhs, rhs, mode, frame_width, frame_height, centroid_max_distance);
 }
 
 }  // namespace boxmot::trackers::base

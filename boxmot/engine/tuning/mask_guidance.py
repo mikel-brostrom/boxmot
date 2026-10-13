@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from boxmot.components.resolution import component_options
 from boxmot.engine.config.trackers import edgetam_checkpoint
 from boxmot.engine.tuning.search_space import expand_yaml_groups
 from boxmot.segmentors.propagation.factory import mask_propagation_device
@@ -47,7 +48,7 @@ def prepare_mask_guidance_tuning(
         backend=getattr(args, "tracker_backend", "python"),
         geometry=getattr(args, "geometry", "aabb"),
         per_class=bool(getattr(args, "per_class", False)),
-        options=tuple(sorted(options.items())),
+        options=component_options(options),
     )
     validate_mask_guidance_spec(spec, resolved_options=options)
     if getattr(args, "eval_masks", False):
@@ -100,7 +101,7 @@ def record_mask_guidance_tuning(
             identity=_mask_guidance_identity(
                 args.mask_guidance_weights,
                 str(getattr(args, "device", "cpu")),
-                tracker_spec=TrackerSpec(args.tracker, options=tuple(sorted(options.items()))),
+                tracker_spec=TrackerSpec(args.tracker, options=component_options(options)),
             ),
             search={key: schema[key] for key in MASK_GUIDANCE_OPTIONS if key in schema},
         )

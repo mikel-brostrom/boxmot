@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from scipy.optimize import linear_sum_assignment
 
-from boxmot.trackers.common.association.matching import chi2inv95
+from boxmot.trackers.common.association.matching import chi2inv95, linear_assignment
 
 INFTY_COST = 1e5
 
@@ -58,6 +58,13 @@ def min_cost_matching(
         return [], track_indices, detection_indices  # Nothing to match.
 
     cost_matrix = distance_metric(tracks, detections, track_indices, detection_indices)
+    if not np.isfinite(cost_matrix).all():
+        matches, unmatched_tracks, unmatched_detections = linear_assignment(cost_matrix, max_distance)
+        return (
+            [(track_indices[row], detection_indices[col]) for row, col in matches],
+            [track_indices[row] for row in unmatched_tracks],
+            [detection_indices[col] for col in unmatched_detections],
+        )
     cost_matrix[cost_matrix > max_distance] = max_distance + 1e-5
     row_indices, col_indices = linear_sum_assignment(cost_matrix)
 
@@ -190,11 +197,13 @@ def gate_cost_matrix(
         Returns the modified cost matrix.
     """
 
-    measurements = np.asarray([detections[i].to_measurement() for i in detection_indices])
-    gating_threshold = chi2inv95[measurements.shape[1]]
     for row, track_idx in enumerate(track_indices):
         track = tracks[track_idx]
-        gating_distance = track.kf.gating_distance(track.mean, track.covariance, measurements, only_position)
+        measurements = np.asarray([track.measurement_for_detection(detections[i]) for i in detection_indices])
+        gating_threshold = chi2inv95[2 if only_position else len(track.motion_model.geometry_measurement_indices)]
+        gating_distance = track.motion_model.gating_distance(
+            track.kf, track.mean, track.covariance, measurements, only_position
+        )
         blocked = gating_distance > gating_threshold
         if gated_mask is not None:
             gated_mask[row] = blocked

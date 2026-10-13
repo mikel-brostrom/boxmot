@@ -89,9 +89,10 @@ See [Native C++ Integration](../native/index.md#capabilities-and-requirements).
 
 ## Tuning notes
 
-The canonical defaults and tuning metadata live together in
-`boxmot/configs/trackers/occluboost.yaml`; consult that file instead of copying
-numeric values into a custom config. The main parameter groups are:
+Canonical algorithm defaults live in `OccluBoostConfig`; search ranges live in
+`boxmot/configs/trackers/occluboost.yaml`. AABB and OBB use the same parameter
+names and defaults for detection, association, confirmation, and track lifetime.
+The shared search ranges cover both geometries. The main parameter groups are:
 
 - `kalman.ams.enabled`, `kalman.ams.alpha0`, `kalman.ams.threshold`,
   `kalman.ams.shrink_ratio`, and `kalman.ams.buffer_size` for AABB abnormal-motion
@@ -104,7 +105,6 @@ numeric values into a custom config. The main parameter groups are:
 - `recovery_*`, `feat_alpha`, and `use_embeddings` for appearance recovery.
 - `use_second_pass`, `second_*`, and `track_low_thresh` for guarded
   low-confidence association.
-- `obb_*` for thresholds and lifetimes that intentionally differ in OBB mode.
 - `new_track_thresh` and `max_age` for new-track creation and gap tolerance.
 
 ### Adaptive Kalman Filter (`kalman.adaptive_kf`)

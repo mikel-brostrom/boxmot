@@ -80,6 +80,68 @@ def test_tracklet_stage_recovers_a_match_rejected_by_segment_stage() -> None:
     assert tracker.id_allocator.next_id == 2  # A birth was linked back to ID 0.
 
 
+@pytest.mark.parametrize("min_intersection_ratio, births", ((0.5, 2), (0.4, 1)))
+def test_segment_intersection_gate_controls_recovery_stage(min_intersection_ratio: float, births: int) -> None:
+    """Relaxing the overlap gate matches directly instead of creating a recovery candidate."""
+    tracker = MafHda(config=MafHdaConfig(
+        s2ta_mode="motion", t2ta_mode="motion", min_intersection_ratio=min_intersection_ratio,
+    ))
+    first = tracker.update(*_sample(0, [[10, 20, 30, 40]]))
+    result = tracker.update(*_sample(1, [[21, 20, 41, 40]]))
+    assert result.track_ids.tolist() == first.track_ids.tolist()
+    assert tracker.id_allocator.next_id == births
+
+
+@pytest.mark.parametrize("max_area_ratio, same_identity", ((2.0, False), (3.0, True)))
+def test_motion_area_gate_controls_size_changes(max_area_ratio: float, same_identity: bool) -> None:
+    """The area-ratio setting affects both segment and recovery motion gates."""
+    tracker = MafHda(config=MafHdaConfig(
+        s2ta_mode="motion", t2ta_mode="motion", max_area_ratio=max_area_ratio,
+    ))
+    first = tracker.update(*_sample(0, [[10, 20, 30, 40]]))
+    result = tracker.update(*_sample(1, [[5, 15, 35, 45]]))
+    assert (result.track_ids.tolist() == first.track_ids.tolist()) == same_identity
+
+
+@pytest.mark.parametrize("interp_factor", (0.25, 1.0))
+def test_kcf_interpolation_retains_configured_appearance_memory(interp_factor: float) -> None:
+    """Accepted observations blend actual feature templates by the configured weight."""
+    tracker = MafHda(config=MafHdaConfig(
+        s2ta_mode="motion", kcf_update_mode="interpolate", kcf_interp_factor=interp_factor,
+        kcf_padding=3.0, kcf_sigma=0.6, kcf_regularization=0.002, kcf_output_sigma_factor=0.2,
+    ))
+    tracker.update(*_sample(0, [[10, 20, 30, 40]]))
+    appearance = tracker._tracks[0].appearance
+    initial = appearance._template.copy()
+    detections, image = _sample(1, [[10, 20, 30, 40]])
+    image[20:40, 10:30] = 255 - image[20:40, 10:30]
+    tracker.update(detections, image)
+    track = tracker._tracks[0]
+    fresh = tracker._new_appearance(image, track.bbox, track.mask)
+    assert track.appearance is appearance
+    assert not np.allclose(initial, fresh._template)
+    np.testing.assert_allclose(
+        appearance._template, (1 - interp_factor) * initial + interp_factor * fresh._template,
+        atol=1e-7,
+    )
+    assert (appearance.padding, appearance.sigma, appearance.regularization, appearance.output_sigma_factor) == (
+        3.0, 0.6, 0.002, 0.2,
+    )
+
+
+def test_recovery_overlap_threshold_controls_appearance_rescue() -> None:
+    """Geometry can support moderate appearance only above its authored recovery gate."""
+    arguments = dict(
+        mode="maf", recovery=True, appearance_lower=0.1, appearance_upper=0.7,
+        overlap_lower=0.1,
+    )
+    motion, appearance, overlap = np.array([[0.0]]), np.array([[0.5]]), np.array([[0.8]])
+    strict = fusion_cost(motion, appearance, overlap, recovery_overlap_thresh=0.9, **arguments)
+    relaxed = fusion_cost(motion, appearance, overlap, recovery_overlap_thresh=0.7, **arguments)
+    assert strict.item() == MAX_COST
+    assert relaxed.item() < MAX_COST
+
+
 def test_mask_merging_is_transitive_and_preserves_representative_input_index() -> None:
     """Duplicate mask components retain the most confident original detection."""
     tracker = MafHda()
