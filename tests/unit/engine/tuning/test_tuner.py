@@ -247,6 +247,7 @@ def test_built_in_tracker_yaml_combines_runtime_defaults_and_tuning_metadata():
         "min_conf": 0.1,
         "fuse_first_associate": True,
         "fuse_unconfirmed_associate": True,
+        "motion_fusion": "off",
         "duplicate_distance_thresh": 0.15,
         "track_thresh": 0.6,
         "max_lost_frames": 30,
@@ -307,7 +308,8 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path, v
     captured = {}
     workflow_state = {"stopped": False}
     detail_updates: list[tuple[str | None, object]] = []
-    (tmp_path / "runs" / "ray" / "mot17-mini" / "strongsort_1").mkdir(parents=True)
+    tracker_name = "bytetrack" if backend == "cpp" else "strongsort"
+    (tmp_path / "runs" / "ray" / "mot17-mini" / f"{tracker_name}_1").mkdir(parents=True)
 
     def fake_require_extra(extra: str, *, purpose: str) -> None:
         captured["extra"] = extra
@@ -475,7 +477,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path, v
     args = SimpleNamespace(
         detector=[tmp_path / "yolov8n.pt"],
         reid=[tmp_path / "osnet_x0_25_msmt17.pt"],
-        tracker="strongsort",
+        tracker=tracker_name,
         variable_dt=variable_dt,
         tracker_backend=backend,
         experiment="mot17-mini",
@@ -503,7 +505,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path, v
     assert "restore_path" not in captured
     assert Path(captured["storage_path"]).is_absolute()
     assert Path(captured["storage_path"]) == (tmp_path / "runs" / "ray" / "mot17-mini").resolve()
-    assert captured["run_name"] == "strongsort_2"
+    assert captured["run_name"] == f"{tracker_name}_2"
     assert captured["verbose"] == 0
     assert len(captured["callbacks"]) == 1
     assert captured["ray_init_kwargs"]["include_dashboard"] is False

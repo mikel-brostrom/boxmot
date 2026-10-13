@@ -14,6 +14,7 @@ class ByteTrackConfig(TrackerConfig):
     Shared history and association settings are inherited from ``TrackerConfig``.
     Match cost thresholds apply to overlap metrics. Centroid matching uses
     ``centroid_max_distance`` for every stage while confidence still ranks pairs.
+    Optional first-pass motion fusion adds an independent uncertainty gate.
 
     Args:
         min_conf: Minimum confidence for the low-score association stage.
@@ -28,6 +29,9 @@ class ByteTrackConfig(TrackerConfig):
             marked removed. Measured directly in frames, without FPS scaling.
         fuse_first_associate: Fuse detection confidence into first-pass matching costs.
         fuse_unconfirmed_associate: Fuse detection confidence into tentative-track costs.
+        motion_fusion: First-pass Kalman gating: ``off``, ``gate``, or ``blend``.
+        motion_fusion_lambda: Existing-cost weight when blending squared motion distance.
+        motion_fusion_only_position: Gate and blend centers instead of full box geometry.
         duplicate_distance_thresh: Maximum IoU distance for suppressing duplicates
             between active and lost tracks. Zero disables duplicate suppression.
     """
@@ -40,6 +44,9 @@ class ByteTrackConfig(TrackerConfig):
     max_lost_frames: int = field(default=30, metadata={"ge": 0})
     fuse_first_associate: bool = True
     fuse_unconfirmed_associate: bool = True
+    motion_fusion: str = field(default="off", metadata={"choices": ("off", "gate", "blend")})
+    motion_fusion_lambda: float = field(default=0.98, metadata={"ge": 0.0, "le": 1.0})
+    motion_fusion_only_position: bool = False
     duplicate_distance_thresh: float = field(default=0.15, metadata={"ge": 0.0, "le": 1.0})
 
     use_cmc: bool = False

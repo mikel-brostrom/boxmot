@@ -14,6 +14,11 @@ class HybridSortConfig(TrackerConfig):
     Shared history and association settings are inherited from ``TrackerConfig``.
 
     Args:
+        motion_fusion: First-pass Kalman association mode: off, gate, or blend.
+        motion_fusion_lambda: Existing-cost weight when motion fusion blends costs.
+        motion_fusion_only_position: Gate centers instead of full box geometry.
+        fuse_detection_score: Weight first-pass geometry by detector confidence.
+        fuse_iou: Fuse first-pass appearance costs with IoU before weighting.
         cmc_method: Camera-motion compensation method; None disables CMC.
         use_embeddings: Use supplied appearance embeddings, generating missing
             embeddings from image frames with the configured ReID backend.
@@ -71,6 +76,12 @@ class HybridSortConfig(TrackerConfig):
     longterm_reid_correction_thresh: float = field(default=0.11310432273756706, metadata={"ge": 0})
     longterm_reid_correction_thresh_low: float = field(default=0.3479740001301599, metadata={"ge": 0})
     det_thresh: float = field(default=0.38633684113126876, metadata={"ge": 0.0, "le": 1.0})
+
+    motion_fusion: str = field(default="off", metadata={"choices": ("off", "gate", "blend")})
+    motion_fusion_lambda: float = field(default=0.98, metadata={"ge": 0.0, "le": 1.0})
+    motion_fusion_only_position: bool = False
+    fuse_detection_score: bool = False
+    fuse_iou: bool = False
 
     use_cmc: bool = True
     cmc_min_conf: float | None = field(default=None, metadata={"ge": 0.0, "le": 1.0})

@@ -9,7 +9,9 @@ from typing_extensions import Unpack
 
 from boxmot.trackers.common.association import (
     AssociationStage,
+    apply_motion_fusion,
     detection_track_similarity_assignment,
+    fuse_score,
     run_association_stage,
     solve_assignment,
 )
@@ -83,6 +85,15 @@ class OcSort(BoxTracker):
 
         # Initialize tracker collections
         self.active_tracks: list = []
+
+    def _first_pass_similarity(
+        self, similarity: np.ndarray, tracks: list, detections: np.ndarray, *, threshold: float
+    ) -> np.ndarray:
+        """Optionally score-fuse geometry before existing first-pass guidance."""
+        if self.config.fuse_detection_score:
+            scores = detections[:, self.detection_layout.conf_idx]
+            similarity = 1.0 - fuse_score((1.0 - similarity).T, scores).T
+        return self._condition_similarity(similarity, tracks, detections, threshold=threshold)
 
     def _track_detections(
         self,
@@ -162,9 +173,19 @@ class OcSort(BoxTracker):
                 self.inertia,
                 is_obb=self.is_obb,
                 gate_before_assignment=self._asso_func_base_name == "centroid",
-                similarity_conditioner=lambda similarity: self._condition_similarity(
+                similarity_conditioner=lambda similarity: self._first_pass_similarity(
                     similarity, _tracks, _detections, threshold=self.iou_threshold
                 ),
+                cost_conditioner=(
+                    lambda costs: apply_motion_fusion(
+                        (1.0 + costs).T,
+                        _tracks,
+                        _detections[:, : self.detection_layout.box_cols],
+                        mode=self.config.motion_fusion,
+                        only_position=self.config.motion_fusion_only_position,
+                        lambda_=self.config.motion_fusion_lambda,
+                    ).T - 1.0
+                ) if self.config.motion_fusion != "off" else None,
             ),
         )
         first_result = run_association_stage(first_stage, self.active_tracks, dets)

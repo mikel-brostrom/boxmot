@@ -23,6 +23,20 @@ update. Newly lost tracks first enter that check on their next update, including
 when `max_lost_frames=0`. The built-in tuning profile searches integer values
 from 1 through 199 (`range: [1, 200]`, exclusive upper bound).
 
+## Association fusion
+
+`fuse_first_associate` and `fuse_unconfirmed_associate` control detection-score
+fusion and default to true. Python ByteTrack also supports optional first-pass
+Kalman gating with `motion_fusion="gate"` or gating plus weighted motion costs
+with `motion_fusion="blend"`. The default is `"off"`. Low-confidence and
+unconfirmed association retain their existing rules. ByteTrack does not expose
+ReID–IoU fusion because it does not use appearance embeddings.
+
+The tuning profile searches these controls, with blend weight and position-only
+gating searched only when applicable. See
+[association fusion](../config/trackers.md#association-fusion) for settings and
+their interaction with KF selection, CMC, and centroid association.
+
 ## Optional McByte++ Mask Guidance
 
 Python ByteTrack can use the temporal mask cue described in

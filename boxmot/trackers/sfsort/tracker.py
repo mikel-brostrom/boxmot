@@ -12,7 +12,7 @@ import numpy as np
 from typing_extensions import Unpack
 
 from boxmot.trackers.common.association.iou import AssociationFunction
-from boxmot.trackers.common.association.matching import linear_assignment
+from boxmot.trackers.common.association.matching import fuse_score, linear_assignment
 from boxmot.trackers.common.box.base import BoxTracker
 from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runtime_options
 from boxmot.trackers.common.geometry.obb import (
@@ -262,6 +262,8 @@ class SFSORT(BoxTracker):
                     is_obb=self.is_obb,
                     association_function=self.asso_func,
                 )
+                if self.config.fuse_detection_score:
+                    cost = fuse_score(cost, definite_scores)
                 cost = self._condition_association(cost, track_pool, definite_boxes, threshold=mth)
                 # Shape and center cues rank pairs within the radius; their
                 # combined cost must not impose a second centroid cutoff.

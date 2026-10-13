@@ -40,6 +40,7 @@ from boxmot.engine.config.runtime import resolve_sequence_workers
 from boxmot.engine.config.trackers import edgetam_checkpoint, resolve_tracker_options
 from boxmot.engine.eval.results import SUMMARY_COLUMNS, ValidationResult
 from boxmot.engine.tuning.backends import build_search_backend, resolve_search_backend
+from boxmot.engine.tuning.fusion import condition_fusion_schema, validate_fusion_tuning
 from boxmot.engine.tuning.kalman_refinement import (
     condition_kalman_type_schema,
     is_kalman_option,
@@ -278,6 +279,9 @@ class Tuner:
             args.tracker, getattr(args, "tracker_config", None), baseline_overlay, include_defaults=False
         )
         runtime_config = resolve_tracker_options(args, baseline_overlay, include_defaults=True, stamp_timing=True)
+        validate_fusion_tuning(
+            args.tracker, runtime_config, backend=getattr(args, "tracker_backend", "python") or "python"
+        )
         runtime_config = prepare_mask_guidance_tuning(args, runtime_config, overrides=baseline_overlay)
         if runtime_config.get("per_class"):
             args.per_class = True
@@ -362,6 +366,9 @@ class Tuner:
                 )
                 runtime_config = prepare_mask_guidance_tuning(args, runtime_config, overrides=baseline_overlay)
                 yaml_cfg = condition_mask_guidance_schema(yaml_cfg, args, runtime_config)
+                yaml_cfg = condition_fusion_schema(
+                    yaml_cfg, backend=getattr(args, "tracker_backend", "python") or "python"
+                )
                 if "asso_func" in authored_options and getattr(args, "asso_func", None) is None:
                     yaml_cfg["asso_func"] = {"default": authored_options["asso_func"]}
                 yaml_cfg = condition_tracker_schema(

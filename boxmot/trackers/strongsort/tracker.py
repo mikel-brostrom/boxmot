@@ -8,6 +8,13 @@ from typing_extensions import Unpack
 from boxmot.reid.protocols import AppearanceEncoder
 from boxmot.reid.specs import ReIDConfig
 from boxmot.trackers.common.appearance import resolve_batch_embeddings
+from boxmot.trackers.common.association.matching import (
+    fuse_iou,
+    fuse_score,
+)
+from boxmot.trackers.common.association.matching import (
+    gate_cost_matrix as gate_motion_cost,
+)
 from boxmot.trackers.common.association.strongsort import (
     INFTY_COST,
     NearestNeighborDistanceMetric,
@@ -248,33 +255,10 @@ class StrongSort(BoxTracker):
     def _match(self, detections: list[_Detection]) -> tuple[list[tuple[int, int]], list[int], list[int]]:
         """Run StrongSORT appearance cascade followed by geometric association."""
 
-        def gated_metric(tracks, dets, track_indices, detection_indices):
-            features = np.asarray([dets[index].feat for index in detection_indices])
-            targets = np.asarray([tracks[index].id for index in track_indices])
-            cost_matrix = self.metric.distance(features, targets)
-            gated_mask = np.empty(cost_matrix.shape, dtype=bool) if self._mask_guidance is not None else None
-            cost_matrix = gate_cost_matrix(
-                cost_matrix,
-                tracks,
-                dets,
-                track_indices,
-                detection_indices,
-                self.mc_lambda,
-                only_position=self.gating_only_position,
-                gated_mask=gated_mask,
-            )
-            return self._condition_gated_association(
-                cost_matrix,
-                [tracks[index] for index in track_indices],
-                [dets[index] for index in detection_indices],
-                threshold=self.metric.matching_threshold,
-                gated_mask=gated_mask,
-            )
-
         confirmed_tracks = [index for index, track in enumerate(self.tracks) if track.is_confirmed()]
         unconfirmed_tracks = [index for index, track in enumerate(self.tracks) if not track.is_confirmed()]
         matches_a, unmatched_tracks_a, unmatched_detections = matching_cascade(
-            gated_metric,
+            self._appearance_cost,
             self.metric.matching_threshold,
             self.max_age,
             self.tracks,
@@ -302,6 +286,55 @@ class StrongSort(BoxTracker):
         matches = matches_a + matches_b
         unmatched_tracks = list(set(unmatched_tracks_a + unmatched_tracks_b))
         return matches, unmatched_tracks, unmatched_detections
+
+    def _appearance_cost(
+        self,
+        tracks: list[Track],
+        detections: list[_Detection],
+        track_indices: list[int],
+        detection_indices: list[int],
+    ) -> np.ndarray:
+        """Combine gallery distance with optional IoU, confidence, and motion cues."""
+        selected_tracks = [tracks[index] for index in track_indices]
+        selected_detections = [detections[index] for index in detection_indices]
+        features = np.asarray([detection.feat for detection in selected_detections])
+        targets = np.asarray([track.id for track in selected_tracks])
+        cost_matrix = self.metric.distance(features, targets)
+        if self.config.fuse_iou:
+            cost_matrix = fuse_iou(cost_matrix, selected_tracks, selected_detections, is_obb=self.is_obb)
+        if self.config.fuse_detection_score:
+            cost_matrix = fuse_score(cost_matrix, selected_detections)
+
+        gated_mask = np.zeros(cost_matrix.shape, dtype=bool)
+        if self.config.motion_fusion == "blend":
+            cost_matrix = gate_cost_matrix(
+                cost_matrix,
+                tracks,
+                detections,
+                track_indices,
+                detection_indices,
+                self.mc_lambda,
+                only_position=self.gating_only_position,
+                gated_mask=gated_mask,
+            )
+        elif self.config.motion_fusion == "gate":
+            cost_matrix = gate_motion_cost(
+                cost_matrix,
+                selected_tracks,
+                self._association_boxes(selected_detections),
+                only_position=self.gating_only_position,
+            )
+            gated_mask[:] = ~np.isfinite(cost_matrix)
+        # Assignment must never recover a motion rejection by rescaling a
+        # finite sentinel, changing the cost threshold, or applying mask cues.
+        cost_matrix[gated_mask] = np.inf
+        return self._condition_gated_association(
+            cost_matrix,
+            selected_tracks,
+            selected_detections,
+            threshold=self.metric.matching_threshold,
+            gated_mask=gated_mask,
+        )
 
     def _association_cost(
         self,

@@ -147,8 +147,8 @@ class BaseTracker(
           OBB ``ciou`` is a custom experimental long/short-side adaptation.
           OBB ``hmiou`` is an experimental global-y height cue intended only
           where image vertical is meaningful.
-        - centroid_max_distance: Sole geometric cutoff for centroid matching,
-          expressed as a fraction of the frame diagonal.
+        - centroid_max_distance: Centroid distance limit as a fraction of the
+          frame diagonal. Optional motion fusion adds an uncertainty gate.
         - is_obb: Use oriented detections instead of axis-aligned detections.
         - kalman: Immutable filter noise, timing, and supported behavior settings.
         - reid: Immutable encoder configuration or a prebuilt AppearanceEncoder.

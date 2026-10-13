@@ -196,7 +196,11 @@ class MafHda(BaseTracker):
         *,
         candidates: list[_Track] | None = None,
     ) -> tuple[np.ndarray, list[np.ndarray], np.ndarray]:
-        """Compute independent candidates, then solve a gated assignment once."""
+        """Solve one gated assignment, with optional S2TA confidence weighting.
+
+        Affinities use ``-100 * log(affinity)`` costs, so score fusion adds
+        ``-100 * log(confidence)`` to eligible segment-to-track pairs.
+        """
         shape = (len(tracks), len(observations))
         motion = np.zeros(shape, dtype=np.float64)
         appearance = np.zeros(shape, dtype=np.float64)
@@ -262,6 +266,17 @@ class MafHda(BaseTracker):
             gate_geometry=gate_geometry,
             recovery_overlap_thresh=self.config.recovery_overlap_thresh,
         )
+        if self.config.fuse_detection_score and not recovery:
+            # MAF costs are -100*log(affinity). Multiplying affinity by score
+            # therefore adds this penalty; bounded-distance fusion is invalid here.
+            confidences = np.asarray([observation.conf for observation in observations])
+            penalties = np.full(len(observations), np.inf)
+            valid_scores = np.isfinite(confidences) & (confidences > 0.0) & (confidences <= 1.0)
+            penalties[valid_scores] = -100.0 * np.log(confidences[valid_scores])
+            eligible = np.isfinite(costs)
+            if gate_geometry:
+                eligible &= costs < MAX_COST
+            np.add(costs, penalties[None], out=costs, where=eligible)
         costs[~allowed] = MAX_COST if gate_geometry else np.inf
         cost_limit = np.nextafter(MAX_COST, 0.0) if gate_geometry else None
         matches, _, _ = linear_assignment(costs, thresh=cost_limit)

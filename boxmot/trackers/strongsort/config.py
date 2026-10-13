@@ -13,7 +13,7 @@ class StrongSortConfig(TrackerConfig):
 
     Shared history and association settings are inherited from ``TrackerConfig``.
     ``max_iou_dist`` applies to overlap metrics; centroid fallback matching uses
-    ``centroid_max_distance``. Appearance and motion gates remain active.
+    ``centroid_max_distance``. Motion fusion defaults to the existing gated blend.
 
     Args:
         min_conf: Minimum detection confidence accepted for tracking.
@@ -23,6 +23,10 @@ class StrongSortConfig(TrackerConfig):
         nn_budget: Maximum number of appearance-gallery features stored per track.
         mc_lambda: Appearance-cost weight in the blend with Mahalanobis distance;
             the motion-distance weight is one minus this value.
+        motion_fusion: Appearance-pass motion handling: off, gate, or gate and blend.
+        fuse_iou: Combine appearance-gallery distances with IoU before motion fusion.
+        fuse_detection_score: Fuse detection confidence into appearance-pass costs
+            before motion fusion.
         ema_alpha: Previous-embedding weight in exponential smoothing; higher values
             retain more history and adapt more slowly.
         gating_only_position: Gate appearance matches using center coordinates
@@ -38,6 +42,9 @@ class StrongSortConfig(TrackerConfig):
     n_init: int = field(default=3, metadata={"gt": 0})
     nn_budget: int | None = field(default=100, metadata={"gt": 0})
     mc_lambda: float = field(default=0.98, metadata={"ge": 0.0, "le": 1.0})
+    motion_fusion: str = field(default="blend", metadata={"choices": ("off", "gate", "blend")})
+    fuse_iou: bool = False
+    fuse_detection_score: bool = False
     ema_alpha: float = field(default=0.9, metadata={"ge": 0.0, "le": 1.0})
     gating_only_position: bool = False
     geometric_recovery_max_age: int = field(default=1, metadata={"ge": 1})

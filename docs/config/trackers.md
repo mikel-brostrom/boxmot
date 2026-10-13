@@ -75,7 +75,8 @@ Parameters outside their applicable metrics are not searched; their typed or
 authored runtime values are retained. `association` works together with
 `geometry` and `activates`, and applies to random, Optuna, and HyperOpt search,
 whether `asso_func` is fixed or searched. Centroid ignores overlap thresholds
-at runtime and uses `centroid_max_distance` as its sole geometric cutoff.
+at runtime and uses `centroid_max_distance` for distance eligibility. Optional
+Kalman motion fusion adds its own uncertainty gate in the first association pass.
 
 Use `depends_on` and `cases` when an applicable parameter needs different numeric
 ranges for different metrics, as ByteTrack does for GIoU, DIoU, and CIoU.
@@ -280,12 +281,13 @@ instead use the explicit `frame_width` and `frame_height` fields in `SFSORTConfi
 `1.0`, with a runtime default of `0.05`. On a 1920×1080 frame, `0.05` gives a
 maximum center displacement of approximately 110 pixels. This hard distance
 limit applies to every matching and recovery pass; appearance similarity cannot
-override it. It is the sole geometric distance cutoff for centroid association:
+override it. Overlap thresholds do not add another centroid distance cutoff:
 settings such as `iou_threshold`, `match_thresh`, and `proximity_thresh` do not
 tighten the radius, even when supplied through a runtime profile. The tracker
 still uses its confidence, appearance, and lifecycle rules, and competing pairs
 are ranked by its association scores. A pair inside the radius is eligible for
-geometric matching, rather than guaranteed a match.
+geometric matching, rather than guaranteed a match. With optional motion fusion,
+the first pass also requires the pair to pass the Kalman uncertainty gate.
 IoU and the other metrics ignore `centroid_max_distance`.
 
 ByteTrack exposes `second_match_thresh` and `unconfirmed_match_thresh` alongside
@@ -305,6 +307,70 @@ boxmot track --tracker bytetrack --tracker-config bytetrack-centroid.yaml --sour
 
 The native backends expose the same choices for both box layouts; see the
 native tracker documentation for C++ integration details.
+
+## Association fusion
+
+Python trackers expose fusion controls where their association cues support
+them. New controls default to disabled; StrongSORT retains its existing motion
+blend and ByteTrack/BotSort retain their existing score-fusion defaults.
+Built-in tuning profiles search the relevant switches automatically.
+
+| Tracker | Motion fusion | Detection-confidence fusion | ReID–IoU fusion |
+| --- | --- | --- | --- |
+| ByteTrack | Optional, first pass | Existing first/unconfirmed switches | Unavailable; no ReID |
+| BotSort | Optional, first pass | Existing first/unconfirmed switches | Optional, first pass with embeddings |
+| OC-SORT | Optional, first pass | Optional, first pass | Unavailable; no ReID |
+| DeepOCSORT, HybridSORT, BoostTrack, OccluBoost | Optional, first pass | Optional, first pass | Optional, first pass with embeddings |
+| StrongSORT | Existing blend; selectable off/gate/blend | Optional, appearance pass | Optional, appearance pass |
+| SFSORT | Unavailable; no Kalman filter | Optional, first pass | Unavailable; no ReID |
+| MAF-HDA | Uses its own motion-affinity model | Optional, segment-to-track pass | Unavailable; uses KCF appearance |
+
+EagerMOT retains its separate 3D/sensor association workflow.
+
+`motion_fusion` accepts `off`, `gate`, or `blend`. `gate` rejects pairs outside
+the 95% chi-square region without changing other costs. `blend` also computes
+`lambda * cost + (1 - lambda) * squared_mahalanobis_distance`. The distance is
+not normalized, so changing the blend can require different matching thresholds.
+`motion_fusion_lambda` defaults to `0.98` and is searched only for `blend`;
+`motion_fusion_only_position` defaults to false and is searched only when motion
+fusion is enabled. StrongSORT uses its existing `mc_lambda` and
+`gating_only_position` names for these two settings.
+
+Motion fusion uses each track's selected KF, covariance, and predicted state
+after CMC. Full geometry uses four measurement coordinates for AABB or five for
+OBB; position-only gating uses two. Confidence in an XYSCR state is excluded
+from the geometry gate. OBB measurements are aligned to equivalent rectangles
+before angular residuals are computed. Motion gates remain hard constraints
+through mask conditioning and assignment. They apply to the first pass only;
+later recovery passes keep their existing rules.
+HybridSORT applies first-pass fusion in AABB mode only when `tcm_first_step`
+is enabled; its OBB first pass runs independently of that setting.
+
+`fuse_iou` multiplies appearance similarity by `(1 + IoU) / 2`, using oriented
+IoU for OBB. It is searched only when appearance embeddings are enabled.
+`fuse_detection_score` multiplies the first-pass similarity by detection
+confidence. ByteTrack and BotSort keep their existing score-fusion option names.
+MAF-HDA applies equivalent confidence weighting in its log-affinity cost scale;
+it does not apply this weighting to tracklet recovery.
+
+For example, this runtime profile enables ByteTrack motion gating without
+requiring a ReID model:
+
+```yaml title="bytetrack-motion.yaml"
+tracker: bytetrack
+motion_fusion: gate
+motion_fusion_only_position: false
+```
+
+Use it with `--tracker-config bytetrack-motion.yaml` in `track` or `eval`.
+For `tune`, runtime values set the baseline and the shipped search profile can
+still vary the fusion settings. Start a new tuning run to search new dimensions;
+an already running study retains its original search space. Resuming requires
+the saved and requested search spaces to match.
+
+The new fusion switches currently require the Python backend. Native C++ tuning
+keeps them disabled and native constructors reject explicitly enabled options.
+Existing native score fusion remains supported.
 
 ## Example schema
 
