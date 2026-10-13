@@ -6,9 +6,11 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 
 from boxmot.engine.tuning.backends.random_backend import RandomBackend
+from boxmot.engine.tuning.search_space import normalize_trial_config, yaml_to_tune_space
 
 tune = pytest.importorskip("ray.tune")
 
@@ -92,3 +94,58 @@ def test_seed_controls_actual_random_trial_configurations(seed: int, trainable_n
         assert 0.1 <= config["det_thresh"] <= 0.9
         assert 1 <= config["max_age"] < 100
         assert config["asso_func"] in ("iou", "giou", "diou")
+
+
+@pytest.mark.parametrize("case_location", ("none", "independent", "child"))
+def test_random_sampler_draws_only_active_children(case_location: str) -> None:
+    """Check Ray's sampled dimensions, not just defaults restored in trial config."""
+    from ray.tune.search.variant_generator import generate_variants
+
+    schema = {
+        "enabled": {
+            "default": False, "type": "choice", "options": [False, True],
+            "activates": {
+                "weight": {"default": 0.4, "type": "uniform", "range": [0.1, 0.9]},
+                "nested": {
+                    "default": True, "type": "choice", "options": [False, True],
+                    "activates": {
+                        "nested_weight": {"default": 0.3, "type": "uniform", "range": [0.1, 0.9]},
+                    },
+                },
+            },
+        },
+    }
+    if case_location != "none":
+        schema.update({
+            "mode": {"default": "off", "type": "choice", "options": ["off", "on"]},
+            "case_weight": {
+                "default": 0.2, "depends_on": "mode",
+                "cases": {"on": {"type": "uniform", "range": [0.1, 0.9]}},
+            },
+        })
+    if case_location == "child":
+        schema["enabled"]["activates"]["weight"].update({
+            "depends_on": "mode", "cases": {"on": {"range": [0.2, 0.8]}},
+        })
+    space = yaml_to_tune_space(schema, tune)
+    rng = np.random.RandomState(8)
+    seen = set()
+    for _ in range(48):
+        sampled, raw_config = next(generate_variants(space, random_state=rng))
+        config = normalize_trial_config(raw_config)
+        dimensions = {path[-1] for path in sampled}
+        enabled, nested = config["enabled"], config["nested"]
+        seen.add((enabled, nested))
+        assert ("weight" in dimensions) is enabled
+        assert ("nested" in dimensions) is enabled
+        assert ("nested_weight" in dimensions) is (enabled and nested)
+        if not enabled:
+            assert config["weight"] == 0.4
+            assert config["nested"] is True
+        if not (enabled and nested):
+            assert config["nested_weight"] == 0.3
+        if case_location != "none":
+            assert ("case_weight" in dimensions) is (config["mode"] == "on")
+            if config["mode"] == "off":
+                assert config["case_weight"] == 0.2
+    assert seen == {(False, True), (True, False), (True, True)}
