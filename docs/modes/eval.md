@@ -806,6 +806,20 @@ postprocessing steps run before scoring and retain the raw result files. The
 perception build remains immutable. `--compare-trackeval` is available for
 supported AABB MOTChallenge datasets.
 
+Perception-build evaluation writes class-keyed scores to
+`<project>/<dataset_id>/<name>/metrics.json` after scoring succeeds, including
+per-sequence scores and any class aggregates. The defaults are `--project runs`
+and `--name exp`; existing run names increment unless `--exist-ok` is set.
+The JSON is written for ordinary evaluation and CI runs alike. For MOT17, read
+the combined pedestrian scores from `pedestrian.HOTA`, `pedestrian.MOTA`, and
+`pedestrian.IDF1`, for example:
+
+```bash
+boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml \
+  --tracker bytetrack --project runs --name bytetrack --exist-ok
+jq '.pedestrian | {HOTA, MOTA, IDF1}' runs/mot17/bytetrack/metrics.json
+```
+
 Guided box trackers report box tracking metrics. Their output directory includes a
 guidance fingerprint, and `mask-guidance.json` records the official EdgeTAM
 revision, checkpoint SHA-256, precision, postprocessing, identity cap, effective

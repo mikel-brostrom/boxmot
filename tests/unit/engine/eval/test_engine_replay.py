@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import json
 import math
 from contextlib import contextmanager
 from pathlib import Path
@@ -627,7 +628,8 @@ def test_replay_build_accepts_missing_image_references_for_dimensions_only_track
     assert result.frames == 0
 
 
-def test_run_eval_wires_sequence_processes_and_structured_progress(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize("ci", [False, True])
+def test_run_eval_wires_sequence_processes_and_structured_progress(monkeypatch, tmp_path, ci: bool) -> None:
     captured: dict[str, object] = {}
 
     class _Pipeline:
@@ -675,12 +677,18 @@ def test_run_eval_wires_sequence_processes_and_structured_progress(monkeypatch, 
     monkeypatch.setattr(evaluator_module, "EvalSequenceProgressPresenter", _Presenter)
     monkeypatch.setattr(evaluator_module, "_refresh_eval_pipeline_intro", lambda *_args: None)
     monkeypatch.setattr(evaluator_module, "replay_build", _replay_build)
-    monkeypatch.setattr(evaluator_module, "run_motmetrics", lambda *_args, **_kwargs: {})
+    metrics = {
+        "pedestrian": {"HOTA": 29.54, "MOTA": 10.61, "IDF1": 19.87, "per_sequence": {"seq-a": {"HOTA": 35.37}}},
+        "car": {"HOTA": 50.0, "MOTA": 40.0, "IDF1": 45.0, "per_sequence": {"seq-b": {"HOTA": 50.0}}},
+        "cls_comb_cls_av": {"HOTA": 39.77, "MOTA": 25.305, "IDF1": 32.435, "per_sequence": {}},
+    }
+    monkeypatch.setattr(evaluator_module, "run_motmetrics", lambda *_args, **_kwargs: metrics)
 
     args = SimpleNamespace(
         _build_validated=True,
         asso_func=None,
         build_path=tmp_path / "build",
+        ci=ci,
         dataset_id="fixture",
         exist_ok=True,
         experiment_id=None,
@@ -718,3 +726,7 @@ def test_run_eval_wires_sequence_processes_and_structured_progress(monkeypatch, 
     ]
     assert pipeline.stored == [(_Presenter.renderable, evaluator_module.EvalWorkflowReporter.TRACK)]
     assert result.timings["frames"] == 2
+    metrics_path = tmp_path / "runs" / "fixture" / "eval" / "metrics.json"
+    assert json.loads(metrics_path.read_text(encoding="utf-8")) == result.raw == metrics
+    assert metrics_path.read_bytes().endswith(b"\n")
+    assert result.summary == {"HOTA": 39.77, "MOTA": 25.305, "IDF1": 32.435}

@@ -109,6 +109,7 @@ def test_evaluator_opens_visualization_only_when_requested(monkeypatch, tmp_path
 
     def replay(build, spec, **kwargs):
         assert kwargs["workers"] == 3
+        kwargs["output_dir"].mkdir(parents=True, exist_ok=True)
         if show or save:
             kwargs["frame_callback"](frame)
         else:
@@ -201,6 +202,7 @@ def test_evaluator_forwards_sequence_events_independently_of_display(
             presenter_lifetime.append("exit")
 
     def replay(build, spec, **kwargs):
+        kwargs["output_dir"].mkdir(parents=True, exist_ok=True)
         for event in events:
             kwargs["progress_callback"](event)
             assert received[-1] is event

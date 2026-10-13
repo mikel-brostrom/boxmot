@@ -319,29 +319,36 @@ jobs:
         shell: bash
         run: |
           source .venv/bin/activate
-          echo "Format,Status❔,HOTA,MOTA,IDF1" > metrics.csv
+          echo "Tracker,Status❔,HOTA,MOTA,IDF1" > metrics.csv
+          OUTPUT_ROOT="$RUNNER_TEMP/boxmot-ci-metrics"
           FAILED=0
           for tracker in $TRACKERS; do
+            METRICS_FILE="$OUTPUT_ROOT/mot17-mini/$tracker/metrics.json"
+            rm -f "$METRICS_FILE"
+            STATUS="❌"
+            HOTA=""
+            MOTA=""
+            IDF1=""
             if boxmot eval --experiment mot17-mini/train-yolo26n-lmbn.yaml \
               --build "$BOXMOT_CI_BUILD" \
               --data-root "$BOXMOT_CI_DATA_ROOT" \
-              --tracker "$tracker" --verbose --ci; then
-              STATUS="✅"
-            else
-              STATUS="❌"
+              --tracker "$tracker" --verbose \
+              --project "$OUTPUT_ROOT" --name "$tracker" --exist-ok; then
+              if VALUES=$(jq -er '
+                [.pedestrian.HOTA, .pedestrian.MOTA, .pedestrian.IDF1]
+                | if all(.[]; type == "number" and isfinite) then @csv
+                  else error("Expected numeric pedestrian HOTA, MOTA, and IDF1") end
+              ' "$METRICS_FILE"); then
+                IFS=, read -r HOTA MOTA IDF1 <<< "$VALUES"
+                STATUS="✅"
+              else
+                echo "::error::Missing or invalid metrics for $tracker: $METRICS_FILE"
+              fi
+            fi
+            if [ "$STATUS" = "❌" ]; then
               FAILED=1
             fi
-            if [ -f ${tracker}_output.json ]; then
-              cat ${tracker}_output.json
-              HOTA=$(jq -r '.HOTA' ${tracker}_output.json)
-              MOTA=$(jq -r '.MOTA' ${tracker}_output.json)
-              IDF1=$(jq -r '.IDF1' ${tracker}_output.json)
-            else
-              HOTA=""
-              MOTA=""
-              IDF1=""
-            fi
-            TRACKER_NAME=$(echo $tracker | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
+            TRACKER_NAME=$(echo "$tracker" | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
             echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" >> metrics.csv
           done
           echo "BOXMOT_METRICS_FAILED=$FAILED" >> "$GITHUB_ENV"
@@ -361,7 +368,7 @@ jobs:
             echo
             echo '| Tracker | Status | HOTA | MOTA | IDF1 |'
             echo '| --- | --- | --- | --- | --- |'
-            tail -n +2 metrics.csv | while IFS=, read -r name status hota mota idf1; do
+            tail -n +2 sorted_results.csv | while IFS=, read -r name status hota mota idf1; do
               echo "| $name | $status | $hota | $mota | $idf1 |"
             done
           } >> "$GITHUB_STEP_SUMMARY"

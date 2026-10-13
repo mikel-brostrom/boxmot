@@ -64,6 +64,7 @@ def test_evaluator_routes_cache_and_session_to_replay(monkeypatch, tmp_path, ena
 
     def replay(build, spec, **kwargs):
         captured.update(kwargs)
+        kwargs["output_dir"].mkdir(parents=True, exist_ok=True)
         return SimpleNamespace(output_dir=tmp_path / "output", frames=2)
 
     def metrics(args, *, verbose):

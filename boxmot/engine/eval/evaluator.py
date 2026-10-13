@@ -871,6 +871,9 @@ def run_eval(
     args.exp_dir = replay.output_dir
     with replay_session.metric_execution() if replay_session is not None else nullcontext():
         raw = run_motmetrics(args, verbose=bool(verbose))
+    (replay.output_dir / "metrics.json").write_text(
+        json.dumps(raw, indent=2, allow_nan=False) + "\n", encoding="utf-8"
+    )
     summary_label, summary = _summary(raw)
     timings = {
         "frames": replay.frames,
