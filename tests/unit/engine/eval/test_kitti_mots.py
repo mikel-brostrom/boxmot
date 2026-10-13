@@ -16,11 +16,36 @@ import yaml
 from boxmot.datasets.config import load_dataset_config
 from boxmot.datasets.schema import INSTANCES_ARTIFACT, MASKS_ARTIFACT, SAMPLES_ARTIFACT
 from boxmot.datasets.storage import ParquetShardWriter, instance_records, mask_records
-from boxmot.engine.eval import catalog_cache, evaluator
+from boxmot.engine.eval import catalog_cache, evaluator, motmetrics, replay
 from boxmot.engine.eval.mots_io import read_mots_results
 from boxmot.engine.materialization import BuildPlan, PublishOptions, StagePlan, finalize_build
 from boxmot.engine.materialization.catalog import SourceCatalog, catalog_mot_dataset
 from boxmot.structures import Boxes, Detections, MaskBatch
+
+
+@pytest.fixture(autouse=True)
+def _inline_sequence_execution(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercise KITTI data and scoring here; dedicated replay tests cover spawning."""
+
+    def run_tasks(
+        tasks: tuple[replay._SequenceReplayTask, ...],
+        *,
+        workers: int,
+        progress_callback: replay.ReplayProgressCallback | None,
+    ) -> tuple[replay._SequenceReplayResult, ...]:
+        """Run genuine sequence kernels with the cache lifetime of a fresh pool."""
+        del workers
+        replay._clear_worker_inputs()
+        try:
+            return tuple(replay._replay_sequence_task(task, progress_callback=progress_callback) for task in tasks)
+        finally:
+            replay._clear_worker_inputs()
+
+    monkeypatch.setattr(replay, "_run_spawned_sequence_tasks", run_tasks)
+    monkeypatch.setattr(replay, "_WORKER_PROGRESS_QUEUE", None)
+    monkeypatch.setattr(replay, "_WORKER_RUN_ID", None)
+    monkeypatch.setattr(replay, "_WORKER_REPORT_PROGRESS", True)
+    monkeypatch.setattr(motmetrics, "_metric_worker_count", lambda _sequences: 1)
 
 
 @pytest.fixture(autouse=True)
