@@ -302,6 +302,12 @@ bounded by the number of selected sequences. Use `--max-concurrent-trials` to
 limit how many image-tracker trials run at once; sequence workers are allocated
 separately to each trial.
 
+Each spawned sequence worker limits BLAS, OpenMP, PyTorch, and OpenCV compute
+pools to one thread. This overrides inherited thread counts such as Ray's
+`OMP_NUM_THREADS` allocation, so sequence parallelism does not multiply the
+native thread count. The limits persist across trials in reused workers and
+apply when new workers start.
+
 For limited RAM, use `--max-concurrent-trials 1 --sequence-workers 1` together
 to run one trial and one sequence at a time. `--n-trials` controls the total
 number of trials, not how many run concurrently.

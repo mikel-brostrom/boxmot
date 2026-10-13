@@ -294,6 +294,7 @@ def test_replay_worker_does_not_join_observational_progress_feeder(monkeypatch) 
     monkeypatch.setattr(logger, "propagate", True)
     monkeypatch.setattr(logger, "disabled", False)
     monkeypatch.setattr(replay_module, "_WORKER_PROGRESS_QUEUE", None)
+    monkeypatch.setattr(replay_module, "initialize_worker_threads", lambda: None)
 
     replay_module._initialize_replay_worker(progress_queue)
 

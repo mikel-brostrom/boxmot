@@ -28,7 +28,7 @@ from boxmot.engine.config.cmc import SequenceCMCPolicy
 from boxmot.engine.config.runtime import resolve_sequence_workers
 from boxmot.engine.config.trackers import validate_image_tracker
 from boxmot.engine.eval.mots_io import prepare_mots_tracks, tracks_to_mots_rows, write_mots_rows
-from boxmot.engine.eval.workers import shutdown_sequence_pool
+from boxmot.engine.eval.workers import initialize_worker_threads, shutdown_sequence_pool
 from boxmot.engine.materialization.builds import (
     BuildCompatibilityError,
     load_cached_build,
@@ -329,6 +329,7 @@ def _initialize_replay_worker(progress_queue: Any | None) -> None:
     from multiprocessing.util import Finalize
 
     guard_parent_lifetime()
+    initialize_worker_threads()
     _clear_worker_inputs()
     Finalize(None, _clear_worker_inputs, exitpriority=10)
     _WORKER_PROGRESS_QUEUE = progress_queue

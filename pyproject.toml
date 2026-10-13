@@ -167,6 +167,8 @@ dependencies = [
   "lapx<1.0.0,>=0.5.5",
   "numpy>=2.2.0",
   "scikit-learn<2.0.0,>=1.3.0",
+  # Bound native BLAS/OpenMP pools inside parallel sequence workers.
+  "threadpoolctl>=3.6.0,<4.0.0",
   "pandas<3.0.0,>=2.0.0",
   # Keep benchmark preprocessing stable: newer OpenCV resize kernels change detections.
   "opencv-python==4.11.0.86",

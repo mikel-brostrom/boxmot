@@ -701,6 +701,11 @@ the active worker count never exceeds the number of selected sequences.
 Use `--sequence-workers 1` to process sequences one at a time. The Rich panel
 reports frame progress separately for every sequence while those jobs run.
 
+Spawned sequence workers use one compute thread per BLAS, OpenMP, PyTorch, and
+OpenCV pool, overriding inherited thread counts to avoid nested CPU parallelism.
+These limits apply inside the workers; serial replay in the parent process
+keeps the caller's thread settings.
+
 Image-build previews and saved videos use serial replay. Saved 2D preview forces
 one sequence worker with a warning when it reduces the count. EagerMOT sensor replay runs serially
 with `--show`. Saved 2D and EagerMOT both support parallel video writing with `--save` alone.
