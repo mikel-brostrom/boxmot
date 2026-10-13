@@ -87,6 +87,13 @@ Its configuration shares detection, association, confirmation, and lifetime
 settings across AABB and OBB. Rebuild older libraries to use this layout;
 the Python loader rejects the previous constructor ABI.
 
+ByteTrack and BotSort use `boxmot_bytetrack_create_v2` /
+`BoxMOTByteTrackConfigV2` and `boxmot_botsort_create_v2` /
+`BoxMOTBotSortConfigV2`. Both configurations expose `max_lost_frames` as a direct
+count of tracker updates, with no FPS scaling. Rebuild older libraries: the
+Python loader rejects the previous constructor ABI. Detection and track batches
+continue to use the shared typed v2 API.
+
 Build requirements:
 
 - C++17 compiler

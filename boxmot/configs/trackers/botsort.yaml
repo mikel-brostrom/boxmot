@@ -1,4 +1,4 @@
-# Shared history/display controls; track_buffer owns lost-track lifetime.
+# Shared history/display controls; max_lost_frames owns lost-track lifetime.
 max_age: {}
 max_obs: {}
 min_hits: {}
@@ -19,9 +19,10 @@ new_track_thresh:
   type: uniform
   range: [0.1, 0.8]
 
-track_buffer:
+# Lost-track lifetime in tracker updates, without FPS scaling.
+max_lost_frames:
   type: randint
-  range: [20, 81]
+  range: [1, 200]
 
 match_thresh:
   type: uniform
@@ -49,10 +50,6 @@ use_cmc:
 
 # Keep the camera mask threshold fixed across tracker trials.
 cmc_min_conf: {}
-
-frame_rate:
-  type: choice
-  options: [25, 30]
 
 fuse_first_associate:
   type: choice

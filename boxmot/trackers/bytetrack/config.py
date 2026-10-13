@@ -9,7 +9,7 @@ from boxmot.trackers.common.algorithm_config import TrackerConfig
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ByteTrackConfig(TrackerConfig):
-    """Configure ByteTrack's confidence stages and lost-track buffer.
+    """Configure ByteTrack's confidence stages and lost-track lifetime.
 
     Shared history and association settings are inherited from ``TrackerConfig``.
     Match cost thresholds apply to overlap metrics. Centroid matching uses
@@ -24,9 +24,8 @@ class ByteTrackConfig(TrackerConfig):
             guidance is enabled.
         second_match_thresh: Maximum geometric cost for low-confidence matches.
         unconfirmed_match_thresh: Maximum score-fused cost for tentative tracks.
-        track_buffer: Lost-track retention in frames at 30 FPS, scaled by
-            ``frame_rate``. This controls tracking expiry.
-        frame_rate: Frame rate used to scale ``track_buffer``.
+        max_lost_frames: Maximum missed tracker updates before a lost track is
+            marked removed. Measured directly in frames, without FPS scaling.
     """
 
     min_conf: float = field(default=0.1, metadata={"ge": 0.0, "le": 1.0})
@@ -34,8 +33,7 @@ class ByteTrackConfig(TrackerConfig):
     match_thresh: float = field(default=0.9, metadata={"ge": 0})
     second_match_thresh: float = field(default=0.5, metadata={"ge": 0})
     unconfirmed_match_thresh: float = field(default=0.7, metadata={"ge": 0})
-    track_buffer: int = field(default=30, metadata={"ge": 0})
-    frame_rate: int = field(default=30, metadata={"gt": 0})
+    max_lost_frames: int = field(default=30, metadata={"ge": 0})
 
     use_cmc: bool = False
     cmc_method: str = field(default="sof", metadata={"choices": ("ecc", "orb", "sof", "sift")})

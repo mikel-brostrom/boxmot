@@ -60,6 +60,19 @@ def test_tracker_search_boundaries_satisfy_algorithm_config_constraints(name: st
                 pytest.fail(f"{name}.{parameter} cannot use search value {candidate!r}: {exc}")
 
 
+@pytest.mark.parametrize("name", ["bytetrack", "botsort"])
+@pytest.mark.parametrize("geometry", ["aabb", "obb"])
+def test_lost_track_lifetime_is_one_directly_searchable_frame_count(name: str, geometry: str) -> None:
+    """Both geometries search the effective lifetime without a second FPS dimension."""
+    schema = load_yaml_config(name)
+    defaults = load_tracker_defaults(name)
+    flat = flatten_yaml_config(condition_tracker_schema(schema, defaults, geometry=geometry))
+
+    assert flat["max_lost_frames"]["type"] == "randint"
+    assert flat["max_lost_frames"]["range"] == [1, 200]
+    assert not {"track_buffer", "buffer_size", "max_time_lost", "frame_rate"}.intersection(flat)
+
+
 @pytest.mark.parametrize("geometry", ["aabb", "obb"])
 def test_occluboost_shared_parameters_remain_searchable_in_both_geometries(geometry: str) -> None:
     """Geometry filtering preserves the complete shared search, including optional stages."""

@@ -190,7 +190,9 @@ Use capture or media timestamps rather than processing or network arrival
 times, and keep frame IDs contiguous even when capture intervals vary.
 
 Timing mode is process configuration; request timestamps and `frame_rate` do
-not enable it. When enabled, a missing timestamp on a new session's first
+not enable it. Request `frame_rate` is stream metadata; it does not scale
+ByteTrack or BotSort's `max_lost_frames` lifetime, which counts tracker updates.
+When enabled, a missing timestamp on a new session's first
 frame returns HTTP 422 before creating a tracker. Missing or non-increasing
 timestamps on subsequent frames return HTTP 409 without advancing the tracker.
 When disabled, optional timestamps may appear, disappear, or change without

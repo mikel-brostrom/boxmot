@@ -519,8 +519,8 @@ def test_tracker_spec_is_frozen_hashable_and_recursively_immutable() -> None:
     spec = TrackerSpec(
         "bytetrack",
         options=(
+            ("max_lost_frames", 45),
             ("nested", ("value", 3, (True, None))),
-            ("track_buffer", 45),
         ),
     )
     assert hash(spec)

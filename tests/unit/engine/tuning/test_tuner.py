@@ -230,12 +230,11 @@ def test_built_in_tracker_yaml_combines_runtime_defaults_and_tuning_metadata():
     assert default_tune_config(yaml_cfg) == {
         "min_conf": 0.1,
         "track_thresh": 0.6,
-        "track_buffer": 30,
+        "max_lost_frames": 30,
         "match_thresh": 0.9,
         "second_match_thresh": 0.5,
         "unconfirmed_match_thresh": 0.7,
         "asso_func": "iou",
-        "frame_rate": 30,
         "edgetam.min_coverage": 0.9,
         "edgetam.min_fill": 0.05,
         "edgetam.prompt_overlap": 0.1,
@@ -1091,7 +1090,7 @@ def test_tuner_renders_sequence_metric_deltas_against_default_config(monkeypatch
 
     yaml_cfg = {
         "track_thresh": {"type": "uniform", "default": 0.6, "range": [0.3, 0.7]},
-        "track_buffer": {"type": "qrandint", "default": 30, "range": [10, 61, 10]},
+        "max_lost_frames": {"type": "qrandint", "default": 30, "range": [10, 61, 10]},
     }
 
     def fake_require_extra(extra: str, *, purpose: str) -> None:
@@ -1222,8 +1221,8 @@ def test_tuner_renders_sequence_metric_deltas_against_default_config(monkeypatch
 
         def fit(self):
             return [
-                _metrics("baseline", 50.0, 60.0, 10, {"track_thresh": 0.6, "track_buffer": 30}, baseline_dir),
-                _metrics("best", 52.0, 61.0, 7, {"track_thresh": 0.65, "track_buffer": 40}, best_dir),
+                _metrics("baseline", 50.0, 60.0, 10, {"track_thresh": 0.6, "max_lost_frames": 30}, baseline_dir),
+                _metrics("best", 52.0, 61.0, 7, {"track_thresh": 0.65, "max_lost_frames": 40}, best_dir),
             ]
 
     fake_tune = SimpleNamespace(
@@ -1285,7 +1284,7 @@ def test_tuner_renders_sequence_metric_deltas_against_default_config(monkeypatch
 
     tuner_module.main(args)
 
-    assert captured["optuna_kwargs"]["points_to_evaluate"] == [{"track_thresh": 0.6, "track_buffer": 30}]
+    assert captured["optuna_kwargs"]["points_to_evaluate"] == [{"track_thresh": 0.6, "max_lost_frames": 30}]
     assert captured["detail_title"] == "Results"
     assert "MOT17-02" in captured["detail_rendered"]
     assert "(+2.00)" in captured["detail_rendered"]

@@ -354,8 +354,8 @@ def test_public_factory_dispatches_structured_native_spec(monkeypatch) -> None:
             name="bytetrack",
             backend="cpp",
             geometry="obb",
-            options=(("track_buffer", 42),),
+            options=(("max_lost_frames", 42),),
         )
     )
     assert isinstance(tracker, StubNativeTracker)
-    assert captured == {"options": {"track_buffer": 42}, "geometry": "obb"}
+    assert captured == {"options": {"max_lost_frames": 42}, "geometry": "obb"}

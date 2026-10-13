@@ -22,11 +22,11 @@ def _detections() -> np.ndarray:
 def test_retired_tracks_are_collectible_during_long_identity_churn(display_frames: int) -> None:
     """Old trajectories must die while outputs match the original archive behavior."""
     tracker = ByteTrack(
-        config=ByteTrackConfig(track_buffer=2),
+        config=ByteTrackConfig(max_lost_frames=2),
     )
     tracker.removed_display_frames = display_frames
     reference = ByteTrack(
-        config=ByteTrackConfig(track_buffer=2),
+        config=ByteTrackConfig(max_lost_frames=2),
     )
     reference.removed_display_frames = display_frames
     archive: dict[int, STrack] = {}
@@ -65,7 +65,7 @@ def test_retired_tracks_are_collectible_during_long_identity_churn(display_frame
 def test_removal_preserves_delayed_association_and_display_lifetime() -> None:
     """A just-expired lost candidate can still recover on the next frame."""
     tracker = ByteTrack(
-        config=ByteTrackConfig(track_buffer=2),
+        config=ByteTrackConfig(max_lost_frames=2),
     )
     detections = _detections()
     empty = np.empty((0, 6), dtype=np.float32)
@@ -84,7 +84,7 @@ def test_removal_preserves_delayed_association_and_display_lifetime() -> None:
     assert int(replacement[0, 4]) != identity
 
     display_tracker = ByteTrack(
-        config=ByteTrackConfig(track_buffer=2),
+        config=ByteTrackConfig(max_lost_frames=2),
     )
     display_tracker.update(detections)
     for _ in range(3):

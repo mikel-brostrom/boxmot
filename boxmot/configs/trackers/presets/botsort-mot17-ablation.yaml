@@ -2,11 +2,10 @@ tracker: botsort
 track_high_thresh: 0.6296854875023994
 track_low_thresh: 0.1014392537025336
 new_track_thresh: 0.6246494191492591
-track_buffer: 40
+max_lost_frames: 40
 match_thresh: 0.7722224024589055
 use_cmc: true
 cmc_method: ecc
-frame_rate: 30
 fuse_first_associate: true
 use_embeddings: true
 proximity_thresh: 0.6084297894561342

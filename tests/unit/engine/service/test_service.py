@@ -33,9 +33,8 @@ class _FakeTracker:
     supports_obb = True
     requirements = TrackerRequirements(frame=True)
 
-    def __init__(self, instance_id: int, frame_rate: int) -> None:
+    def __init__(self, instance_id: int) -> None:
         self.instance_id = instance_id
-        self.frame_rate = frame_rate
         self.calls: list[tuple[Detections, Frame | None]] = []
         self.reset_calls = 0
 
@@ -90,9 +89,11 @@ class _DetectionsOnlyTracker:
 class _FakeFactory:
     def __init__(self) -> None:
         self.instances: list[_FakeTracker] = []
+        self.specs: list[TrackerSpec] = []
 
     def __call__(self, spec: TrackerSpec) -> _FakeTracker:
-        tracker = _FakeTracker(len(self.instances) + 1, int(spec.option_dict.get("frame_rate", 30)))
+        self.specs.append(spec)
+        tracker = _FakeTracker(len(self.instances) + 1)
         self.instances.append(tracker)
         return tracker
 
@@ -311,7 +312,7 @@ def test_service_tracks_aabb_detections_with_isolated_stream_state() -> None:
     }
     assert second.status_code == 200
     assert len(factory.instances) == 2
-    assert factory.instances[0].frame_rate == 25
+    assert "frame_rate" not in factory.specs[0].option_dict
     received_frame = factory.instances[0].calls[0][1]
     assert isinstance(received_frame, Frame)
     assert received_frame.image.shape == (3, 480, 640)
@@ -646,7 +647,7 @@ def test_gpu_manager_shares_one_prebuilt_encoder_across_decoupled_trackers(monke
 
     def fake_create_tracker(spec: TrackerSpec):
         tracker_specs.append(spec)
-        return _EmbeddingTracker(len(tracker_specs), int(spec.option_dict["frame_rate"]))
+        return _EmbeddingTracker(len(tracker_specs))
 
     monkeypatch.setattr(service_manager, "create_tracker", fake_create_tracker)
     manager = TrackerManager(settings, encoder_factory=encoder_factory)
@@ -669,8 +670,8 @@ def test_gpu_manager_shares_one_prebuilt_encoder_across_decoupled_trackers(monke
     assert len(shared_encoder.calls) == 2
     assert [spec.name for spec in tracker_specs] == ["botsort", "botsort"]
     assert [spec.option_dict for spec in tracker_specs] == [
-        {"asso_func": "iou", "frame_rate": 24, "kalman.variable_dt": False},
-        {"asso_func": "iou", "frame_rate": 30, "kalman.variable_dt": False},
+        {"asso_func": "iou", "kalman.variable_dt": False},
+        {"asso_func": "iou", "kalman.variable_dt": False},
     ]
 
 
@@ -705,7 +706,7 @@ def test_shared_segmentor_runs_before_mask_aware_encoder_and_stream_tracker(trac
             events.append("track")
             return super().update(detections, frame)
 
-    tracker = _EnrichedTracker(1, 25)
+    tracker = _EnrichedTracker(1)
     manager = TrackerManager(
         _settings(),
         tracker_factory=lambda _spec: tracker,
@@ -734,8 +735,29 @@ def test_custom_gpu_tracker_factory_skips_shared_encoder_construction() -> None:
         encoder_factory=unexpected_encoder_factory,
     )
 
-    spec = TrackerSpec(name="botsort", geometry="aabb", options=(("frame_rate", 25),))
+    spec = TrackerSpec(name="botsort", geometry="aabb", options=(("max_lost_frames", 25),))
     assert manager._tracker_factory(spec) is factory.instances[0]
+
+
+@pytest.mark.parametrize("tracker_type,expected_frames", [("bytetrack", 30), ("botsort", 40)])
+@pytest.mark.parametrize("frame_rate", [5, 25, 60])
+def test_stream_frame_rate_does_not_scale_tracker_lifetime(
+    tracker_type: str, expected_frames: int, frame_rate: int
+) -> None:
+    """Stream FPS stays metadata while real trackers retain their configured update count."""
+    from boxmot.trackers import create_tracker
+
+    appearance = tracker_type == "botsort"
+    manager = TrackerManager(
+        _settings(profile="gpu" if appearance else "cpu", tracker_type=tracker_type),
+        tracker_factory=_FakeFactory(),
+    )
+    spec = manager._tracker_spec(FrameRequest(**_aabb_frame(frame_rate=frame_rate)))
+    overrides = {"use_cmc": False, **({"use_embeddings": False} if appearance else {})}
+    tracker = create_tracker(spec, options=overrides)
+
+    assert "frame_rate" not in spec.option_dict
+    assert tracker.max_lost_frames == tracker.config.max_lost_frames == expected_frames
 
 
 def test_empty_obb_frame_preserves_the_seven_column_detection_schema() -> None:
@@ -894,7 +916,7 @@ def test_manager_serializes_updates_for_the_same_stream() -> None:
 
     class _BlockingTracker(_FakeTracker):
         def __init__(self) -> None:
-            super().__init__(1, 30)
+            super().__init__(1)
             self.active_updates = 0
             self.max_active_updates = 0
 
@@ -950,7 +972,7 @@ def test_manager_bounds_concurrent_updates_across_streams() -> None:
     def factory(spec: TrackerSpec) -> _ProcessBlockingTracker:
         nonlocal instance_id
         instance_id += 1
-        return _ProcessBlockingTracker(instance_id, int(spec.option_dict.get("frame_rate", 30)))
+        return _ProcessBlockingTracker(instance_id)
 
     manager = TrackerManager(
         _settings(max_concurrent_updates=1),
@@ -979,7 +1001,7 @@ def test_cancellation_drains_tracker_thread_before_releasing_stream_lock() -> No
 
     class _CancellationTracker(_FakeTracker):
         def __init__(self) -> None:
-            super().__init__(1, 30)
+            super().__init__(1)
             self.entries = 0
             self.active_updates = 0
             self.max_active_updates = 0
@@ -1094,12 +1116,10 @@ def test_supported_cpu_service_trackers_use_canonical_torch_structures() -> None
             ("sfsort", "aabb", Boxes(torch.tensor([[10, 20, 60, 100]], dtype=torch.float32))),
         )
         for tracker_type, geometry_mode, geometry in cases:
-            options = (("frame_rate", 30),) if tracker_type == "bytetrack" else ()
             tracker = create_tracker(TrackerSpec(
                 name=tracker_type,
                 geometry=geometry_mode,
                 per_class=True,
-                options=options,
             ))
             detections = Detections(
                 geometry=geometry,

@@ -14,14 +14,13 @@
 
 extern "C" {
 
-struct BoxMOTByteTrackConfig {
+struct BoxMOTByteTrackConfigV2 {
     float min_conf;
     float track_thresh;
     float match_thresh;
     float second_match_thresh;
     float unconfirmed_match_thresh;
-    int track_buffer;
-    int frame_rate;
+    int max_lost_frames;
     int max_obs;
     const char* asso_func;
     double centroid_max_distance;
@@ -29,8 +28,8 @@ struct BoxMOTByteTrackConfig {
 
 struct BoxMOTByteTrackHandle;
 
-BOXMOT_BYTETRACK_API BoxMOTByteTrackHandle* boxmot_bytetrack_create(
-    const BoxMOTByteTrackConfig* config);
+BOXMOT_BYTETRACK_API BoxMOTByteTrackHandle* boxmot_bytetrack_create_v2(
+    const BoxMOTByteTrackConfigV2* config);
 BOXMOT_BYTETRACK_API void boxmot_bytetrack_destroy(BoxMOTByteTrackHandle* handle);
 BOXMOT_BYTETRACK_API int boxmot_bytetrack_reset(BoxMOTByteTrackHandle* handle);
 BOXMOT_BYTETRACK_API int boxmot_bytetrack_update_v2(BoxMOTByteTrackHandle* handle,

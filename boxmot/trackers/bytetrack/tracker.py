@@ -26,8 +26,7 @@ class ByteTrack(BoxTracker):
         active_tracks (list[STrack]): Currently active tracks.
         lost_stracks (list[STrack]): Tracks kept in the lost state.
         removed_stracks (list[STrack]): Recently removed tracks retained for display and lifecycle cleanup.
-        buffer_size (int): Track buffer size after frame-rate scaling.
-        max_time_lost (int): Maximum number of frames a track may stay lost.
+        max_lost_frames (int): Maximum missed tracker updates before lost-track removal.
         kalman_filter: XYAH motion model for AABB, or XYWH with angle for OBB.
     """
 
@@ -40,7 +39,7 @@ class ByteTrack(BoxTracker):
         kalman: KalmanConfig | None = None,
         **kwargs: Unpack[BoxTrackerOptions],
     ) -> None:
-        """Configure ByteTrack's confidence stages and lost-track buffer.
+        """Configure ByteTrack's confidence stages and lost-track lifetime.
 
         Args:
             config: Immutable algorithm settings. None selects ByteTrackConfig defaults.
@@ -66,9 +65,7 @@ class ByteTrack(BoxTracker):
 
         # Track lifecycle parameters
         self.frame_id = 0
-        self.track_buffer = config.track_buffer
-        self.buffer_size = int(config.frame_rate / 30.0 * config.track_buffer)
-        self.max_time_lost = self.buffer_size
+        self.max_lost_frames = config.max_lost_frames
 
         # Detection thresholds
         self.min_conf = config.min_conf
@@ -258,7 +255,7 @@ class ByteTrack(BoxTracker):
             activated_starcks.append(track)
         """ Step 5: Update state"""
         for track in self.lost_stracks:
-            if self.frame_count - track.end_frame > self.max_time_lost:
+            if self.frame_count - track.end_frame > self.max_lost_frames:
                 track.mark_removed()
                 removed_stracks.append(track)
 
@@ -272,7 +269,7 @@ class ByteTrack(BoxTracker):
         # Removal is applied to the lost pool on the following frame. Keep
         # that lifecycle behavior and the removed-track display window, but
         # release older identities instead of archiving every track forever.
-        removed_cutoff = self.frame_count - self.max_time_lost - max(1, int(self.removed_display_frames))
+        removed_cutoff = self.frame_count - self.max_lost_frames - max(1, int(self.removed_display_frames))
         recent_removals = []
         for track in self.removed_stracks:
             if track.end_frame >= removed_cutoff:

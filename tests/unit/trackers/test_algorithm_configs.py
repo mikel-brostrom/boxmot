@@ -82,14 +82,30 @@ def test_algorithm_configs_reject_unknown_fields_and_mismatched_trackers(name: s
 
 
 def test_factory_overrides_config_without_mutating_it() -> None:
-    original = BotSortConfig(match_thresh=0.8, track_buffer=45)
+    original = BotSortConfig(match_thresh=0.8, max_lost_frames=45)
     spec = TrackerSpec("botsort", options=(("match_thresh", 0.7),))
-    tracker = create_tracker(spec, config=original, options={"track_buffer": 50}, match_thresh=0.6)
+    tracker = create_tracker(spec, config=original, options={"max_lost_frames": 50}, match_thresh=0.6)
     assert tracker.config.match_thresh == 0.6
-    assert tracker.config.track_buffer == 50
+    assert tracker.config.max_lost_frames == 50
     assert original.match_thresh == 0.8
-    assert original.track_buffer == 45
+    assert original.max_lost_frames == 45
     assert dict(spec.options) == {"match_thresh": 0.7}
+
+
+@pytest.mark.parametrize("config_type", [ByteTrackConfig, BotSortConfig])
+@pytest.mark.parametrize("parameter", ["track_buffer", "buffer_size", "max_time_lost", "frame_rate"])
+def test_lost_track_configs_reject_replaced_lifetime_options(config_type: type, parameter: str) -> None:
+    """The canonical configuration exposes only the direct frame-count lifetime."""
+    with pytest.raises(TypeError, match=parameter):
+        config_type.from_mapping({parameter: 30})
+
+
+@pytest.mark.parametrize("config_type", [ByteTrackConfig, BotSortConfig])
+@pytest.mark.parametrize("value", [True, "3", 1.5, None, -1])
+def test_max_lost_frames_requires_a_nonnegative_integer(config_type: type, value: object) -> None:
+    """Invalid lifetime settings fail before any tracking state is created."""
+    with pytest.raises((TypeError, ValueError), match="max_lost_frames"):
+        config_type(max_lost_frames=value)
 
 
 class _RecordingNativeLibrary:

@@ -28,8 +28,7 @@ class BotSort(BoxTracker):
     Attributes:
         lost_stracks (list[STrack]): Tracks kept in the lost state.
         removed_stracks (list[STrack]): Tracks removed from the tracker state.
-        buffer_size (int): Track buffer size after frame-rate scaling.
-        max_time_lost (int): Maximum number of frames a track may stay lost.
+        max_lost_frames (int): Maximum missed tracker updates before lost-track removal.
         kalman_filter (KalmanFilterXYWH): Motion model used for prediction.
         cmc: Camera-motion compensation method.
     """
@@ -49,7 +48,7 @@ class BotSort(BoxTracker):
         """Configure confidence stages, lost-track retention, and appearance matching.
 
         Detection filtering uses track_high_thresh and track_low_thresh; lost-track
-        retention uses track_buffer scaled by frame_rate.
+        retention uses max_lost_frames counted in tracker updates.
 
         Args:
             config: Immutable algorithm settings. None selects BotSortConfig defaults.
@@ -83,8 +82,7 @@ class BotSort(BoxTracker):
         self.new_track_thresh = config.new_track_thresh
         self.match_thresh = self._geometry_cost_threshold(config.match_thresh)
 
-        self.buffer_size = int(config.frame_rate / 30.0 * config.track_buffer)
-        self.max_time_lost = self.buffer_size
+        self.max_lost_frames = config.max_lost_frames
         self.motion_model = create_motion_model(
             resolve_motion_model_kind("botsort", self.kalman_config.type, is_obb=self.is_obb),
             is_obb=self.is_obb,
@@ -493,7 +491,7 @@ class BotSort(BoxTracker):
 
     def _update_track_states(self, removed_stracks):
         for track in self.lost_stracks:
-            if self.frame_count - track.end_frame > self.max_time_lost:
+            if self.frame_count - track.end_frame > self.max_lost_frames:
                 track.mark_removed()
                 removed_stracks.append(track)
 

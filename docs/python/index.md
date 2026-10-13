@@ -95,7 +95,7 @@ from boxmot import BotSort, BotSortConfig, KalmanConfig, KalmanNoiseConfig, ReID
 tracker = BotSort(
     config=BotSortConfig(
         match_thresh=0.8,
-        track_buffer=40,
+        max_lost_frames=40,
     ),
     kalman=KalmanConfig(
         noise=KalmanNoiseConfig(measurement_noise_scale=1.5),
@@ -343,7 +343,7 @@ benchmark accuracy transfers without calibration and held-out evaluation.
 EagerMot, MafHda, SFSORT, and native C++ tracker adapters reject `kalman.variable_dt=True` and
 retain fixed-step behavior. Native C++ elapsed-time prediction is not
 implemented. Track expiration and confirmation settings such as `max_age`,
-`track_buffer`, and `min_hits`
+`max_lost_frames`, and `min_hits`
 remain counts of updates; elapsed-time prediction does not turn them into
 durations.
 

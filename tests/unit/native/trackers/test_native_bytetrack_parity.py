@@ -18,8 +18,7 @@ def test_native_bytetrack_kalman_prediction_matches_python(is_obb):
         "min_conf": 0.1,
         "track_thresh": 0.6,
         "match_thresh": 0.9,
-        "track_buffer": 30,
-        "frame_rate": 30,
+        "max_lost_frames": 30,
     }
     python_tracker = ByteTrack(config=ByteTrackConfig(**cfg), is_obb=is_obb)
     library = native_binding.ByteTrackLibrary(native_binding.ensure_bytetrack_cpp_library())

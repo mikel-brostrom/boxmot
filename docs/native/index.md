@@ -162,6 +162,13 @@ OccluBoost construction uses `boxmot_occluboost_create_v2` and
 AABB and OBB. Rebuild older native libraries to use this configuration layout;
 the Python loader rejects libraries with the previous constructor ABI.
 
+ByteTrack and BotSort construction uses `boxmot_bytetrack_create_v2` with
+`BoxMOTByteTrackConfigV2` and `boxmot_botsort_create_v2` with
+`BoxMOTBotSortConfigV2`. Their `max_lost_frames` setting counts tracker updates
+directly, without FPS scaling. Rebuild older libraries to use these layouts;
+the Python loader rejects their previous constructors. The shared v2 update
+and result buffers are unchanged.
+
 The update function has this shape, with `<name>` replaced by the tracker ID:
 
 ```cpp

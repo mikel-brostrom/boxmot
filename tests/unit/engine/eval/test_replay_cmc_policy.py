@@ -31,7 +31,7 @@ def _run_inline(tasks, *, workers, progress_callback):
 @pytest.mark.parametrize("cache_inputs", [False, True])
 @pytest.mark.parametrize("tracker", sorted(KALMAN_TRACKER_NAMES))
 def test_policy_only_loads_pixels_for_enabled_sequences(image_build, tmp_path, monkeypatch, cache_inputs, tracker):
-    lifetime = "track_buffer" if tracker in {"bytetrack", "botsort"} else "max_age"
+    lifetime = "max_lost_frames" if tracker in {"bytetrack", "botsort"} else "max_age"
     spec = TrackerSpec(name=tracker, options=(("cmc_min_conf", 0.17), ("kalman.type", "xyah"), (lifetime, 17)))
     policy = SequenceCMCPolicy(sequences=(("a", True),))
     opened = []

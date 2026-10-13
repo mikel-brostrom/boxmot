@@ -22,8 +22,7 @@ struct Config {
     float match_thresh = 0.9F;
     float second_match_thresh = 0.5F;
     float unconfirmed_match_thresh = 0.7F;
-    int track_buffer = 30;
-    int frame_rate = 30;
+    int max_lost_frames = 30;
     int max_obs = 50;
 };
 

@@ -16,15 +16,14 @@ namespace {
 
 thread_local std::string g_last_error;
 
-bytetrack::Config ConvertConfig(const BoxMOTByteTrackConfig& config) {
+bytetrack::Config ConvertConfig(const BoxMOTByteTrackConfigV2& config) {
     bytetrack::Config native_config;
     native_config.min_conf = config.min_conf;
     native_config.track_thresh = config.track_thresh;
     native_config.match_thresh = config.match_thresh;
     native_config.second_match_thresh = config.second_match_thresh;
     native_config.unconfirmed_match_thresh = config.unconfirmed_match_thresh;
-    native_config.track_buffer = config.track_buffer;
-    native_config.frame_rate = config.frame_rate;
+    native_config.max_lost_frames = config.max_lost_frames;
     native_config.max_obs = config.max_obs;
     native_config.centroid_max_distance = config.centroid_max_distance;
     native_config.asso_func = config.asso_func == nullptr ? "iou" : std::string(config.asso_func);
@@ -44,7 +43,7 @@ struct BoxMOTByteTrackHandle {
 
 extern "C" {
 
-BoxMOTByteTrackHandle* boxmot_bytetrack_create(const BoxMOTByteTrackConfig* config) {
+BoxMOTByteTrackHandle* boxmot_bytetrack_create_v2(const BoxMOTByteTrackConfigV2* config) {
     try {
         if (config == nullptr) {
             throw std::runtime_error("Native ByteTrack config is required.");

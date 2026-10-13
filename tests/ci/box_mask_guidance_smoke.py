@@ -50,7 +50,7 @@ def _create_tracker(name: str, guidance: MaskGuidance) -> Tracker:
     if name in {"boosttrack", "botsort", "occluboost"}:
         options.update(use_embeddings=True, use_cmc=False)
     if name in {"botsort", "bytetrack"}:
-        options["track_buffer"] = 5
+        options["max_lost_frames"] = 5
     if name == "deepocsort":
         options.update(use_embeddings=True, use_cmc=False)
     if name == "hybridsort":

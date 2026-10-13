@@ -499,14 +499,14 @@ def test_programmatic_baseline_and_custom_config_are_preserved_during_calibratio
     fake_tuning: SimpleNamespace, tmp_path: Path
 ) -> None:
     original_config = tmp_path / "tracker.yaml"
-    original_config.write_text(yaml.safe_dump({"tracker": "botsort", "track_buffer": 61, "match_thresh": 0.8}))
+    original_config.write_text(yaml.safe_dump({"tracker": "botsort", "max_lost_frames": 61, "match_thresh": 0.8}))
     args = fake_tuning.args(tracker_config=original_config)
     baseline = {"match_thresh": 0.55, "use_cmc": False, "kalman.noise.measurement_noise_scale": 8.0}
 
     tuner_module.Tuner(args, baseline_config=baseline).fit()
 
     observed = fake_tuning.captured["calibrations"][0]
-    assert observed["track_buffer"] == 61
+    assert observed["max_lost_frames"] == 61
     assert observed["match_thresh"] == 0.55
     assert observed["use_cmc"] is False
     assert observed["kalman.noise.measurement_noise_scale"] == 8.0

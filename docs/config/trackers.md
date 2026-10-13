@@ -37,6 +37,9 @@ display, or input frame dimensions have explicit empty mappings (`{}`) where
 searching them would not improve tracking. For example, OC-SORT searches
 `iou_threshold` over `[0.1, 0.7]`, while `max_obs` stays fixed; StrongSORT searches
 `nn_budget` over `[25, 50, 100, 200]` appearance features per track.
+ByteTrack and BotSort search `max_lost_frames` directly over integers 1 through
+199 (`range: [1, 200]`). This lifetime counts tracker updates and is independent
+of input FPS in both geometries and backends.
 For shared component settings, an entry with only `default` is also fixed. If that entry controls an `activates`
 block, a true value enables the children's search ranges and a false value
 keeps the children fixed. A searchable parent's default does not fix its
@@ -81,7 +84,7 @@ geometry/class selection stay on the constructor:
 from boxmot import BotSort, BotSortConfig, ReIDConfig
 
 tracker = BotSort(
-    config=BotSortConfig(match_thresh=0.8, track_buffer=40),
+    config=BotSortConfig(match_thresh=0.8, max_lost_frames=40),
     reid=ReIDConfig(device="cpu"),
     per_class=True,
 )
@@ -257,10 +260,10 @@ track_thresh:
   default: 0.6
   range: [0.4, 0.7]
 
-track_buffer:
-  type: qrandint
+max_lost_frames:
+  type: randint
   default: 30
-  range: [10, 61, 10]
+  range: [1, 200]
 ```
 
 The tracker name selects its combined built-in file. `track` and `eval` accept

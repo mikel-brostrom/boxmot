@@ -198,13 +198,13 @@ def test_tracker_config_precedence_and_partial_custom_overlay(tmp_path) -> None:
     resolved = load_tracker_config(
         "bytetrack",
         custom_path,
-        {"track_buffer": 45, "match_thresh": 0.8},
+        {"max_lost_frames": 45, "match_thresh": 0.8},
         {"match_thresh": 0.75},
     )
 
     assert resolved["min_conf"] == 0.1
     assert resolved["track_thresh"] == 0.7
-    assert resolved["track_buffer"] == 45
+    assert resolved["max_lost_frames"] == 45
     assert resolved["match_thresh"] == 0.75
 
 
@@ -243,15 +243,15 @@ def test_create_tracker_merges_spec_options_then_applies_fixed_spec_fields(monke
                 ("asso_func", "giou"),
                 ("is_obb", False),
                 ("match_thresh", 0.75),
+                ("max_lost_frames", 45),
                 ("per_class", False),
-                ("track_buffer", 45),
             ),
         )
     )
 
     assert captured["config"].asso_func == "giou"
     assert captured["config"].match_thresh == 0.75
-    assert captured["config"].track_buffer == 45
+    assert captured["config"].max_lost_frames == 45
     assert captured["is_obb"] is True
     assert captured["per_class"] is True
     assert captured["class_ids"] == (0, 3)

@@ -19,13 +19,13 @@ class BotSortConfig(TrackerConfig):
         track_high_thresh: Detection confidence threshold for first-pass matching.
         track_low_thresh: Lower confidence bound for second-pass candidates.
         new_track_thresh: Minimum confidence required to initialize a new track.
-        track_buffer: Lost-track lifetime in frames at 30 FPS, scaled by frame_rate.
+        max_lost_frames: Maximum missed tracker updates before a lost track is
+            marked removed. Measured directly in frames, without FPS scaling.
         match_thresh: Maximum assignment cost for first-pass matching.
         proximity_thresh: Maximum geometry distance that permits appearance matching.
         appearance_thresh: Maximum embedding distance accepted for appearance matching.
         use_cmc: Enable camera-motion compensation; requires image frames.
         cmc_method: Camera-motion compensation method used when CMC is enabled.
-        frame_rate: Frame rate used to scale track_buffer relative to 30 FPS.
         fuse_first_associate: Fuse detection confidence into the first-pass geometry cost.
         use_embeddings: Use supplied appearance embeddings, generating missing
             embeddings from image frames with the configured ReID backend.
@@ -39,14 +39,13 @@ class BotSortConfig(TrackerConfig):
     track_high_thresh: float = field(default=0.6296854875023994, metadata={"ge": 0.0, "le": 1.0})
     track_low_thresh: float = field(default=0.1014392537025336, metadata={"ge": 0.0, "le": 1.0})
     new_track_thresh: float = field(default=0.6246494191492591, metadata={"ge": 0.0, "le": 1.0})
-    track_buffer: int = field(default=40, metadata={"ge": 0})
+    max_lost_frames: int = field(default=40, metadata={"ge": 0})
     match_thresh: float = field(default=0.7722224024589055, metadata={"ge": 0})
     proximity_thresh: float = field(default=0.6084297894561342, metadata={"ge": 0})
     appearance_thresh: float = field(default=0.6188818853936099, metadata={"ge": 0})
     use_cmc: bool = True
     cmc_method: str = field(default="sof", metadata={"choices": ("ecc", "orb", "sof", "sift")})
     cmc_min_conf: float | None = field(default=None, metadata={"ge": 0.0, "le": 1.0})
-    frame_rate: int = field(default=30, metadata={"gt": 0})
     fuse_first_associate: bool = True
     use_embeddings: bool = True
     second_match_thresh: float = field(default=0.28795081514328974, metadata={"ge": 0})

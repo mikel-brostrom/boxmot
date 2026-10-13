@@ -68,7 +68,7 @@ def test_native_scalar_config_preserves_override_precedence_without_inherited_de
 def test_sparse_config_selection_keeps_preset_metadata_validation_and_python_defaults(tmp_path) -> None:
     assert load_tracker_config("botsort", "botsort", include_defaults=False) == {}
     preset = load_tracker_config("botsort", "botsort-mot17-ablation", include_defaults=False)
-    assert preset["track_buffer"] == 40
+    assert preset["max_lost_frames"] == 40
     assert "tracker" not in preset
     # This preset explicitly authors a Python-only option; keep its rejection.
     assert "removed_stracks_buffer" in preset
@@ -79,7 +79,7 @@ def test_sparse_config_selection_keeps_preset_metadata_validation_and_python_def
         SimpleNamespace(tracker="botsort", tracker_backend="python"), include_defaults=True
     )
     profile = tmp_path / "mismatch.yaml"
-    profile.write_text("tracker: botsort\ntrack_buffer: 40\n")
+    profile.write_text("tracker: botsort\nmax_lost_frames: 40\n")
     with pytest.raises(ValueError, match="botsort.*bytetrack"):
         resolve_tracker_options(_args("bytetrack", tracker_config=profile), factory_options=True)
 

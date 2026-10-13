@@ -101,26 +101,19 @@ std::pair<std::vector<Track::Ptr>, std::vector<Track::Ptr>> RemoveDuplicateTrack
 
 ByteTrackTracker::ByteTrackTracker(Config config)
     : config_(std::move(config)),
-      association_mode_(boxmot::trackers::base::ParseAssociationMode(config_.asso_func)),
-      max_time_lost_(static_cast<int>((static_cast<double>(config_.frame_rate) / 30.0) *
-                                      static_cast<double>(config_.track_buffer))) {
+      association_mode_(boxmot::trackers::base::ParseAssociationMode(config_.asso_func)) {
     boxmot::trackers::base::ValidateCentroidMaxDistance(config_.centroid_max_distance);
+    if (config_.max_lost_frames < 0) {
+        throw std::invalid_argument("ByteTrack max_lost_frames must be nonnegative.");
+    }
     if (!std::isfinite(config_.second_match_thresh) || config_.second_match_thresh < 0.0F ||
         !std::isfinite(config_.unconfirmed_match_thresh) || config_.unconfirmed_match_thresh < 0.0F) {
         throw std::invalid_argument("ByteTrack secondary and confirmation thresholds must be finite and nonnegative.");
-    }
-    if (max_time_lost_ <= 0) {
-        max_time_lost_ = config_.track_buffer;
     }
 }
 
 void ByteTrackTracker::Reset() {
     frame_count_ = 0;
-    max_time_lost_ = static_cast<int>((static_cast<double>(config_.frame_rate) / 30.0) *
-                                      static_cast<double>(config_.track_buffer));
-    if (max_time_lost_ <= 0) {
-        max_time_lost_ = config_.track_buffer;
-    }
     detection_mode_ready_ = false;
     is_obb_mode_ = false;
     association_frame_width_ = 0;
@@ -157,7 +150,7 @@ std::pair<std::vector<Track::Ptr>, std::vector<Track::Ptr>> ByteTrackTracker::Se
 
 void ByteTrackTracker::UpdateTrackStates(std::vector<Track::Ptr>& removed_tracks) {
     for (const auto& track : lost_tracks_) {
-        if ((frame_count_ - track->frame_id) > max_time_lost_) {
+        if ((frame_count_ - track->frame_id) > config_.max_lost_frames) {
             track->state = TrackState::kRemoved;
             removed_tracks.push_back(track);
         }

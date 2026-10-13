@@ -14,9 +14,9 @@ track_thresh:
   type: uniform
   range: [0.4, 0.7]
 
-track_buffer:
-  type: qrandint
-  range: [10, 61, 10]
+max_lost_frames:
+  type: randint
+  range: [1, 200]
 ```
 
 The loader adds canonical defaults to the resolved schema. The tuning engine reads
