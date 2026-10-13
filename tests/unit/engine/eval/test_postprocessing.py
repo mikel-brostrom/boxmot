@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from multiprocessing import active_children
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -137,6 +138,28 @@ def test_parallel_progress_arrives_before_sequences_finish(timestamped_build, tm
     assert {event.sequence_id for event in events if event.status == "completed"} == {"a", "b"}
     assert all(event.status != "failed" for event in events)
     assert (replay.output_dir / "postprocessing.json").is_file()
+
+
+def test_interrupted_processing_stops_workers_before_removing_staging(timestamped_build, tmp_path, monkeypatch) -> None:
+    """An interrupt must stop active CPU work without waiting for its task timeout."""
+    replay = _replay(timestamped_build, tmp_path / "results", two_sequences=True)
+    original = {path: path.read_bytes() for path in replay.sequence_files}
+    existing_children = {child.pid for child in active_children()}
+    interrupted_at = []
+
+    def interrupt(event):
+        if event.status == "running":
+            interrupted_at.append(time.monotonic())
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(postprocessing, "_process_sequence", _synchronized_sequence_task)
+    with pytest.raises(KeyboardInterrupt):
+        postprocessing.postprocess_replay(replay, ("gsi",), workers=2, progress_callback=interrupt)
+
+    assert time.monotonic() - interrupted_at[0] < 10
+    assert {child.pid for child in active_children()} <= existing_children
+    assert all(path.read_bytes() == payload for path, payload in original.items())
+    assert not tuple(replay.output_dir.glob(".postprocess-*"))
 
 
 def test_parallel_failure_reports_failed_sequence_and_preserves_inputs(timestamped_build, tmp_path) -> None:

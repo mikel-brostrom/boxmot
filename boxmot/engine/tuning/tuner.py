@@ -31,6 +31,9 @@ def _configure_ray_environment() -> None:
     os.environ.setdefault("RAY_CHDIR_TO_TRIAL_DIR", "0")
     os.environ.setdefault("RAY_DEDUP_LOGS", "1")
     os.environ.setdefault("RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO", "0")
+    # OOM termination bypasses actor cleanup. Enable Raylet's descendant
+    # cleanup for new runtimes without reconfiguring caller-owned clusters.
+    os.environ.setdefault("RAY_process_group_cleanup_enabled", "true")
 
 
 from boxmot.engine.config.runtime import resolve_sequence_workers
@@ -228,7 +231,8 @@ class Tuner:
         args.maximize = tuple(self._maximize)
         args.minimize = tuple(self._minimize)
 
-    def _setup_ray(self):
+    def _setup_ray(self) -> None:
+        """Initialize tuning with cleanup for subprocesses owned by Ray actors."""
         _configure_ray_environment()
         import ray
 

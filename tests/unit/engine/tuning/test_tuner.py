@@ -22,6 +22,20 @@ from boxmot.trackers.common.motion.kalman_filters.noise import DEFAULT_REFERENCE
 from boxmot.trackers.common.registry import TRACKER_DEFINITIONS
 
 
+@pytest.mark.parametrize("configured", [None, "false", "true"])
+def test_ray_environment_defaults_to_process_group_cleanup(monkeypatch, configured) -> None:
+    """Enable descendant cleanup without replacing an explicit runtime choice."""
+    key = "RAY_process_group_cleanup_enabled"
+    if configured is None:
+        monkeypatch.delenv(key, raising=False)
+    else:
+        monkeypatch.setenv(key, configured)
+
+    tuner_module._configure_ray_environment()
+
+    assert os.environ[key] == ("true" if configured is None else configured)
+
+
 def test_ray_setup_under_uv_uses_driver_environment_without_packaging(monkeypatch) -> None:
     """Preimported Ray must not upload cwd or launch workers through uv."""
     ray = pytest.importorskip("ray")
@@ -42,6 +56,7 @@ def test_ray_setup_under_uv_uses_driver_environment_without_packaging(monkeypatc
 
     def initialize(**kwargs):
         assert "runtime_env" not in kwargs
+        assert "_system_config" not in kwargs
         modified = _maybe_modify_runtime_env(kwargs.get("runtime_env"), _skip_env_hook=False)
         captured.update(RuntimeEnv(**(modified or {})))
 
@@ -62,6 +77,7 @@ def test_ray_setup_restores_uv_setting_after_initialization(monkeypatch, uv_enab
 
     def initialize(**kwargs):
         assert constants.RAY_ENABLE_UV_RUN_RUNTIME_ENV is False
+        assert "_system_config" not in kwargs
         if init_fails:
             raise failure
 

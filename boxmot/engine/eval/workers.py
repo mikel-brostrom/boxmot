@@ -12,7 +12,7 @@ def shutdown_sequence_pool(executor: concurrent.futures.ProcessPoolExecutor, *, 
         # Python 3.11 has no public ProcessPoolExecutor.terminate_workers().
         # Snapshot its child handles before shutdown clears them, and bound
         # both graceful termination and a final kill of unresponsive children.
-        processes = tuple(executor._processes.values())
+        processes = tuple((executor._processes or {}).values())
         for process in processes:
             if process.is_alive():
                 process.terminate()
@@ -25,4 +25,4 @@ def shutdown_sequence_pool(executor: concurrent.futures.ProcessPoolExecutor, *, 
         deadline = time.monotonic() + 2.0
         for process in processes:
             process.join(timeout=max(0.0, deadline - time.monotonic()))
-    executor.shutdown(wait=True, cancel_futures=True)
+    executor.shutdown(wait=True, cancel_futures=interrupted)

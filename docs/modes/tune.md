@@ -301,12 +301,22 @@ bounded by the number of selected sequences. Use `--max-concurrent-trials` to
 limit how many image-tracker trials run at once; sequence workers are allocated
 separately to each trial.
 
+For limited RAM, use `--max-concurrent-trials 1 --sequence-workers 1` together
+to run one trial and one sequence at a time. `--n-trials` controls the total
+number of trials, not how many run concurrently.
+
 Each reusable image tuning actor and each sensor study keeps its sequence-worker
 pool across trials. Every trial still creates fresh
 trackers, pipelines, frame cursors, and output files. Worker pools are closed
 when tuning ends; failed worker operations discard the pool before reuse.
 This applies to image search backends and the sensor Optuna workflow without an
 additional flag.
+
+Pool workers also monitor their owning process and exit if it dies, including
+when Ray terminates a trial for running out of memory. When BoxMOT starts Ray,
+it enables process-group cleanup by default on POSIX systems so actor
+descendants are terminated together. Existing Ray runtimes and explicit Ray
+cleanup settings remain caller-owned. Ray's memory threshold is unchanged.
 
 Add `--cache-inputs` to also reuse mapped inputs on disk across tuning sessions
 and evaluation commands:

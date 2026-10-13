@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import os
 import queue
+import signal
+import time
 from concurrent.futures.process import BrokenProcessPool
+from pathlib import Path
 
 import pytest
 
@@ -29,6 +32,35 @@ def _fail_worker(kind: str) -> None:
     if kind == "interrupt":
         raise KeyboardInterrupt("cancelled trial")
     raise ValueError("failed trial")
+
+
+def _ignore_termination(ready_path: str) -> None:
+    """Model native work that does not respond to graceful termination."""
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    Path(ready_path).write_text(str(os.getpid()))
+    time.sleep(60)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signal handling")
+def test_interrupted_session_kills_unresponsive_workers(tmp_path: Path) -> None:
+    """An interrupted trial must not hang joining a SIGTERM-ignoring child."""
+    ready = tmp_path / "ready"
+    with ReplaySession(1) as session:
+        with pytest.raises(KeyboardInterrupt):
+            with session._operation() as executor:
+                executor.submit(_ignore_termination, str(ready))
+                deadline = time.monotonic() + 30
+                while not ready.exists():
+                    assert time.monotonic() < deadline, "Replay worker did not start"
+                    time.sleep(0.02)
+                processes = tuple(executor._processes.values())
+                interrupted_at = time.monotonic()
+                raise KeyboardInterrupt
+        assert time.monotonic() - interrupted_at < 10
+        assert all(not process.is_alive() for process in processes)
+        assert session._executor is None
+        # Cancellation discards the poisoned pool without closing the session.
+        assert session.map(_worker_state, [None])[0][0] != int(ready.read_text())
 
 
 @pytest.mark.parametrize("cache_inputs", [False, True])
