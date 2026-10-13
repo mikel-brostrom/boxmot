@@ -29,14 +29,73 @@ TUNE_SETUP_STEP = step_labels.SETUP
 TUNE_OPTIMIZE_STEP = step_labels.OPTIMIZE
 
 
-def _format_core_summary(summary: dict[str, Any] | None) -> str:
-    """Format the three main metrics without inventing missing measurements."""
-    metrics = []
-    for metric in CORE_SUMMARY_COLUMNS:
-        value = (summary or {}).get(metric)
-        formatted = f"{float(value):.3f}" if value is not None and math.isfinite(float(value)) else "--"
-        metrics.append(f"{metric}={formatted}")
-    return " ".join(metrics)
+def _metric_value(summary: Mapping[str, Any] | None, metric: str) -> float | None:
+    """Distinguish unavailable metrics from measured zero."""
+    value = (summary or {}).get(metric)
+    if value is None:
+        return None
+    value = float(value)
+    return value if math.isfinite(value) else None
+
+
+def _metric_comparison(
+    value: float | None, baseline: float | None, *, compare: bool, minimize: bool
+) -> Text:
+    """Show raw metric differences, coloring them by the objective direction."""
+    cell = Text("--" if value is None else f"{value:.3f}", style=ui.STYLE_TEXT)
+    if not compare:
+        return cell
+    if value is None or baseline is None:
+        cell.append(" (--)", style=ui.STYLE_MUTED)
+        return cell
+    delta = round(value - baseline, 3)
+    if delta == 0:
+        delta = 0.0
+        style = ui.STYLE_MUTED
+    else:
+        improved = delta < 0 if minimize else delta > 0
+        style = ui.STYLE_STATUS_DONE if improved else ui.STYLE_STATUS_FAILED
+    cell.append(f" ({delta:+.3f})", style=style)
+    return cell
+
+
+def _trial_comparison_table(
+    first: Mapping[str, Any] | None,
+    best: Mapping[str, Any] | None,
+    last: Mapping[str, Any] | None,
+    *,
+    best_trial: int | None,
+    last_trial: int | None,
+    maximize: Sequence[str],
+    minimize: Sequence[str],
+) -> Table:
+    """Keep the baseline and both moving results aligned in a compact table."""
+    metrics = tuple(dict.fromkeys((*CORE_SUMMARY_COLUMNS, *maximize, *minimize)))
+    table = Table(box=None, padding=(0, 1), pad_edge=False, header_style=ui.STYLE_TABLE_HEADER)
+    table.add_column("Run", style=ui.STYLE_TEXT_STRONG)
+    for metric in metrics:
+        table.add_column(metric, justify="right", overflow="fold")
+    for label, index, summary, compare in (
+        ("First", 1, first, False),
+        ("Best", best_trial, best, True),
+        ("Last", last_trial, last, True),
+    ):
+        name = f"{label} #{index}" if index is not None else label
+        if not compare:
+            name += " (baseline)"
+        table.add_row(
+            name,
+            *(
+                _metric_comparison(
+                    _metric_value(summary, metric),
+                    _metric_value(first, metric),
+                    compare=compare,
+                    minimize=metric in minimize,
+                )
+                for metric in metrics
+            ),
+        )
+    return table
 
 
 def _score_summary(
@@ -162,8 +221,11 @@ class TuneWorkflowCallback(RichWorkflowCallback):
         self.trial_indices: dict[str, int] = {}
         self.active_trials: set[str] = set()
         self.best_score: tuple[float, ...] | None = None
+        self.first_summary: dict[str, float] | None = None
         self.best_summary: dict[str, float] | None = None
         self.last_summary: dict[str, float] | None = None
+        self.best_trial_index: int | None = None
+        self.last_trial_index: int | None = None
         self.sequence_totals: dict[str, int | None] = {}
         self.sequence_progress_dir: Path | None = None
         self.sequence_events: dict[str, tuple[ReplayProgressEvent, ...]] = {}
@@ -239,7 +301,12 @@ class TuneWorkflowCallback(RichWorkflowCallback):
                 self.completed,
                 self.total,
                 self.last_summary,
+                first_summary=self.first_summary,
                 best_summary=self.best_summary,
+                best_trial=self.best_trial_index,
+                last_trial=self.last_trial_index,
+                maximize=self.maximize,
+                minimize=self.minimize,
                 current_trial=self._running_index(),
                 remaining_seconds=self._remaining_seconds(),
                 failed=self.failed,
@@ -273,6 +340,9 @@ class TuneWorkflowCallback(RichWorkflowCallback):
         self.set_workflow_detail_renderable(Group(*parts))
 
     def on_trial_start(self, iteration: int, trials: list, trial: Any, **info: Any) -> None:
+        """Retain submission order even when workers start trials out of order."""
+        for scheduled_trial in trials:
+            self._trial_index(scheduled_trial)
         trial_id = self._trial_id(trial)
         self._trial_index(trial)
         self.active_trials.add(trial_id)
@@ -284,7 +354,9 @@ class TuneWorkflowCallback(RichWorkflowCallback):
         self._set_progress()
 
     def on_trial_complete(self, iteration: int, trials: list, trial: Any, **info: Any) -> None:
+        """Refresh the latest result and replace the best only on improvement."""
         trial_id = self._trial_id(trial)
+        trial_index = self._trial_index(trial)
         self._read_sequence_progress(trial_id)
         self._clear_sequence_progress(trial_id)
         self.last_sequence_trial = trial_id
@@ -293,21 +365,35 @@ class TuneWorkflowCallback(RichWorkflowCallback):
         self._retain_sequence_progress()
         self.completed += 1
         result = getattr(trial, "last_result", {}) or {}
+        self.record_result(result, trial_index=trial_index)
+        self._set_progress()
+
+    def record_result(self, result: Mapping[str, Any], *, trial_index: int) -> None:
+        """Retain completed metrics, including restored results in completion order."""
         duration = result.get("time_total_s")
-        if duration is not None:
+        if duration is not None and math.isfinite(float(duration)) and float(duration) >= 0:
             self.trial_durations.append(float(duration))
         metrics = dict.fromkeys((*SUMMARY_COLUMNS, *self.maximize, *self.minimize))
         summary = {key: float(result[key]) for key in metrics if result.get(key) is not None}
         if summary:
+            # The first scheduled trial is the baseline even if other trials
+            # finish sooner. A failed baseline must not become another trial.
+            if trial_index == 1:
+                self.first_summary = summary.copy()
             self.last_summary = summary
+            self.last_trial_index = trial_index
             score = _score_summary(summary, maximize=self.maximize, minimize=self.minimize)
             if all(math.isfinite(value) for value in score) and (self.best_score is None or score > self.best_score):
                 self.best_score = score
                 self.best_summary = summary.copy()
-        self._set_progress()
+                self.best_trial_index = trial_index
 
     def on_trial_error(self, iteration: int, trials: list, trial: Any, **info: Any) -> None:
+        """Retain completed metrics when a trial fails, including before startup."""
+        for scheduled_trial in trials:
+            self._trial_index(scheduled_trial)
         trial_id = self._trial_id(trial)
+        self._trial_index(trial)
         self._read_sequence_progress(trial_id)
         self._clear_sequence_progress(trial_id)
         self.last_sequence_trial = trial_id
@@ -354,7 +440,12 @@ def format_tune_progress(
     total: int,
     last_summary: dict[str, Any] | None = None,
     *,
+    first_summary: dict[str, Any] | None = None,
     best_summary: dict[str, Any] | None = None,
+    best_trial: int | None = None,
+    last_trial: int | None = None,
+    maximize: Sequence[str] = (),
+    minimize: Sequence[str] = (),
     current_trial: int | None = None,
     remaining_seconds: float | None = None,
     failed: int = 0,
@@ -399,8 +490,17 @@ def format_tune_progress(
         progress.update(task_id, completed=completed)
         progress.stop_task(task_id)
     parts: list[RenderableType] = [aggregate, progress]
-    if best_summary is not None or last_summary is not None:
-        metrics = Text(f"Best trial: {_format_core_summary(best_summary)}", style=ui.STYLE_STATUS_DONE)
-        metrics.append(f" · Last trial: {_format_core_summary(last_summary)}", style=ui.STYLE_MUTED)
-        parts.append(metrics)
+    if any(summary is not None for summary in (first_summary, best_summary, last_summary)):
+        parts.extend((
+            Text("Δ vs first trial (metric units)", style=ui.STYLE_MUTED),
+            _trial_comparison_table(
+                first_summary,
+                best_summary,
+                last_summary,
+                best_trial=best_trial,
+                last_trial=last_trial,
+                maximize=maximize,
+                minimize=minimize,
+            ),
+        ))
     return Group(*parts)

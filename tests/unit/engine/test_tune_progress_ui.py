@@ -16,7 +16,7 @@ from rich.progress import BarColumn, Progress
 from boxmot.engine.eval.replay import ReplayProgressEvent
 from boxmot.engine.tuning.progress import TrialSequenceProgressWriter, read_trial_sequence_progress
 from boxmot.engine.tuning.tuner import Tuner
-from boxmot.engine.ui.core.ui import capture_renderable
+from boxmot.engine.ui.core.ui import STYLE_STATUS_DONE, STYLE_STATUS_FAILED, capture_renderable, get_console
 from boxmot.engine.ui.reporters.eval import EvalSequenceProgressPresenter
 from boxmot.engine.ui.reporters.tune import (
     TUNE_OPTIMIZE_STEP,
@@ -32,6 +32,12 @@ def _progress(renderable: Group) -> Progress:
     return next(part for part in renderable.renderables if isinstance(part, Progress))
 
 
+def _metric_row(rendered: str, label: str) -> str:
+    """Read one visible comparison row without depending on table borders."""
+    row = next(line for line in rendered.splitlines() if label in line)
+    return " ".join(row.translate(str.maketrans({"│": " ", "┃": " ", "|": " "})).split())
+
+
 @pytest.mark.parametrize("width", [80, 160])
 def test_initial_progress_is_queued_without_claiming_a_trial_is_running(width: int) -> None:
     renderable = format_initial_tune_progress(200)
@@ -45,8 +51,9 @@ def test_initial_progress_is_queued_without_claiming_a_trial_is_running(width: i
     assert "remaining --:--" in rendered
     assert "running" not in rendered
     assert "trial 1/200" not in rendered
-    assert "Best trial:" not in rendered
-    assert "Last trial:" not in rendered
+    assert "First #1" not in rendered
+    assert "Best #" not in rendered
+    assert "Last #" not in rendered
     assert max(map(len, rendered.splitlines())) <= width
     task = _progress(renderable).tasks[0]
     assert not task.started
@@ -119,19 +126,25 @@ def test_tune_and_eval_render_identical_task_columns_apart_from_units(width: int
 
 
 @pytest.mark.parametrize("width", [80, 160])
-def test_best_and_last_metrics_remain_visible_without_corrupting_bar(width: int) -> None:
+def test_first_best_and_last_metrics_show_absolute_deltas_without_corrupting_bar(width: int) -> None:
     renderable = format_tune_progress(
         3,
         10,
         {"HOTA": 67.4, "MOTA": 75.2, "IDF1": 82.1},
+        first_summary={"HOTA": 66.0, "MOTA": 74.0, "IDF1": 83.0},
         best_summary={"HOTA": 69.0, "MOTA": 74.0, "IDF1": 84.0},
+        best_trial=2,
+        last_trial=3,
+        maximize=["HOTA"],
     )
 
     rendered = capture_renderable(renderable, width=width)
 
-    compact = " ".join(rendered.split())
-    assert "Best trial: HOTA=69.000 MOTA=74.000 IDF1=84.000" in compact
-    assert "Last trial: HOTA=67.400 MOTA=75.200 IDF1=82.100" in compact
+    assert "Run HOTA MOTA IDF1" in _metric_row(rendered, "HOTA")
+    assert "First #1 (baseline) 66.000 74.000 83.000" == _metric_row(rendered, "First #1")
+    assert "Best #2 69.000 (+3.000) 74.000 (+0.000) 84.000 (+1.000)" == _metric_row(rendered, "Best #2")
+    assert "Last #3 67.400 (+1.400) 75.200 (+1.200) 82.100 (-0.900)" == _metric_row(rendered, "Last #3")
+    assert "Δ vs first trial (metric units)" in rendered
     assert "3/10 trials" in rendered
     assert "pending" in rendered
     assert "running" not in rendered
@@ -142,14 +155,46 @@ def test_missing_metrics_are_distinguished_from_measured_zero() -> None:
     renderable = format_tune_progress(
         1,
         3,
-        {"HOTA": 0.0, "MOTA": None, "IDF1": float("nan")},
-        best_summary={"HOTA": 5.0},
+        {"HOTA": 0.0, "MOTA": 7.0, "IDF1": float("nan")},
+        first_summary={"HOTA": 0.0, "MOTA": None, "IDF1": float("inf")},
+        best_summary={"HOTA": 5.0, "IDF1": float("-inf")},
     )
 
     rendered = capture_renderable(renderable, width=160)
 
-    assert "Best trial: HOTA=5.000 MOTA=-- IDF1=--" in rendered
-    assert "Last trial: HOTA=0.000 MOTA=-- IDF1=--" in rendered
+    assert _metric_row(rendered, "First #1") == "First #1 (baseline) 0.000 -- --"
+    assert _metric_row(rendered, "Best") == "Best 5.000 (+5.000) -- (--) -- (--)"
+    assert _metric_row(rendered, "Last") == "Last 0.000 (+0.000) 7.000 (--) -- (--)"
+
+
+def test_custom_objectives_are_visible_once_and_delta_colors_follow_the_objective_direction() -> None:
+    renderable = format_tune_progress(
+        3,
+        10,
+        {"HOTA": 69.0, "MOTA": 69.0, "IDF1": 75.0, "IDSW_rate": 0.9},
+        first_summary={"HOTA": 70.0, "MOTA": 70.0, "IDF1": 75.0, "IDSW_rate": 0.8},
+        best_summary={"HOTA": 72.0, "MOTA": 68.0, "IDF1": 75.0, "IDSW_rate": 0.2},
+        best_trial=2,
+        last_trial=3,
+        maximize=["HOTA", "IDF1"],
+        minimize=["IDSW_rate"],
+    )
+
+    rendered = capture_renderable(renderable, width=160)
+
+    assert _metric_row(rendered, "HOTA") == "Run HOTA MOTA IDF1 IDSW_rate"
+    assert "0.200 (-0.600)" in _metric_row(rendered, "Best #2")
+    assert "0.900 (+0.100)" in _metric_row(rendered, "Last #3")
+    console = get_console()
+    segments = list(console.render(renderable, console.options.update(width=160)))
+    for delta, expected_style in (
+        ("(+2.000)", STYLE_STATUS_DONE),
+        ("(-2.000)", STYLE_STATUS_FAILED),
+        ("(-0.600)", STYLE_STATUS_DONE),
+        ("(+0.100)", STYLE_STATUS_FAILED),
+    ):
+        segment = next(segment for segment in segments if delta in segment.text)
+        assert segment.style.color == console.get_style(expected_style).color
 
 
 def test_callbacks_publish_rich_progress_for_real_trial_states_and_remain_pickle_safe() -> None:
@@ -165,25 +210,28 @@ def test_callbacks_publish_rich_progress_for_real_trial_states_and_remain_pickle
     )
     second = SimpleNamespace(trial_id="second", last_result={})
     third = SimpleNamespace(
-        trial_id="third", last_result={"HOTA": 55.0, "MOTA": 90.0, "IDF1": 90.0, "time_total_s": 6.0}
+        trial_id="third", last_result={"HOTA": 70.0, "MOTA": 90.0, "IDF1": 90.0, "time_total_s": 6.0}
     )
-    fourth = SimpleNamespace(trial_id="fourth", last_result={"HOTA": 70.0, "MOTA": 65.0, "IDF1": 75.0})
-    first_best = "Best trial: HOTA=60.000 MOTA=70.000 IDF1=80.000"
-    first_last = "Last trial: HOTA=60.000 MOTA=70.000 IDF1=80.000"
+    fourth = SimpleNamespace(trial_id="fourth", last_result={"HOTA": 65.0, "MOTA": 65.0, "IDF1": 75.0})
+    first_baseline = "First #1 (baseline) 60.000 70.000 80.000"
+    first_best = "Best #1 60.000 (+0.000) 70.000 (+0.000) 80.000 (+0.000)"
+    first_last = "Last #1 60.000 (+0.000) 70.000 (+0.000) 80.000 (+0.000)"
     set_tune_progress_workflow(workflow)
     try:
         callback.on_trial_start(0, [], first)
         callback.on_trial_start(0, [], second)
         running = capture_renderable(publications[-1][1], width=160)
         assert "0/4 trials done · 2 running" in running
-        assert "Best trial:" not in running
-        assert "Last trial:" not in running
+        assert "First #1" not in running
+        assert "Best #" not in running
+        assert "Last #" not in running
 
         callback.on_trial_complete(0, [], first)
         completed = capture_renderable(publications[-1][1], width=160)
         assert "1/4 trials done · 1 running" in completed
-        assert first_best in completed
-        assert first_last in completed
+        assert _metric_row(completed, "First #1") == first_baseline
+        assert _metric_row(completed, "Best #1") == first_best
+        assert _metric_row(completed, "Last #1") == first_last
 
         callback.on_trial_error(0, [], second)
         waiting = capture_renderable(publications[-1][1], width=160)
@@ -191,26 +239,31 @@ def test_callbacks_publish_rich_progress_for_real_trial_states_and_remain_pickle
         assert "pending" in waiting
         assert "running" not in waiting
         assert "trial 3/4" not in waiting
-        assert first_best in waiting
-        assert first_last in waiting
+        assert _metric_row(waiting, "First #1") == first_baseline
+        assert _metric_row(waiting, "Best #1") == first_best
+        assert _metric_row(waiting, "Last #1") == first_last
 
         # Rich Progress contains locks. Publishing a renderable must not retain
         # it on the callback that Ray serializes to manage trial execution.
         restored = pickle.loads(pickle.dumps(callback))
         assert restored.completed == 2
         assert restored.failed == 1
+        assert restored.first_summary == callback.first_summary
         assert restored.best_summary == callback.best_summary
         assert restored.last_summary == callback.last_summary
+        assert restored.best_trial_index == 1
+        assert restored.last_trial_index == 1
         assert not any(isinstance(value, (Group, Progress)) for value in vars(callback).values())
 
         callback.on_trial_start(0, [], third)
         restarted = capture_renderable(publications[-1][1], width=160)
-        assert first_best in restarted
-        assert first_last in restarted
+        assert _metric_row(restarted, "Best #1") == first_best
+        assert _metric_row(restarted, "Last #1") == first_last
         callback.on_trial_complete(0, [], third)
-        worse = capture_renderable(publications[-1][1], width=160)
-        assert first_best in worse
-        assert "Last trial: HOTA=55.000 MOTA=90.000 IDF1=90.000" in worse
+        improved = capture_renderable(publications[-1][1], width=160)
+        assert _metric_row(improved, "First #1") == first_baseline
+        assert _metric_row(improved, "Best #3") == "Best #3 70.000 (+10.000) 90.000 (+20.000) 90.000 (+10.000)"
+        assert _metric_row(improved, "Last #3") == "Last #3 70.000 (+10.000) 90.000 (+20.000) 90.000 (+10.000)"
 
         callback.on_trial_start(0, [], fourth)
         callback.on_trial_complete(0, [], fourth)
@@ -220,8 +273,9 @@ def test_callbacks_publish_rich_progress_for_real_trial_states_and_remain_pickle
         assert "✕ failed" in final
         assert "remaining 00:00" in final
         assert "running" not in final
-        assert "Best trial: HOTA=70.000 MOTA=65.000 IDF1=75.000" in final
-        assert "Last trial: HOTA=70.000 MOTA=65.000 IDF1=75.000" in final
+        assert _metric_row(final, "First #1") == first_baseline
+        assert _metric_row(final, "Best #3") == "Best #3 70.000 (+10.000) 90.000 (+20.000) 90.000 (+10.000)"
+        assert _metric_row(final, "Last #4") == "Last #4 65.000 (+5.000) 65.000 (-5.000) 75.000 (-5.000)"
         assert all(title == TUNE_OPTIMIZE_STEP for title, _ in publications)
         assert all(isinstance(renderable, Group) for _, renderable in publications)
         workflow.set_detail.assert_not_called()
@@ -242,6 +296,112 @@ def test_best_summary_uses_the_configured_objective_including_identity_switch_ra
     assert callback.best_summary["HOTA"] == 60.0
     assert callback.last_summary["HOTA"] == 80.0
     assert callback.best_score == (-0.2,)
+    assert callback.first_summary["HOTA"] == 70.0
+    assert callback.best_trial_index == 2
+    assert callback.last_trial_index == 3
+
+
+def test_baseline_is_the_first_started_trial_even_when_results_finish_out_of_order() -> None:
+    callback = TuneWorkflowCallback(total=3, maximize=["HOTA"], minimize=[])
+    first = SimpleNamespace(trial_id="first", last_result={"HOTA": 60.0})
+    second = SimpleNamespace(trial_id="second", last_result={"HOTA": 70.0})
+    third = SimpleNamespace(trial_id="third", last_result={"HOTA": 65.0})
+    for trial in (first, second, third):
+        callback.on_trial_start(0, [], trial)
+
+    callback.on_trial_complete(0, [], second)
+    assert callback.first_summary is None
+    assert callback.best_trial_index == callback.last_trial_index == 2
+
+    callback.on_trial_complete(0, [], first)
+    assert callback.first_summary == {"HOTA": 60.0}
+    assert callback.last_summary == {"HOTA": 60.0}
+    assert callback.best_trial_index == 2
+    assert callback.last_trial_index == 1
+
+    callback.on_trial_complete(0, [], third)
+    assert callback.first_summary == {"HOTA": 60.0}
+    assert callback.best_summary == {"HOTA": 70.0}
+    assert callback.last_summary == {"HOTA": 65.0}
+    assert callback.best_trial_index == 2
+    assert callback.last_trial_index == 3
+
+
+def test_ray_creation_order_identifies_baseline_when_workers_start_out_of_order() -> None:
+    callback = TuneWorkflowCallback(total=2, maximize=["HOTA"], minimize=[])
+    first = SimpleNamespace(trial_id="first", last_result={"HOTA": 60.0})
+    second = SimpleNamespace(trial_id="second", last_result={"HOTA": 70.0})
+    trials = [first, second]
+    callback.on_trial_start(0, trials, second)
+    callback.on_trial_complete(0, trials, second)
+    assert callback.first_summary is None
+    assert callback.best_trial_index == callback.last_trial_index == 2
+
+    callback.on_trial_start(0, trials, first)
+    callback.on_trial_complete(0, trials, first)
+    assert callback.first_summary == {"HOTA": 60.0}
+    assert callback.best_trial_index == 2
+    assert callback.last_trial_index == 1
+
+
+@pytest.mark.parametrize("started", [False, True])
+def test_failed_baseline_is_not_replaced_by_the_next_successful_trial(started: bool) -> None:
+    callback = TuneWorkflowCallback(total=2, maximize=["HOTA"], minimize=[])
+    first = SimpleNamespace(trial_id="first", last_result={})
+    second = SimpleNamespace(trial_id="second", last_result={"HOTA": 70.0})
+    if started:
+        callback.on_trial_start(0, [first, second], first)
+    callback.on_trial_error(0, [first, second], first)
+    callback.on_trial_start(0, [], second)
+    callback.on_trial_complete(0, [], second)
+
+    assert callback.first_summary is None
+    assert callback.best_summary == callback.last_summary == {"HOTA": 70.0}
+    assert callback.best_trial_index == callback.last_trial_index == 2
+    rendered = capture_renderable(
+        format_tune_progress(
+            callback.completed,
+            callback.total,
+            callback.last_summary,
+            first_summary=callback.first_summary,
+            best_summary=callback.best_summary,
+            best_trial=callback.best_trial_index,
+            last_trial=callback.last_trial_index,
+            failed=callback.failed,
+        ),
+        width=160,
+    )
+    assert _metric_row(rendered, "First #1") == "First #1 (baseline) -- -- --"
+    assert _metric_row(rendered, "Best #2") == "Best #2 70.000 (--) -- (--) -- (--)"
+    assert _metric_row(rendered, "Last #2") == "Last #2 70.000 (--) -- (--) -- (--)"
+
+
+def test_best_trial_uses_strict_lexicographic_improvement_and_last_keeps_ties() -> None:
+    callback = TuneWorkflowCallback(total=4, maximize=["HOTA"], minimize=["IDSW_rate"])
+    results = (
+        {"HOTA": 70.0, "IDSW_rate": 0.8},
+        {"HOTA": 69.0, "IDSW_rate": 0.1},
+        {"HOTA": 70.0, "IDSW_rate": 0.2},
+        {"HOTA": 70.0, "IDSW_rate": 0.2},
+    )
+    for index, result in enumerate(results, start=1):
+        callback.record_result(result, trial_index=index)
+        assert callback.best_trial_index == (1 if index < 3 else 3)
+        assert callback.last_trial_index == index
+    assert callback.first_summary == results[0]
+    assert callback.best_score == (70.0, -0.2)
+
+
+@pytest.mark.parametrize("result", [{"MOTA": 10.0}, {"HOTA": float("nan")}, {"HOTA": float("inf")}])
+def test_unavailable_objective_does_not_replace_a_valid_zero_best(result: dict[str, float]) -> None:
+    callback = TuneWorkflowCallback(total=2, maximize=["HOTA"], minimize=[])
+    callback.record_result({"HOTA": 0.0}, trial_index=1)
+    callback.record_result(result, trial_index=2)
+
+    assert callback.first_summary == {"HOTA": 0.0}
+    assert callback.best_summary == {"HOTA": 0.0}
+    assert callback.best_trial_index == 1
+    assert callback.last_trial_index == 2
 
 
 @pytest.fixture
@@ -301,7 +461,8 @@ def test_sequence_progress_updates_before_trial_results_and_resets_for_next_tria
     assert "Trial 2/2" in restarted
     assert "0/100 frames" in restarted
     assert "0/50 frames" in restarted
-    assert "Best trial: HOTA=60.000" in restarted
+    assert _metric_row(restarted, "First #1") == "First #1 (baseline) 60.000 -- --"
+    assert _metric_row(restarted, "Best #1").startswith("Best #1 60.000 (+0.000)")
     assert "Trial 1/2" not in restarted
     assert "first" not in callback.sequence_events
 

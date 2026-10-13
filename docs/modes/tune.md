@@ -197,8 +197,9 @@ several, or use `--split train` or `--split fulltrain` to select another
 dataset split. `--project` defaults to `runs/eagermot-tune`; each run saves
 `best.yaml` for `boxmot eval --tracker eagermot --class-config`.
 
-The shared Rich tuning panel shows trial and sequence progress, the best HOTA,
-and the saved profile paths. Add `--verbose` to display tracker and Optuna logs.
+The shared Rich tuning panel shows trial and sequence progress, the first,
+best, and last results with baseline comparisons, and the saved profile paths.
+Add `--verbose` to display tracker and Optuna logs.
 
 This sensor workflow reads the dataset and selected predictions directly.
 It supports `--search-alg optuna`; an explicit device must be `cpu`.
@@ -347,11 +348,20 @@ thresholds and association settings reuse the same unfiltered input cache.
 See [replay input caching](eval.md#cache-replay-inputs-for-repeated-runs) for
 storage, preparation, and cleanup details.
 
-The progress panel keeps HOTA, MOTA, and IDF1 visible for the best trial under
-the configured objective and the latest completed trial, even as other trials
-start or fail. Each running image-tracker trial also lists its sequences with
-frame counts, progress bars, and pending, running, done, or failed status.
-Sequence progress resets for each trial, including when Ray reuses a worker.
+The progress panel keeps three rows visible: **First #1 (baseline)**, **Best**,
+and **Last**. The baseline is the first scheduled trial, even if another trial
+finishes sooner. Best updates when the configured objective improves; Last
+updates after each successful trial. Each row shows HOTA, MOTA, IDF1, and any
+additional objective metrics.
+
+Best and Last include signed differences from the baseline in metric units
+(percentage points for percentage metrics). Improvements are green and
+regressions red, respecting `--minimize` metrics; unavailable baseline metrics
+show `--`. The same comparison appears during saved-sensor tuning.
+
+Each running image-tracker trial also lists its sequences with frame counts,
+progress bars, and pending, running, done, or failed status. Sequence progress
+resets for each trial, including when Ray reuses a worker.
 
 An evaluation exception marks that trial as failed, retains its traceback in
 the Ray trial directory, and lets the remaining trials continue. Failed trials
