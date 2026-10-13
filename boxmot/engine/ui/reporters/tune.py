@@ -76,13 +76,11 @@ def _trial_comparison_table(
     for metric in metrics:
         table.add_column(metric, justify="right", overflow="fold")
     for label, index, summary, compare in (
-        ("First", 1, first, False),
+        ("First", None, first, False),
         ("Best", best_trial, best, True),
         ("Last", last_trial, last, True),
     ):
         name = f"{label} #{index}" if index is not None else label
-        if not compare:
-            name += " (baseline)"
         table.add_row(
             name,
             *(

@@ -108,7 +108,7 @@ def test_sensor_tune_cli_displays_real_trials_frames_best_metrics_and_artifacts(
     assert "study.sqlite3" in rendered
     assert "run.json" in rendered
     assert "HOTA" in rendered and "100.00" in rendered
-    assert "First #1 (baseline)" in rendered
+    assert "First" in rendered
     assert "Best #1" in rendered
     assert "Last #2" in rendered
     assert "+0.000" in rendered

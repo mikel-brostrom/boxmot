@@ -51,7 +51,7 @@ def test_initial_progress_is_queued_without_claiming_a_trial_is_running(width: i
     assert "remaining --:--" in rendered
     assert "running" not in rendered
     assert "trial 1/200" not in rendered
-    assert "First #1" not in rendered
+    assert "First" not in rendered
     assert "Best #" not in rendered
     assert "Last #" not in rendered
     assert max(map(len, rendered.splitlines())) <= width
@@ -141,7 +141,7 @@ def test_first_best_and_last_metrics_show_absolute_deltas_without_corrupting_bar
     rendered = capture_renderable(renderable, width=width)
 
     assert "Run HOTA MOTA IDF1" in _metric_row(rendered, "HOTA")
-    assert "First #1 (baseline) 66.000 74.000 83.000" == _metric_row(rendered, "First #1")
+    assert "First 66.000 74.000 83.000" == _metric_row(rendered, "First")
     assert "Best #2 69.000 (+3.000) 74.000 (+0.000) 84.000 (+1.000)" == _metric_row(rendered, "Best #2")
     assert "Last #3 67.400 (+1.400) 75.200 (+1.200) 82.100 (-0.900)" == _metric_row(rendered, "Last #3")
     assert "Δ vs first trial (metric units)" in rendered
@@ -162,7 +162,7 @@ def test_missing_metrics_are_distinguished_from_measured_zero() -> None:
 
     rendered = capture_renderable(renderable, width=160)
 
-    assert _metric_row(rendered, "First #1") == "First #1 (baseline) 0.000 -- --"
+    assert _metric_row(rendered, "First") == "First 0.000 -- --"
     assert _metric_row(rendered, "Best") == "Best 5.000 (+5.000) -- (--) -- (--)"
     assert _metric_row(rendered, "Last") == "Last 0.000 (+0.000) 7.000 (--) -- (--)"
 
@@ -213,7 +213,7 @@ def test_callbacks_publish_rich_progress_for_real_trial_states_and_remain_pickle
         trial_id="third", last_result={"HOTA": 70.0, "MOTA": 90.0, "IDF1": 90.0, "time_total_s": 6.0}
     )
     fourth = SimpleNamespace(trial_id="fourth", last_result={"HOTA": 65.0, "MOTA": 65.0, "IDF1": 75.0})
-    first_baseline = "First #1 (baseline) 60.000 70.000 80.000"
+    first_baseline = "First 60.000 70.000 80.000"
     first_best = "Best #1 60.000 (+0.000) 70.000 (+0.000) 80.000 (+0.000)"
     first_last = "Last #1 60.000 (+0.000) 70.000 (+0.000) 80.000 (+0.000)"
     set_tune_progress_workflow(workflow)
@@ -222,14 +222,14 @@ def test_callbacks_publish_rich_progress_for_real_trial_states_and_remain_pickle
         callback.on_trial_start(0, [], second)
         running = capture_renderable(publications[-1][1], width=160)
         assert "0/4 trials done · 2 running" in running
-        assert "First #1" not in running
+        assert "First" not in running
         assert "Best #" not in running
         assert "Last #" not in running
 
         callback.on_trial_complete(0, [], first)
         completed = capture_renderable(publications[-1][1], width=160)
         assert "1/4 trials done · 1 running" in completed
-        assert _metric_row(completed, "First #1") == first_baseline
+        assert _metric_row(completed, "First") == first_baseline
         assert _metric_row(completed, "Best #1") == first_best
         assert _metric_row(completed, "Last #1") == first_last
 
@@ -239,7 +239,7 @@ def test_callbacks_publish_rich_progress_for_real_trial_states_and_remain_pickle
         assert "pending" in waiting
         assert "running" not in waiting
         assert "trial 3/4" not in waiting
-        assert _metric_row(waiting, "First #1") == first_baseline
+        assert _metric_row(waiting, "First") == first_baseline
         assert _metric_row(waiting, "Best #1") == first_best
         assert _metric_row(waiting, "Last #1") == first_last
 
@@ -261,7 +261,7 @@ def test_callbacks_publish_rich_progress_for_real_trial_states_and_remain_pickle
         assert _metric_row(restarted, "Last #1") == first_last
         callback.on_trial_complete(0, [], third)
         improved = capture_renderable(publications[-1][1], width=160)
-        assert _metric_row(improved, "First #1") == first_baseline
+        assert _metric_row(improved, "First") == first_baseline
         assert _metric_row(improved, "Best #3") == "Best #3 70.000 (+10.000) 90.000 (+20.000) 90.000 (+10.000)"
         assert _metric_row(improved, "Last #3") == "Last #3 70.000 (+10.000) 90.000 (+20.000) 90.000 (+10.000)"
 
@@ -273,7 +273,7 @@ def test_callbacks_publish_rich_progress_for_real_trial_states_and_remain_pickle
         assert "✕ failed" in final
         assert "remaining 00:00" in final
         assert "running" not in final
-        assert _metric_row(final, "First #1") == first_baseline
+        assert _metric_row(final, "First") == first_baseline
         assert _metric_row(final, "Best #3") == "Best #3 70.000 (+10.000) 90.000 (+20.000) 90.000 (+10.000)"
         assert _metric_row(final, "Last #4") == "Last #4 65.000 (+5.000) 65.000 (-5.000) 75.000 (-5.000)"
         assert all(title == TUNE_OPTIMIZE_STEP for title, _ in publications)
@@ -371,7 +371,7 @@ def test_failed_baseline_is_not_replaced_by_the_next_successful_trial(started: b
         ),
         width=160,
     )
-    assert _metric_row(rendered, "First #1") == "First #1 (baseline) -- -- --"
+    assert _metric_row(rendered, "First") == "First -- -- --"
     assert _metric_row(rendered, "Best #2") == "Best #2 70.000 (--) -- (--) -- (--)"
     assert _metric_row(rendered, "Last #2") == "Last #2 70.000 (--) -- (--) -- (--)"
 
@@ -461,7 +461,7 @@ def test_sequence_progress_updates_before_trial_results_and_resets_for_next_tria
     assert "Trial 2/2" in restarted
     assert "0/100 frames" in restarted
     assert "0/50 frames" in restarted
-    assert _metric_row(restarted, "First #1") == "First #1 (baseline) 60.000 -- --"
+    assert _metric_row(restarted, "First") == "First 60.000 -- --"
     assert _metric_row(restarted, "Best #1").startswith("Best #1 60.000 (+0.000)")
     assert "Trial 1/2" not in restarted
     assert "first" not in callback.sequence_events

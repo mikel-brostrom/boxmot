@@ -348,7 +348,7 @@ thresholds and association settings reuse the same unfiltered input cache.
 See [replay input caching](eval.md#cache-replay-inputs-for-repeated-runs) for
 storage, preparation, and cleanup details.
 
-The progress panel keeps three rows visible: **First #1 (baseline)**, **Best**,
+The progress panel keeps three rows visible: **First**, **Best**,
 and **Last**. The baseline is the first scheduled trial, even if another trial
 finishes sooner. Best updates when the configured objective improves; Last
 updates after each successful trial. Each row shows HOTA, MOTA, IDF1, and any

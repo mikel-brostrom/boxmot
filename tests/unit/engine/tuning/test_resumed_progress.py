@@ -95,7 +95,7 @@ def test_resume_restores_baseline_best_and_latest_completion_with_original_indic
     assert callback.trial_indices == {"first": 1, "best": 2, "latest": 3, "pending": 4}
     assert tuner._local_tuner._run_config.callbacks == [callback]
     rendered = capture_renderable(publications[-1], width=160)
-    assert "First #1 (baseline)" in rendered
+    assert "First" in rendered
     assert "Best #2" in rendered
     assert "Last #3" in rendered
     assert "+10.000" in rendered
