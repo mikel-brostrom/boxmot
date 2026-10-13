@@ -1452,4 +1452,4 @@ def test_generate_summary_handles_categorical_choice_params(tmp_path) -> None:
     assert "- **Dataset:** mot17" in rendered
     assert f"- **Build:** {tmp_path / 'builds' / 'abc123'}" in rendered
     assert "**Detector:**" not in rendered
-    assert "| cmc_method | ['sof', 'ecc'] | ecc: 2, sof: 1 | — | categorical |" in rendered
+    assert "| cmc_method | all | ['sof', 'ecc'] | 3/3 | 3/3; ecc: 2, sof: 1 | 1/1; ecc: 1 | 1 observed category |" in rendered

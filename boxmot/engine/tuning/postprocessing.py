@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import yaml
 from rich.markup import escape as _escape_markup
 
 from boxmot.engine.eval.results import SUMMARY_COLUMNS
-from boxmot.engine.tuning.search_space import flatten_yaml_config, normalize_trial_config
+from boxmot.engine.tuning.search_space import normalize_trial_config
 from boxmot.trackers.common.config import nest_tracker_options
 from boxmot.utils import logger as LOGGER
 
@@ -191,54 +194,17 @@ def save_results_csv(csv_path: Path, trial_data: list):
 
 
 # ---------------------------------------------------------------------------
-# Convergence helpers
+# Parameter concentration helpers
 # ---------------------------------------------------------------------------
 
 
-def _convergence_label(search_range, top10_vals):
-    if not isinstance(search_range, list) or len(search_range) < 2:
-        return "—"
-    lo, hi = float(search_range[0]), float(search_range[-1])
-    search_span = hi - lo
-    if search_span <= 0:
-        return "fixed"
-
-    t_lo, t_hi = min(top10_vals), max(top10_vals)
-    top10_span = t_hi - t_lo
-    ratio = top10_span / search_span
-
-    near_lo = (t_lo - lo) / search_span < 0.15
-    near_hi = (hi - t_hi) / search_span < 0.15
-
-    if ratio < 0.20:
-        label = "yes"
-        if near_lo:
-            label += " (at lower bound)"
-        elif near_hi:
-            label += " (at upper bound)"
-    elif ratio > 0.60:
-        label = "no — insensitive"
-    else:
-        label = "moderate"
-        if near_lo:
-            label += " (near lower bound)"
-        elif near_hi:
-            label += " (near upper bound)"
-    return label
-
-
-def _as_float_values(values: list[Any]) -> list[float] | None:
-    try:
-        return [float(v) for v in values]
-    except (TypeError, ValueError):
-        return None
-
-
 def _format_markdown_value(value: Any) -> str:
+    """Escape table separators in user-authored configuration values."""
     return str(value).replace("|", r"\|")
 
 
 def _format_value_counts(values: list[Any]) -> str:
+    """Format categorical observations with their sample counts."""
     from collections import Counter
 
     counts = Counter(values)
@@ -246,6 +212,160 @@ def _format_value_counts(values: list[Any]) -> str:
         f"{_format_markdown_value(value)}: {count}"
         for value, count in sorted(counts.items(), key=lambda item: str(item[0]))
     )
+
+
+def _numeric_concentration(values: list[float], bounds: tuple | None, scale: str) -> str:
+    """Describe observed spread and proximity without inferring convergence."""
+    if not values:
+        return "inactive"
+    if len(values) == 1:
+        label = "one sample"
+    elif min(values) == max(values):
+        label = "one observed value"
+    else:
+        label = "observed range"
+    if bounds is None or bounds[1] <= bounds[0]:
+        return label
+    lo, hi = bounds
+    v_lo, v_hi = min(values), max(values)
+    if scale == "log" and min(lo, v_lo) > 0:
+        lo, hi, v_lo, v_hi = np.log([lo, hi, v_lo, v_hi])
+    span = hi - lo
+    ratio = (v_hi - v_lo) / span
+    if len(values) > 1 and v_lo != v_hi:
+        label = "narrow" if ratio < 0.2 else "broad" if ratio > 0.6 else "intermediate"
+        label += f" ({ratio:.1%} of {'log ' if scale == 'log' else ''}domain)"
+    near = []
+    if (v_lo - lo) / span <= 0.15:
+        near.append("lower")
+    if (hi - v_hi) / span <= 0.15:
+        near.append("upper")
+    if near:
+        label += f"; near {' and '.join(near)} bound{'s' if len(near) > 1 else ''}"
+    return label
+
+
+def _format_sample_subset(samples: pd.DataFrame, selected: pd.Index, kind: str) -> str:
+    """Render only active observations within a globally selected trial set."""
+    values = samples.loc[samples.index.isin(selected), "value"].tolist()
+    if not values:
+        return f"0/{len(selected)}; inactive"
+    detail = (
+        f"[{min(values):.4f}, {max(values):.4f}]"
+        if kind == "numeric"
+        else _format_value_counts(values)
+    )
+    return f"{len(values)}/{len(selected)}; {detail}"
+
+
+def parameter_concentration_markdown(frame: pd.DataFrame, schema: dict) -> str:
+    """Summarize active search observations among the best HOTA trials."""
+    from boxmot.engine.tuning.analysis_data import NEAR_BEST_DELTA, analyze_parameters, near_best_mask
+
+    lines = ["## Parameter Concentration", ""]
+    if "HOTA" not in frame:
+        return "\n".join(lines + ["Omitted: HOTA scores are unavailable.", ""])
+    hotas = pd.to_numeric(frame["HOTA"], errors="coerce")
+    scored = frame.loc[np.isfinite(hotas)].copy()
+    scored["HOTA"] = hotas.loc[scored.index]
+    if scored.empty:
+        return "\n".join(lines + ["Omitted: no finite HOTA scores are available.", ""])
+    top = scored.sort_values("HOTA", ascending=False, kind="stable").head(10).index
+    near = scored.index[near_best_mask(scored["HOTA"])]
+    lines.extend([
+        f"Top-{len(top)} and **{len(near)} near-best trials** "
+        f"(within {NEAR_BEST_DELTA:g} absolute HOTA points of {scored['HOTA'].max():.4f}).",
+        "Counts include only active searchable values; inactive defaults are excluded. "
+        "Conditional branches use separate rows and recorded domains.",
+        "",
+    ])
+    if not schema:
+        return "\n".join(lines + ["Omitted: the recorded search schema is unavailable.", ""])
+    notes: list[str] = []
+    try:
+        parameters = analyze_parameters(scored, schema, notes=notes)
+    except (KeyError, TypeError, ValueError) as exc:
+        return "\n".join(lines + [f"Omitted: the recorded search schema could not be resolved ({exc}).", ""])
+    if not parameters:
+        return "\n".join(lines + ["No comparable active searchable parameters are available.", "", *notes, ""])
+    lines.extend([
+        "| Parameter | Branch | Recorded search domain | All active | "
+        f"Top-{len(top)} active; range/counts | Near-best active; range/counts | Near-best concentration |",
+        "| --- | --- | --- | ---: | --- | --- | --- |",
+    ])
+    for name, parameter in parameters.items():
+        for branch, samples in parameter.samples.groupby("branch", sort=True):
+            bounds = parameter.branch_bounds.get(branch, parameter.bounds)
+            domain = (
+                f"[{bounds[0]:g}, {bounds[1]:g}]" + (" (log)" if parameter.scale == "log" else "")
+                if parameter.kind == "numeric" and bounds is not None
+                else _format_markdown_value(list(parameter.branch_options.get(branch, parameter.options)))
+            )
+            near_values = samples.loc[samples.index.isin(near), "value"].tolist()
+            if parameter.kind == "numeric":
+                concentration = _numeric_concentration(near_values, bounds, parameter.scale)
+            elif not near_values:
+                concentration = "inactive"
+            else:
+                categories = len(set(near_values))
+                concentration = f"{categories} observed categor{'y' if categories == 1 else 'ies'}"
+            lines.append(
+                f"| {_format_markdown_value(name)} | {_format_markdown_value(branch)} | {domain} "
+                f"| {len(samples)}/{len(scored)} "
+                f"| {_format_sample_subset(samples, top, parameter.kind)} "
+                f"| {_format_sample_subset(samples, near, parameter.kind)} | {concentration} |"
+            )
+    lines.extend([
+        "",
+        *notes,
+        *([""] if notes else []),
+        "Spread describes sampled values, not parameter importance or convergence. "
+        "Narrow/intermediate/broad mean less than 20%, 20–60%, or more than 60% of the domain; "
+        "near a bound means within 15% of that domain (in log space for log searches). "
+        "Unequal sampling and simultaneous parameter changes limit comparisons. "
+        "These ranges guide the next experiment; they do not establish repeatability or superiority.",
+        "",
+    ])
+    return "\n".join(lines)
+
+
+def _summary_search_schema(tune_dir: Path, yaml_cfg: dict) -> dict:
+    """Prefer this run's saved schema over the caller's current tracker YAML."""
+    path = tune_dir / "search-space.json"
+    if not path.exists():
+        return yaml_cfg
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        schema = payload.get("schema", {})
+        return schema if isinstance(schema, dict) else {}
+    except (OSError, ValueError, AttributeError) as exc:
+        LOGGER.warning(f"Cannot read recorded search schema for summary: {exc}")
+        return {}
+
+
+def update_analysis_summary(tune_dir: Path) -> Path | None:
+    """Refresh only parameter diagnostics, preserving the existing run provenance."""
+    from boxmot.engine.tuning.analysis_data import load_tune_analysis
+
+    tune_dir = Path(tune_dir)
+    path = tune_dir / "summary.md"
+    if not path.exists():
+        return None
+    analysis = load_tune_analysis(tune_dir)
+    if analysis is None:
+        return None
+    section = parameter_concentration_markdown(analysis.trials, analysis.schema)
+    original = path.read_text(encoding="utf-8")
+    pattern = re.compile(
+        r"^## Parameter (?:Convergence|Concentration)[^\n]*\n.*?(?=^---\s*$|^## |\Z)",
+        re.MULTILINE | re.DOTALL,
+    )
+    if pattern.search(original):
+        updated = pattern.sub(lambda _match: section + "\n", original, count=1)
+    else:
+        updated = original.rstrip() + "\n\n---\n\n" + section
+    path.write_text(updated, encoding="utf-8")
+    return path
 
 
 # ---------------------------------------------------------------------------
@@ -325,53 +445,13 @@ def generate_summary(
             lines.append(f"| {i} | {vals} |")
         lines.append(f"\n{len(pareto)} Pareto-optimal trial(s) out of {len(trial_data)}.\n")
 
-    # Parameter Convergence
-    top_n = min(10, len(sorted_data))
-    top10 = sorted_data[:top_n]
-
-    tunable_params = []
-    flat_cfg = flatten_yaml_config(yaml_cfg)
-    for param, details in flat_cfg.items():
-        if not isinstance(details, dict):
-            continue
-        t = details.get("type", "")
-        opts = details.get("options") or details.get("choices") or []
-        rng = details.get("range", [])
-        if t in ("uniform", "loguniform") and len(rng) >= 2 and rng[0] != rng[-1]:
-            tunable_params.append(param)
-        elif t in ("randint", "qrandint") and len(rng) >= 2 and rng[0] != rng[-1]:
-            tunable_params.append(param)
-        elif t == "choice" and len(opts) > 1:
-            tunable_params.append(param)
-
-    if tunable_params:
-        lines.append("---\n")
-        lines.append(f"## Parameter Convergence (Top-{top_n} trials)\n")
-        lines.append("| Parameter | Search range | Top-N range | Top-N mean | Converged? |")
-        lines.append("| --- | --- | --- | --- | --- |")
-
-        for param in tunable_params:
-            details = flat_cfg[param]
-            top_vals = [t["config"].get(param) for t in top10 if param in t["config"]]
-            if not top_vals:
-                continue
-
-            if isinstance(top_vals[0], bool):
-                search_opts = details.get("options", details.get("choices", []))
-                lines.append(f"| {param} | {search_opts} | {_format_value_counts(top_vals)} | — | — |")
-            else:
-                search_range = details.get("range", details.get("options", []))
-                top_vals_f = _as_float_values(top_vals)
-                if top_vals_f is None:
-                    lines.append(f"| {param} | {search_range} | {_format_value_counts(top_vals)} | — | categorical |")
-                    continue
-                t_lo, t_hi = min(top_vals_f), max(top_vals_f)
-                t_mean = np.mean(top_vals_f)
-                label = _convergence_label(search_range, top_vals_f)
-                lines.append(
-                    f"| {param} | [{search_range[0]}, {search_range[-1]}] "
-                    f"| [{t_lo:.4f}, {t_hi:.4f}] | {t_mean:.4f} | {label} |"
-                )
+    # Parameter concentration: use the run's schema and conditional activity.
+    frame = pd.DataFrame([
+        {**normalize_trial_config(trial["config"]), **trial["metrics"], "trial_id": trial["trial_id"]}
+        for trial in trial_data
+    ])
+    schema = _summary_search_schema(tune_dir, yaml_cfg)
+    lines.extend(["---\n", parameter_concentration_markdown(frame, schema)])
 
     # HOTA Distribution
     lines.append("\n---\n")
