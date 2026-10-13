@@ -737,10 +737,11 @@ jobs:
           # CI-only integration and native tests run in their dedicated jobs.
           # Local dataset-preparation tests are opt-in.
           # Use the prepared CPU-only environment without an implicit uv sync.
+          # Use allocated logical CPUs, capped to bound memory and child processes.
           .venv/bin/python -m pytest \
             --cov="$PACKAGE_DIR" \
             --cov-report=html \
-            -n 2 --dist worksteal \
+            -n logical --maxprocesses=4 --dist worksteal \
             -q -ra --durations=30 \
             --junitxml=test-results.xml \
             --ignore=tests/ci \

@@ -61,12 +61,18 @@ def _samples(schema: dict, backend: str, count: int = 1) -> Iterator[dict]:
             yield normalize_trial_config({**trial.params, **constants})
             study.tell(trial, 0.0)
     elif backend == "hyperopt":
-        from hyperopt.pyll.stochastic import sample
+        from hyperopt.pyll import as_apply, clone, rec_eval
+        from hyperopt.pyll.stochastic import recursive_set_rng_kwarg
 
         space = yaml_to_hyperopt_space(schema)
         rng = np.random.default_rng(19)
+        # Hyperopt's sample() clones and binds this graph for every draw.
+        # The graph and RNG are local to this invocation, so prepare them once;
+        # Each rec_eval uses a fresh memo and advances the same RNG. Disabling
+        # intermediate memo collection keeps node values only until that return.
+        expression = recursive_set_rng_kwarg(clone(as_apply(space)), rng)
         for _ in range(count):
-            yield normalize_trial_config(sample(space, rng=rng))
+            yield normalize_trial_config(rec_eval(expression, memo_gc=False))
     else:
         from ray import tune
         from ray.tune.search.variant_generator import generate_variants

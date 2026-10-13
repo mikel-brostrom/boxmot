@@ -214,9 +214,11 @@ def get_tracker_preset_path(preset_name: str) -> Path:
 
 
 def _load_mapping(path: Path, *, label: str) -> dict[str, Any]:
+    """Read fresh configuration values with the available safe YAML parser."""
+    loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
     try:
         with path.open("r", encoding="utf-8") as handle:
-            payload = yaml.safe_load(handle) or {}
+            payload = yaml.load(handle, Loader=loader) or {}
     except yaml.YAMLError as exc:
         raise ValueError(f"Failed to parse {label} config {path}: {exc}") from exc
 
