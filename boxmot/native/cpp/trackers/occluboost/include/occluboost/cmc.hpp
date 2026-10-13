@@ -14,7 +14,7 @@ public:
     virtual cv::Mat Apply(const cv::Mat& image, const std::vector<Detection>& detections) = 0;
 
 protected:
-    cv::Mat Preprocess(const cv::Mat& image, bool grayscale, float scale) const;
+    cv::Mat Preprocess(const cv::Mat& image, bool grayscale, int target_width) const;
     static cv::Mat GenerateMask(
         const cv::Size& size,
         const std::vector<Detection>& detections,

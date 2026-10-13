@@ -22,16 +22,18 @@ class ECC(BaseCMC):
     def __init__(
         self,
         warp_mode: int = cv2.MOTION_TRANSLATION,
-        eps: float = 1e-5,
-        max_iter: int = 100,
-        scale: float = 0.15,
+        eps: float = 1e-3,
+        max_iter: int = 10,
+        scale: float | None = None,
         align: bool = False,
         grayscale: bool = True,
         min_correlation: float = 0.5,
+        target_width: int | None = 96,
     ) -> None:
         self.align = bool(align)
         self.grayscale = bool(grayscale)
-        self.scale = float(scale)
+        self.configure_preprocessing(scale, target_width)
+        self.resize_before_grayscale = True
         self.warp_mode = int(warp_mode)
         self.min_correlation = float(min_correlation)
         if not 0.0 <= self.min_correlation <= 1.0:
@@ -57,12 +59,16 @@ class ECC(BaseCMC):
         else:
             identity = np.eye(2, 3, dtype=np.float32)
 
+        curr = self.preprocess(img)
+        # Grayscale inputs that need no resize may alias a caller's reused
+        # capture buffer. Keep independent history just as SOF does.
+        if np.shares_memory(curr, img):
+            curr = curr.copy()
         if self.prev_img is None:
-            self.prev_img = self.preprocess(img)
+            self.prev_img = curr
             self.prev_img_aligned = None
             return identity
 
-        curr = self.preprocess(img)
         mask = self.generate_mask(curr, dets)
         scaled_warp = identity.copy()
 
@@ -74,7 +80,7 @@ class ECC(BaseCMC):
                 self.warp_mode,
                 self.termination_criteria,
                 mask,
-                1,
+                3,
             )
         except cv2.error as e:
             # StsNoConv => ECC did not converge; return identity (common in practice).

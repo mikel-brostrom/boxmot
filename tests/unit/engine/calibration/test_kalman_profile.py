@@ -11,6 +11,7 @@ from boxmot.engine.config.trackers import resolve_tracker_options
 from boxmot.engine.eval.eagermot_kitti import load_kitti_profiles
 from boxmot.trackers import create_tracker
 from boxmot.trackers.common.config import load_tracker_config
+from boxmot.trackers.common.motion.cmc.sof import SOF_DEFAULT_TARGET_WIDTH
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
 from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
 from boxmot.trackers.common.motion.kalman_filters.profile import (
@@ -33,7 +34,7 @@ def _joint_camera_profile() -> dict:
             for name, value in calibration_profile_signature("occluboost", "aabb", options).items()
         },
         "calibration.cmc_policy": "auto",
-        "calibration.cmc_rule": "sof-motion-v3",
+        "calibration.cmc_rule": "sof-motion-v4",
         "calibration.cmc_min_conf": 0.2,
         **calibration_cmc_signature(load_tracker_config("occluboost")),
     }
@@ -42,7 +43,7 @@ def _joint_camera_profile() -> dict:
 def test_portable_camera_profile_resolves_omitted_tracker_sof_defaults():
     options = _joint_camera_profile()
     validate_calibration_profile(options, tracker_name="occluboost", geometry="aabb")
-    options.update(sof_target_width=None, sof_ransac_reproj_threshold=3.0)
+    options.update(sof_target_width=SOF_DEFAULT_TARGET_WIDTH, sof_ransac_reproj_threshold=3.0)
     validate_calibration_profile(options, tracker_name="occluboost", geometry="aabb")
 
 

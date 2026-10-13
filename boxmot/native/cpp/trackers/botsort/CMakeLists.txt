@@ -21,3 +21,13 @@ add_executable(botsort_obb_cmc_probe EXCLUDE_FROM_ALL tests/obb_cmc_probe.cpp)
 target_compile_features(botsort_obb_cmc_probe PRIVATE cxx_std_17)
 target_link_libraries(botsort_obb_cmc_probe PRIVATE botsort_core)
 boxmot_enable_native_warnings(botsort_obb_cmc_probe)
+
+# Exercise the bounded CMC estimators and resolution-change state resets.
+add_executable(botsort_cmc_estimator_probe EXCLUDE_FROM_ALL ../../tests/cmc_estimator_probe.cpp)
+target_compile_features(botsort_cmc_estimator_probe PRIVATE cxx_std_17)
+target_compile_definitions(botsort_cmc_estimator_probe PRIVATE
+    BOXMOT_CMC_HEADER="botsort/cmc.hpp"
+    BOXMOT_CMC_NAMESPACE=botsort
+)
+target_link_libraries(botsort_cmc_estimator_probe PRIVATE botsort_core)
+boxmot_enable_native_warnings(botsort_cmc_estimator_probe)

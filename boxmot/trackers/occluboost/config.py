@@ -69,7 +69,7 @@ class OccluBoostConfig(BoostTrackConfig):
     duplicate_iou_thresh: float = 0.9571823233925608
     lambda_emb_multiplier: float = field(default=2.9476295884842885, metadata={"ge": 0})
 
-    sof_target_width: int | None = field(default=None, metadata={"gt": 0})
+    sof_target_width: int | None = field(default=192, metadata={"gt": 0})
     sof_ransac_reproj_threshold: float = field(default=3.0, metadata={"gt": 0})
 
 __all__ = ("OccluBoostConfig",)

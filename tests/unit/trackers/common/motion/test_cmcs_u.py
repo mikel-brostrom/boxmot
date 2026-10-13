@@ -28,12 +28,13 @@ def test_cmc_apply(cmc_object):
 
 
 # Test preprocessing function
-@pytest.mark.parametrize("cmc_object", [ECC, ORB, SIFT, SOF], indirect=True)
-def test_cmc_preprocess(cmc_object):
+@pytest.mark.parametrize("cmc_class", [ECC, ORB, SIFT, SOF])
+def test_cmc_preprocess(cmc_class):
+    cmc_object = cmc_class(scale=0.15)
     # Create a dummy image
     img = np.zeros((200, 200, 3), dtype=np.uint8)
     processed_img = cmc_object.preprocess(img)
-    # Assert the shape of the processed image, scale is 0.1 by default
+    # Explicit scale remains available independently of the default work budget.
     assert processed_img.shape == (30, 30)
 
 
