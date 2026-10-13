@@ -478,7 +478,7 @@ if __name__ == "__main__":
     from boxmot.engine.tuning.postprocessing import update_analysis_summary
 
     parser = argparse.ArgumentParser(
-        description="Rebuild tuning PNG reports and the parameter summary from saved trials."
+        description="Rebuild tuning PNG reports, parameter diagnostics, and saved CMC setup annotations."
     )
     parser.add_argument("tune_dir", type=Path, help="Directory containing results.csv and saved tuning metadata")
     args = parser.parse_args()

@@ -15,6 +15,7 @@ from rich.markup import escape as _escape_markup
 
 from boxmot.engine.eval.results import SUMMARY_COLUMNS
 from boxmot.engine.tuning.search_space import normalize_trial_config
+from boxmot.engine.tuning.setup_report import CMCSetupReport, describe_cmc_setup
 from boxmot.trackers.common.config import nest_tracker_options
 from boxmot.utils import logger as LOGGER
 
@@ -83,11 +84,13 @@ def write_trial_yaml(
     *,
     base_config: dict | None = None,
     tracker_name: str | None = None,
-):
+    cmc_report: CMCSetupReport | None = None,
+) -> None:
     """Write a reusable runtime tracker config for one tuning trial.
 
     Search metadata is deliberately excluded. When supplied, ``base_config``
-    provides the full runtime config and the trial values overlay it.
+    provides the full runtime config and the trial values overlay it. Policy
+    annotations expose effective CMC without changing the executable settings.
     """
 
     del yaml_cfg  # retained in the public signature for tuning callers
@@ -95,10 +98,17 @@ def write_trial_yaml(
     resolved.update(normalize_trial_config(config))
     if tracker_name is not None:
         resolved = {"tracker": tracker_name, **resolved}
-    path.write_text(
-        yaml.safe_dump(nest_tracker_options(resolved), sort_keys=False, allow_unicode=True),
-        encoding="utf-8",
-    )
+    contents = yaml.safe_dump(nest_tracker_options(resolved), sort_keys=False, allow_unicode=True)
+    report = cmc_report or describe_cmc_setup(resolved)
+    if report is not None:
+        contents = re.sub(
+            r"^use_cmc: (?:false|true)$",
+            r"\g<0>  # Base value; overridden by the CMC policy for each sequence.",
+            contents,
+            flags=re.MULTILINE,
+        )
+        contents = report.yaml_header() + contents
+    path.write_text(contents, encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -343,8 +353,34 @@ def _summary_search_schema(tune_dir: Path, yaml_cfg: dict) -> dict:
         return {}
 
 
+def _refresh_saved_cmc_setup(tune_dir: Path, summary: str) -> str:
+    """Expose recorded CMC overrides in an existing best config and summary."""
+    best_path = tune_dir / "best.yaml"
+    if not best_path.is_file():
+        return summary
+    try:
+        config = yaml.safe_load(best_path.read_text(encoding="utf-8"))
+        if not isinstance(config, dict):
+            raise ValueError("best.yaml must contain a mapping")
+        report = describe_cmc_setup(normalize_trial_config(config), tune_dir=tune_dir)
+        if report is None:
+            return summary
+        write_trial_yaml({}, config, best_path, cmc_report=report)
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        LOGGER.warning(f"Cannot refresh saved CMC setup: {exc}")
+        return summary
+    section = report.markdown().rstrip() + "\n\n"
+    pattern = re.compile(r"^## Effective CMC Setup\n.*?(?=^---\s*$|^## |\Z)", re.MULTILINE | re.DOTALL)
+    if pattern.search(summary):
+        return pattern.sub(lambda _match: section, summary, count=1)
+    marker = "## Parameter Concentration"
+    if marker in summary:
+        return summary.replace(marker, section + "---\n\n" + marker, 1)
+    return summary.rstrip() + "\n\n---\n\n" + section
+
+
 def update_analysis_summary(tune_dir: Path) -> Path | None:
-    """Refresh only parameter diagnostics, preserving the existing run provenance."""
+    """Refresh parameter diagnostics and effective CMC, preserving run provenance."""
     from boxmot.engine.tuning.analysis_data import load_tune_analysis
 
     tune_dir = Path(tune_dir)
@@ -364,7 +400,7 @@ def update_analysis_summary(tune_dir: Path) -> Path | None:
         updated = pattern.sub(lambda _match: section + "\n", original, count=1)
     else:
         updated = original.rstrip() + "\n\n---\n\n" + section
-    path.write_text(updated, encoding="utf-8")
+    path.write_text(_refresh_saved_cmc_setup(tune_dir, updated), encoding="utf-8")
     return path
 
 
@@ -382,6 +418,7 @@ def generate_summary(
     minimize: list,
     args,
     *,
+    base_config: dict | None = None,
     emit_logs: bool = True,
 ) -> Path:
     """Generate ``summary.md`` in *tune_dir*."""
@@ -425,6 +462,13 @@ def generate_summary(
     lines.append(f"| {metric_sep} |")
     lines.append(f"| {metric_vals} |")
     lines.append("\nConfig saved to: `best.yaml`\n")
+    cmc_report = describe_cmc_setup(
+        {**normalize_trial_config(base_config), **normalize_trial_config(best["config"])},
+        args=args,
+        tune_dir=tune_dir,
+    )
+    if cmc_report is not None:
+        lines.extend(["---\n", cmc_report.markdown(), ""])
 
     # Pareto Front
     if is_pareto:
@@ -503,7 +547,13 @@ def save_all_results(
         if trial_dir.exists():
             try:
                 yaml_path = trial_dir / f"{tracker_name}_{td['trial_id']}.yaml"
-                write_trial_yaml(yaml_cfg, td["config"], yaml_path, base_config=base_config, tracker_name=tracker_name)
+                report = describe_cmc_setup(
+                    {**normalize_trial_config(base_config), **td["config"]}, args=args, tune_dir=tune_dir,
+                )
+                write_trial_yaml(
+                    yaml_cfg, td["config"], yaml_path, base_config=base_config,
+                    tracker_name=tracker_name, cmc_report=report,
+                )
             except OSError as exc:
                 LOGGER.debug(f"Failed to write trial YAML for {td['trial_id']}: {exc}")
 
@@ -523,7 +573,13 @@ def save_all_results(
         return None
     best_yaml_path = tune_dir / "best.yaml"
     try:
-        write_trial_yaml(yaml_cfg, best["config"], best_yaml_path, base_config=base_config, tracker_name=tracker_name)
+        report = describe_cmc_setup(
+            {**normalize_trial_config(base_config), **best["config"]}, args=args, tune_dir=tune_dir,
+        )
+        write_trial_yaml(
+            yaml_cfg, best["config"], best_yaml_path, base_config=base_config,
+            tracker_name=tracker_name, cmc_report=report,
+        )
         if emit_logs:
             LOGGER.info(f"[bold]Best config ({best['trial_id']}):[/bold] [cyan]{best_yaml_path}[/cyan]")
     except OSError as exc:
@@ -541,6 +597,7 @@ def save_all_results(
             maximize,
             minimize,
             args,
+            base_config=base_config,
             emit_logs=emit_logs,
         )
     except Exception as exc:

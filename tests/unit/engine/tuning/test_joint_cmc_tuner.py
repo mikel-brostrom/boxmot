@@ -198,11 +198,21 @@ def test_joint_choice_reaches_every_trial_and_saved_best_without_reanalysis_on_r
         if name in schema:
             assert schema[name] == {"default": driver._runtime_config[name]}
     assert "type" in schema[search_threshold]
-    saved = [load_tracker_config(tracker, directory / "best.yaml")]
-    saved.extend(
-        load_tracker_config(tracker, Path(result.path) / f"{tracker}_{result.metrics['trial_id']}.yaml")
+    exported_paths = [directory / "best.yaml"]
+    exported_paths.extend(
+        Path(result.path) / f"{tracker}_{result.metrics['trial_id']}.yaml"
         for result in captured["saved_results"]
     )
+    saved = [load_tracker_config(tracker, path) for path in exported_paths]
+    for path in exported_paths:
+        header = "\n".join(line for line in path.read_text().splitlines() if line.startswith("#"))
+        assert "effective cmc" in header.lower()
+        assert selected_cmc in header
+        assert "seq1" in header
+    summary = (directory / "summary.md").read_text()
+    cmc_section = summary.split("## Effective CMC Setup", 1)[1].split("\n## ", 1)[0]
+    assert selected_cmc in cmc_section
+    assert "seq1" in cmc_section
     for config in [driver._runtime_config, *captured["trial_configs"], *saved]:
         assert {key: config[key] for key in fixed} == fixed
         spec = TrackerSpec(tracker, options=component_options(config))
