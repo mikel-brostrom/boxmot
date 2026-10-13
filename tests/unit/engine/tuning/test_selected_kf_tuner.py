@@ -54,7 +54,7 @@ def test_selected_kf_reaches_trials_and_resumes_without_refitting(
     assert set(calls) == {"xyah", "xywh", "xysr", "xyhr", "xyscr"}
     assert len(calls) == 5 and len(loads) == 1
     selection = json.loads((directory / "kf-tuning" / "selection.json").read_text())
-    assert selection["baseline_type"] == ("xywh" if geometry == "obb" else "xyah")
+    assert selection["baseline_type"] == "xyah"
     assert selection["selected_type"] == "xywh"
     assert selection["selected_profile"] == profile
     captured = fake_tuning.captured

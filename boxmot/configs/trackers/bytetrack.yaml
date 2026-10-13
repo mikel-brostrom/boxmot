@@ -1,31 +1,38 @@
 min_conf:
   type: uniform
+  default: 0.1
   range: [0.1, 0.3]
 
 fuse_first_associate:
   type: choice
+  default: true
   options: [False, True]
 
 fuse_unconfirmed_associate:
   type: choice
+  default: true
   options: [False, True]
 
 # IoU distance cutoff, independent of the selected association metric.
 duplicate_distance_thresh:
   type: uniform
+  default: 0.15
   range: [0.0, 0.3]
 
 track_thresh:
   type: uniform
+  default: 0.6
   range: [0.4, 0.7]
 
 # Lost-track lifetime in tracker updates, without FPS scaling.
 max_lost_frames:
   type: randint
+  default: 30
   range: [1, 200]
 
 match_thresh:
   type: uniform
+  default: 0.9
   range: [0.7, 0.9]
   association: [iou, giou, diou, ciou, hmiou]
   depends_on: asso_func
@@ -39,6 +46,7 @@ match_thresh:
 
 second_match_thresh:
   type: uniform
+  default: 0.5
   range: [0.1, 0.9]
   association: [iou, giou, diou, ciou, hmiou]
   depends_on: asso_func
@@ -52,6 +60,7 @@ second_match_thresh:
 
 unconfirmed_match_thresh:
   type: uniform
+  default: 0.7
   range: [0.4, 0.9]
   association: [iou, giou, diou, ciou, hmiou]
   depends_on: asso_func
@@ -65,6 +74,7 @@ unconfirmed_match_thresh:
 
 asso_func:
   type: choice
+  default: iou
   options: [iou, giou, diou, ciou, hmiou, centroid]
 
 # Maximum centroid displacement as a fraction of the frame diagonal.
@@ -72,6 +82,7 @@ asso_func:
 centroid_max_distance:
   association: [centroid]
   type: uniform
+  default: 0.05
   range: [0.005, 0.1]
 
 # Camera settings stay fixed unless supplied by CMC selection.
@@ -82,9 +93,11 @@ cmc_min_conf: {}
 # Timing and reference-prior units stay fixed across all tuning trials.
 
 kalman:
-  # Preserve the tracker-specific filter unless a profile or --select-kf chooses one.
+  # Search filter types from this tracker's explicit default.
   type:
-    default: null
+    type: choice
+    default: xyah
+    options: [xyah, xywh, xysr, xyhr, xyscr]
 
   variable_dt:
     default: false

@@ -38,6 +38,7 @@ from boxmot.engine.config.trackers import edgetam_checkpoint, resolve_tracker_op
 from boxmot.engine.eval.results import SUMMARY_COLUMNS, ValidationResult
 from boxmot.engine.tuning.backends import build_search_backend, resolve_search_backend
 from boxmot.engine.tuning.kalman_refinement import (
+    condition_kalman_type_schema,
     is_kalman_option,
     prepare_kalman_refinement,
     refine_kalman_schema,
@@ -348,6 +349,12 @@ class Tuner:
                     runtime_config,
                     getattr(args, "tune_kf", ()),
                     class_ids=getattr(args, "tracker_class_ids", None),
+                )
+                yaml_cfg = condition_kalman_type_schema(
+                    yaml_cfg,
+                    runtime_config,
+                    authored_options,
+                    backend=getattr(args, "tracker_backend", "python") or "python",
                 )
                 runtime_config = prepare_mask_guidance_tuning(args, runtime_config, overrides=baseline_overlay)
                 yaml_cfg = condition_mask_guidance_schema(yaml_cfg, args, runtime_config)

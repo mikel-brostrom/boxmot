@@ -1,8 +1,9 @@
 """Tracker configuration loading.
 
 Typed algorithm configurations own runtime defaults. Built-in tracker YAMLs
-define tuning metadata and component profiles. This module resolves runtime values;
-interpretation of search metadata remains owned by :mod:`boxmot.engine.tuning`.
+repeat searchable defaults alongside tuning metadata and component profiles.
+This module resolves runtime values; interpretation of search metadata remains
+owned by :mod:`boxmot.engine.tuning`.
 Reusable presets and custom runtime configs group Kalman settings under
 ``kalman`` and mask-guidance settings under ``edgetam``. Engine/search code
 addresses those leaves using dotted paths.
@@ -307,9 +308,13 @@ def load_tracker_schema(tracker_name: str) -> dict[str, Any]:
     entries = _flatten_tracker_entries(schema, path=path)
     for parameter, details in entries.items():
         if parameter in defaults:
-            if "default" in details:
+            if "default" in details and (
+                type(details["default"]) is not type(defaults[parameter])
+                or details["default"] != defaults[parameter]
+            ):
                 raise ValueError(
-                    f"Tracker config {path} duplicates the typed default for {parameter!r}; "
+                    f"Tracker config {path} default for {parameter!r} must match its typed default "
+                    f"{defaults[parameter]!r}; "
                     "put runtime overrides in a preset."
                 )
             details["default"] = defaults[parameter]

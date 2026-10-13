@@ -62,6 +62,32 @@ def refinement_keys(
     return tuple(keys)
 
 
+def condition_kalman_type_schema(
+    schema: dict,
+    baseline: Mapping[str, Any],
+    authored_options: Mapping[str, Any],
+    *,
+    backend: str = "python",
+) -> dict:
+    """Search filter types only when runtime policies and priors allow changes."""
+    expanded = expand_yaml_groups(schema)
+    if "kalman.type" not in expanded:
+        return schema
+    fixed = (
+        backend != "python"
+        or "kalman.type" in authored_options
+        or baseline.get("kalman.adaptive_kf", False)
+        or any(name.startswith("calibration.") for name in baseline)
+        or any(
+            name.startswith("kalman.noise.") and name.endswith("_diagonal") and value
+            for name, value in baseline.items()
+        )
+    )
+    if not fixed:
+        return schema
+    return {**expanded, "kalman.type": {"default": baseline["kalman.type"]}}
+
+
 def refine_kalman_schema(
     schema: dict,
     baseline: Mapping[str, Any],

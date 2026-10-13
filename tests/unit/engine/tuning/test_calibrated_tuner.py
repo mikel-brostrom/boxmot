@@ -306,6 +306,7 @@ def test_kf_is_calibrated_once_before_ray_and_frozen_in_every_trial(
     assert captured["events"].index("calibrate") < captured["events"].index("ray_init")
     frozen = {
         **{name: float(index + 2) for index, name in enumerate(KALMAN_NOISE_OPTIONS)},
+        "kalman.type": "xywh",
         "kalman.variable_dt": True,
         "kalman.noise.time_unit": "seconds",
         "kalman.noise.reference_dt_s": 0.05,

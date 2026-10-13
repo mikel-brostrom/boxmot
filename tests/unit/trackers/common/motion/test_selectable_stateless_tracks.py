@@ -182,15 +182,17 @@ def test_public_trackers_select_filter_and_preserve_identity_through_gap(kind, i
 
 @pytest.mark.parametrize("is_obb", [False, True])
 @pytest.mark.parametrize("name", ["bytetrack", "botsort", "strongsort"])
-def test_public_tracker_defaults_match_explicit_filter(name, is_obb):
-    """Omitted, automatic and explicit defaults retain geometry and identity."""
+@pytest.mark.parametrize("use_geometry_default", [False, True])
+def test_public_tracker_defaults_match_explicit_filter(name: str, is_obb: bool, use_geometry_default: bool) -> None:
+    """YAML defaults and explicit null each match their named filter exactly."""
     from boxmot.trackers import TrackerSpec, create_tracker
     from tests.unit.trackers.test_variable_frame_time import _update
 
-    default_kind = "xywh" if name == "botsort" or is_obb else "xyah"
+    default_kind = "xywh" if name == "botsort" or (use_geometry_default and is_obb) else "xyah"
+    default_options = (("kalman.type", None),) if use_geometry_default else ()
     trackers = [
         create_tracker(TrackerSpec(name, geometry="obb" if is_obb else "aabb", options=options))
-        for options in ((), (("kalman.type", None),), (("kalman.type", default_kind),))
+        for options in (default_options, (("kalman.type", default_kind),))
     ]
     for tracker in trackers:
         if hasattr(tracker, "cmc"):
@@ -214,10 +216,11 @@ def test_public_tracker_defaults_match_explicit_filter(name, is_obb):
         if index == 0 and name in ("bytetrack", "strongsort") and is_obb:
             for tracker in trackers:
                 track = tracker.active_tracks[0]
-                assert track.motion_model.kind is MotionModelKind.XYWH
+                assert track.motion_model.kind is MotionModelKind(default_kind)
                 assert track.mean.shape == (10,)
                 assert track.covariance.shape == (10, 10)
-                np.testing.assert_allclose(track.mean[:5], [60.0, 40.0, 30.0, 20.0, 0.2])
+                shape_value = 30.0 if default_kind == "xywh" else 1.5
+                np.testing.assert_allclose(track.mean[:5], [60.0, 40.0, shape_value, 20.0, 0.2])
                 np.testing.assert_array_equal(track.mean[5:], np.zeros(5))
         if index == 3:
             confirmed_ids = actual.track_ids.clone()
