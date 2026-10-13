@@ -13,7 +13,12 @@ from boxmot.trackers.botsort.config import BotSortConfig
 from boxmot.trackers.botsort.track import STrack, TrackState
 from boxmot.trackers.common.appearance import resolve_batch_embeddings
 from boxmot.trackers.common.association import AssociationStage, run_association_stage
-from boxmot.trackers.common.association.matching import embedding_distance, fuse_score
+from boxmot.trackers.common.association.matching import (
+    apply_motion_fusion,
+    embedding_distance,
+    fuse_iou,
+    fuse_score,
+)
 from boxmot.trackers.common.box.base import BoxTracker
 from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runtime_options
 from boxmot.trackers.common.motion.cmc.registry import create_cmc
@@ -315,7 +320,8 @@ class BotSort(BoxTracker):
 
         return matches, u_track, u_detection
 
-    def _first_association_cost(self, tracks, detections) -> np.ndarray:
+    def _first_association_cost(self, tracks: list[STrack], detections: list[STrack]) -> np.ndarray:
+        """Fuse high-confidence costs after prediction and camera compensation."""
         geometry_dists = self.association_distance(tracks, detections)
         geometry_dists_mask = geometry_dists > self.proximity_thresh
         if self.fuse_first_associate:
@@ -324,10 +330,24 @@ class BotSort(BoxTracker):
         costs = geometry_dists
         if self.use_embeddings:
             emb_dists = embedding_distance(tracks, detections)
+            if self.config.fuse_iou:
+                emb_dists = fuse_iou(emb_dists, tracks, detections, is_obb=self.is_obb)
             emb_dists[emb_dists > self.appearance_thresh] = 1.0
             emb_dists[geometry_dists_mask] = 1.0
             costs = np.minimum(geometry_dists, emb_dists)
-        return self._condition_association(costs, tracks, detections, threshold=self.match_thresh)
+        if self.config.motion_fusion != "off":
+            costs = apply_motion_fusion(
+                costs,
+                tracks,
+                self._association_boxes(detections),
+                mode=self.config.motion_fusion,
+                only_position=self.config.motion_fusion_only_position,
+                lambda_=self.config.motion_fusion_lambda,
+            )
+        blocked = ~np.isfinite(costs)
+        costs = self._condition_association(costs, tracks, detections, threshold=self.match_thresh)
+        costs[blocked] = np.inf
+        return costs
 
     def _second_association_cost(self, tracks, detections) -> np.ndarray:
         """Apply temporal masks to the low-confidence pass at its own threshold."""

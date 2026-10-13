@@ -29,6 +29,15 @@ class BaseCMC(ABC):
     target_width: int | None = None
     resize_before_grayscale: bool = False
 
+    def configure_preprocessing(self, scale: float | None, target_width: int | None) -> None:
+        """Set an explicit scale or a resolution-independent working width."""
+        if target_width is not None and (
+            isinstance(target_width, bool) or not isinstance(target_width, int) or target_width <= 0
+        ):
+            raise ValueError("target_width must be a positive integer pixel width or None.")
+        self.scale = 0.15 if scale is None and target_width is None else (None if scale is None else float(scale))
+        self.target_width = target_width
+
     @abstractmethod
     def apply(self, img: np.ndarray, dets: Optional[np.ndarray] = None) -> np.ndarray:
         raise NotImplementedError
@@ -55,9 +64,17 @@ class BaseCMC(ABC):
 
         out = img
         original_h, original_w = out.shape[:2]
+        if original_h == 0 or original_w == 0:
+            raise ValueError("Expected a non-empty image.")
+        # Even equal working sizes cannot share history if the input coordinate
+        # system changed (for example switching a 1080p stream to 4K).
+        image_shape = (original_h, original_w)
+        if getattr(self, "_image_shape", image_shape) != image_shape:
+            self.reset()
+        self._image_shape = image_shape
         grayscale = getattr(self, "grayscale", True)
         resize_first = self.resize_before_grayscale
-        if grayscale and not resize_first:
+        if grayscale and not resize_first and out.ndim == 3:
             # assume BGR input
             out = cv2.cvtColor(out, cv2.COLOR_BGR2GRAY)
 
@@ -67,7 +84,9 @@ class BaseCMC(ABC):
         if isinstance(sc, (int, float)):
             if sc <= 0:
                 raise ValueError(f"scale must be > 0, got {sc}")
-            out = cv2.resize(out, (0, 0), fx=float(sc), fy=float(sc), interpolation=cv2.INTER_LINEAR)
+            size = (max(1, round(original_w * sc)), max(1, round(original_h * sc)))
+            if size != (original_w, original_h):
+                out = cv2.resize(out, size, interpolation=cv2.INTER_LINEAR)
         elif sc is not None:
             # treat as explicit size (W, H)
             w, h = int(sc[0]), int(sc[1])
@@ -76,7 +95,7 @@ class BaseCMC(ABC):
             out = cv2.resize(out, (w, h), interpolation=cv2.INTER_LINEAR)
 
         self._preprocess_scale = (out.shape[1] / original_w, out.shape[0] / original_h)
-        if grayscale and resize_first:
+        if grayscale and resize_first and out.ndim == 3:
             out = cv2.cvtColor(out, cv2.COLOR_BGR2GRAY)
         return out
 

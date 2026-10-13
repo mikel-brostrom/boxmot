@@ -12,15 +12,24 @@
 
 namespace botsort {
 
-cv::Mat CameraMotionCompensator::Preprocess(const cv::Mat& image, const bool grayscale, const float scale) const {
+cv::Mat CameraMotionCompensator::Preprocess(const cv::Mat& image, const bool grayscale, const int target_width) const {
     cv::Mat output = image;
-    if (grayscale && image.channels() == 3) {
-        cv::cvtColor(image, output, cv::COLOR_BGR2GRAY);
-    } else if (grayscale && image.channels() == 4) {
-        cv::cvtColor(image, output, cv::COLOR_BGRA2GRAY);
+    // Bound estimator work independently of capture resolution, and convert
+    // only the pixels retained by downsampling. Never upscale small inputs.
+    if (image.cols > target_width) {
+        const double scale = static_cast<double>(target_width) / image.cols;
+        const cv::Size size(target_width, std::max(1, cvRound(image.rows * scale)));
+        cv::resize(output, output, size, 0.0, 0.0, cv::INTER_LINEAR);
     }
-    if (scale > 0.0F && scale != 1.0F) {
-        cv::resize(output, output, cv::Size(), scale, scale, cv::INTER_LINEAR);
+    if (grayscale && output.channels() == 3) {
+        cv::cvtColor(output, output, cv::COLOR_BGR2GRAY);
+    } else if (grayscale && output.channels() == 4) {
+        cv::cvtColor(output, output, cv::COLOR_BGRA2GRAY);
+    }
+    // Small grayscale inputs bypass both allocation paths. Own their history
+    // so a caller can refill the same capture buffer for the next frame.
+    if (output.data == image.data) {
+        output = output.clone();
     }
     return output;
 }
@@ -157,10 +166,11 @@ public:
             return warp;
         }
 
-        cv::Mat current = Preprocess(image, true, 0.15F);
+        cv::Mat current = Preprocess(image, true, 96);
         const auto [scale_x, scale_y] = ResizeScale(image, current);
-        if (prev_image_.empty()) {
+        if (prev_image_.empty() || prev_input_size_ != image.size()) {
             prev_image_ = current;
+            prev_input_size_ = image.size();
             return warp;
         }
 
@@ -171,9 +181,9 @@ public:
                 current,
                 warp,
                 cv::MOTION_TRANSLATION,
-                cv::TermCriteria(cv::TermCriteria::EPS | cv::TermCriteria::COUNT, 100, 1.0e-5),
+                cv::TermCriteria(cv::TermCriteria::EPS | cv::TermCriteria::COUNT, 10, 1.0e-3),
                 mask,
-                1
+                3
             );
             if (!std::isfinite(correlation) || correlation < 0.5 || !detail::IsValidAffine(warp)) {
                 warp = cv::Mat::eye(2, 3, CV_32F);
@@ -193,6 +203,7 @@ public:
 
 private:
     cv::Mat prev_image_;
+    cv::Size prev_input_size_;
 };
 
 class SofCmc final : public CameraMotionCompensator {
@@ -203,9 +214,10 @@ public:
             return warp;
         }
 
-        cv::Mat current = Preprocess(image, true, 0.15F);
+        cv::Mat current = Preprocess(image, true, 192);
         const auto [scale_x, scale_y] = ResizeScale(image, current);
-        if (!initialized_ || prev_frame_.empty() || prev_keypoints_.empty()) {
+        if (!initialized_ || prev_frame_.empty() || prev_keypoints_.empty() || prev_input_size_ != image.size()) {
+            prev_input_size_ = image.size();
             Initialize(current, detections, scale_x, scale_y);
             return warp;
         }
@@ -220,9 +232,9 @@ public:
             next_keypoints,
             status,
             errors,
-            cv::Size(21, 21),
-            3,
-            cv::TermCriteria(cv::TermCriteria::EPS | cv::TermCriteria::COUNT, 30, 0.01)
+            cv::Size(11, 11),
+            2,
+            cv::TermCriteria(cv::TermCriteria::EPS | cv::TermCriteria::COUNT, 10, 0.03)
         );
 
         if (next_keypoints.empty() || status.empty()) {
@@ -232,7 +244,10 @@ public:
 
         std::vector<cv::Point2f> prev_valid;
         std::vector<cv::Point2f> next_valid;
+        const cv::Mat mask = GenerateMask(current.size(), detections, scale_x, scale_y);
         const std::size_t point_count = std::min({status.size(), prev_keypoints_.size(), next_keypoints.size()});
+        prev_valid.reserve(point_count);
+        next_valid.reserve(point_count);
         for (std::size_t i = 0; i < point_count; ++i) {
             if (
                 status[i]
@@ -241,8 +256,17 @@ public:
                 && std::isfinite(next_keypoints[i].x)
                 && std::isfinite(next_keypoints[i].y)
             ) {
-                prev_valid.push_back(prev_keypoints_[i]);
-                next_valid.push_back(next_keypoints[i]);
+                // Points reused between detector refreshes must remain on the
+                // current background, outside moving detections and borders.
+                const cv::Point point(cvRound(next_keypoints[i].x), cvRound(next_keypoints[i].y));
+                if (
+                    point.x >= 0 && point.x < mask.cols
+                    && point.y >= 0 && point.y < mask.rows
+                    && mask.at<unsigned char>(point) != 0
+                ) {
+                    prev_valid.push_back(prev_keypoints_[i]);
+                    next_valid.push_back(next_keypoints[i]);
+                }
             }
         }
 
@@ -259,18 +283,31 @@ public:
             cv::RANSAC,
             3.0
         );
-        if (IsValidSofAffine(affine, inliers, prev_valid.size())) {
+        const bool accepted = IsValidSofAffine(affine, inliers, prev_valid.size());
+        if (accepted) {
             affine.convertTo(warp, CV_32F);
             warp = RestoreAffineScale(warp, scale_x, scale_y);
         }
 
-        std::vector<cv::Point2f> refreshed = DetectKeypoints(current, detections, scale_x, scale_y);
-        if (refreshed.size() < 4U) {
-            refreshed = next_valid;
+        ++frames_since_detection_;
+        std::vector<cv::Point2f> refreshed;
+        if (accepted) {
+            refreshed.reserve(next_valid.size());
+            for (std::size_t index = 0; index < next_valid.size(); ++index) {
+                if (inliers.at<unsigned char>(static_cast<int>(index)) != 0) {
+                    refreshed.push_back(next_valid[index]);
+                }
+            }
+        }
+        // Retain subpixel inlier locations, refreshing at most every five
+        // frames or as soon as fewer than half the feature budget survives.
+        if (!accepted || refreshed.size() < 24U || frames_since_detection_ >= 5) {
+            cv::goodFeaturesToTrack(current, refreshed, 48, 0.01, 4.0, mask, 3, false, 0.04);
+            frames_since_detection_ = 0;
         }
         prev_keypoints_ = std::move(refreshed);
         prev_frame_ = current;
-        initialized_ = true;
+        initialized_ = prev_keypoints_.size() >= 4U;
         return warp;
     }
 
@@ -283,7 +320,7 @@ private:
     ) const {
         std::vector<cv::Point2f> keypoints;
         const cv::Mat mask = GenerateMask(current.size(), detections, scale_x, scale_y);
-        cv::goodFeaturesToTrack(current, keypoints, 1000, 0.01, 1.0, mask, 3, false, 0.04);
+        cv::goodFeaturesToTrack(current, keypoints, 48, 0.01, 4.0, mask, 3, false, 0.04);
         return keypoints;
     }
 
@@ -307,10 +344,11 @@ private:
                 prev_keypoints_,
                 cv::Size(5, 5),
                 cv::Size(-1, -1),
-                cv::TermCriteria(cv::TermCriteria::EPS | cv::TermCriteria::COUNT, 30, 0.01)
+                cv::TermCriteria(cv::TermCriteria::EPS | cv::TermCriteria::COUNT, 10, 0.03)
             );
         }
         initialized_ = true;
+        frames_since_detection_ = 0;
     }
 
     void Reset(
@@ -322,11 +360,14 @@ private:
         prev_keypoints_ = DetectKeypoints(current, detections, scale_x, scale_y);
         prev_frame_ = current;
         initialized_ = prev_keypoints_.size() >= 4U;
+        frames_since_detection_ = 0;
     }
 
     cv::Mat prev_frame_;
+    cv::Size prev_input_size_;
     std::vector<cv::Point2f> prev_keypoints_;
     bool initialized_ = false;
+    int frames_since_detection_ = 0;
 };
 
 }  // namespace

@@ -5,7 +5,8 @@ import multiprocessing as mp
 import queue
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from contextlib import nullcontext
+from contextlib import ExitStack
+from multiprocessing.managers import SyncManager
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ from tqdm.auto import tqdm
 
 from boxmot.postprocessing.progress import safe_seq_progress_callback
 from boxmot.utils import logger as LOGGER
+from boxmot.utils.processes import guard_parent_lifetime
 
 ProgressCallback = Callable[[str, int, int], None]
 FileWorker = Callable[..., None]
@@ -79,15 +81,21 @@ class MotFilePostprocessor(Postprocessor):
 
         use_queue = progress_callback is not None
         spawn_ctx = mp.get_context("spawn")
-        manager_ctx = spawn_ctx.Manager() if use_queue else nullcontext()
         failed_files: list[str] = []
         worker = self.worker()
         worker_args = self.worker_args()
 
-        with manager_ctx as manager:
-            progress_queue = manager.Queue() if use_queue else None
+        with ExitStack() as contexts:
+            progress_queue = None
+            if use_queue:
+                manager = SyncManager(ctx=spawn_ctx)
+                manager.start(initializer=guard_parent_lifetime)
+                contexts.enter_context(manager)
+                progress_queue = manager.Queue()
 
-            with concurrent.futures.ProcessPoolExecutor(mp_context=spawn_ctx) as executor:
+            with concurrent.futures.ProcessPoolExecutor(
+                mp_context=spawn_ctx, initializer=guard_parent_lifetime
+            ) as executor:
                 futures = {
                     executor.submit(worker, file_path, *worker_args, progress_queue): file_path
                     for file_path in tracking_files

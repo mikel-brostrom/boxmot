@@ -30,7 +30,7 @@ from boxmot.utils import ROOT
 
 DEFAULT_PREVIOUS_IMAGE = ROOT / "assets/MOT17-mini/train/MOT17-04-FRCNN/img1/000001.jpg"
 DEFAULT_CURRENT_IMAGE = ROOT / "assets/MOT17-mini/train/MOT17-04-FRCNN/img1/000005.jpg"
-DEFAULT_METHODS = ("ecc", "orb", "sift", "sof")
+DEFAULT_METHODS = ("ecc", "sof")
 DEFAULT_WARMUP = 5
 DEFAULT_ITERATIONS = 100
 DETECTIONS = np.array([[0.0, 0.0, 10.0, 10.0]], dtype=np.float32)
@@ -75,7 +75,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=_parse_methods,
         default=DEFAULT_METHODS,
         metavar="LIST",
-        help=f"comma-separated methods (default: {','.join(DEFAULT_METHODS)})",
+        help=f"comma-separated methods; orb/sift are slower opt-ins (default: {','.join(DEFAULT_METHODS)})",
     )
     parser.add_argument(
         "--previous-image",

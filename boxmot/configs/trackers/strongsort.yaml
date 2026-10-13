@@ -25,7 +25,7 @@ asso_func:
   options: [iou, giou, diou, ciou, hmiou, centroid]
 
 # Maximum centroid displacement as a fraction of the frame diagonal.
-# The sole geometric cutoff for centroid; other geometric thresholds are inactive.
+# Centroid ignores overlap thresholds; optional motion fusion adds its own gate.
 centroid_max_distance:
   association: [centroid]
   type: uniform
@@ -46,11 +46,34 @@ mc_lambda:
   type: uniform
   default: 0.98
   range: [0.90, 0.999]
+  depends_on: motion_fusion
+  cases:
+    "off": {default: 0.98}
+    gate: {default: 0.98}
+
+# Preserve StrongSORT's existing gated motion blend by default.
+motion_fusion:
+  type: choice
+  default: blend
+  options: ["off", gate, blend]
+
+fuse_iou:
+  type: choice
+  default: false
+  options: [false, true]
+
+fuse_detection_score:
+  type: choice
+  default: false
+  options: [false, true]
 
 gating_only_position:
   type: choice
   default: false
   options: [false, true]
+  depends_on: motion_fusion
+  cases:
+    "off": {default: false}
 
 geometric_recovery_max_age:
   type: randint

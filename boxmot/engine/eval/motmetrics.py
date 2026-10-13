@@ -25,6 +25,7 @@ from scipy.optimize import linear_sum_assignment
 
 from boxmot.datasets.annotation_cache import load_cached_annotation
 from boxmot.utils import logger as LOGGER
+from boxmot.utils.processes import guard_parent_lifetime
 
 HOTA_ALPHA_VALUES: tuple[float, ...] = tuple(float(value) for value in np.arange(0.05, 0.99, 0.05))
 _FLOAT_EPS = np.finfo(float).eps
@@ -1339,7 +1340,7 @@ def _evaluate_sequence_tasks(
         return [_evaluate_sequence_task(task) for task in tasks]
 
     context = _fast_process_context()
-    with context.Pool(processes=workers) as pool:
+    with context.Pool(processes=workers, initializer=guard_parent_lifetime) as pool:
         return pool.map(_evaluate_sequence_task, tasks, chunksize=1)
 
 

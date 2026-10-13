@@ -10,6 +10,7 @@ import queue
 import tempfile
 from collections import Counter, OrderedDict
 from collections.abc import Callable, Iterable, Mapping
+from concurrent.futures.process import BrokenProcessPool
 from contextlib import ExitStack, contextmanager, nullcontext
 from dataclasses import dataclass, replace
 from multiprocessing import get_context
@@ -27,6 +28,7 @@ from boxmot.engine.config.cmc import SequenceCMCPolicy
 from boxmot.engine.config.runtime import resolve_sequence_workers
 from boxmot.engine.config.trackers import validate_image_tracker
 from boxmot.engine.eval.mots_io import prepare_mots_tracks, tracks_to_mots_rows, write_mots_rows
+from boxmot.engine.eval.workers import initialize_worker_threads, shutdown_sequence_pool
 from boxmot.engine.materialization.builds import (
     BuildCompatibilityError,
     load_cached_build,
@@ -36,6 +38,7 @@ from boxmot.engine.materialization.builds import (
 from boxmot.pipelines import PipelineOutputs, PipelineResult, TrackingPipeline
 from boxmot.structures import Boxes, Frame, OrientedBoxes, Tracks
 from boxmot.trackers import Tracker, TrackerSpec
+from boxmot.utils.processes import guard_parent_lifetime
 
 if TYPE_CHECKING:
     import numpy as np
@@ -325,6 +328,8 @@ def _initialize_replay_worker(progress_queue: Any | None) -> None:
     global _WORKER_PROGRESS_QUEUE
     from multiprocessing.util import Finalize
 
+    guard_parent_lifetime()
+    initialize_worker_threads()
     _clear_worker_inputs()
     Finalize(None, _clear_worker_inputs, exitpriority=10)
     _WORKER_PROGRESS_QUEUE = progress_queue
@@ -696,36 +701,38 @@ def _run_spawned_sequence_tasks(
     progress_queue = (context.Queue() if progress_callback is not None else None) if _pool is None else _pool[1]
     run_id = None if _pool is None else _pool[2]
     latest: dict[int, ReplayProgressEvent] = {}
-    for task in tasks:
-        _publish_progress(
-            ReplayProgressEvent(
-                sequence_id=task.sequence_id,
-                status="queued",
-                completed=0,
-                total=task.frame_total,
-                track_rows=0,
-                detail=None,
-                ordinal=task.ordinal,
-                run_id=run_id,
-            ),
-            progress_callback,
-            latest,
-        )
-
-    executor = (
-        _pool[0]
-        if _pool is not None
-        else concurrent.futures.ProcessPoolExecutor(
-            max_workers=workers,
-            mp_context=context,
-            initializer=_initialize_replay_worker,
-            initargs=(progress_queue,),
-        )
-    )
+    executor = None
+    interrupted = False
     futures: dict[concurrent.futures.Future[_SequenceReplayResult], _SequenceReplayTask] = {}
     results: dict[int, _SequenceReplayResult] = {}
     failures: list[tuple[_SequenceReplayTask, BaseException]] = []
     try:
+        for task in tasks:
+            _publish_progress(
+                ReplayProgressEvent(
+                    sequence_id=task.sequence_id,
+                    status="queued",
+                    completed=0,
+                    total=task.frame_total,
+                    track_rows=0,
+                    detail=None,
+                    ordinal=task.ordinal,
+                    run_id=run_id,
+                ),
+                progress_callback,
+                latest,
+            )
+
+        executor = (
+            _pool[0]
+            if _pool is not None
+            else concurrent.futures.ProcessPoolExecutor(
+                max_workers=workers,
+                mp_context=context,
+                initializer=_initialize_replay_worker,
+                initargs=(progress_queue,),
+            )
+        )
         futures = {executor.submit(_replay_sequence_task, task): task for task in tasks}
         pending = set(futures)
         while pending:
@@ -734,12 +741,18 @@ def _run_spawned_sequence_tasks(
                 timeout=0.1,
                 return_when=concurrent.futures.FIRST_COMPLETED,
             )
+            # A killed worker can leave a partial progress message. Check
+            # broken futures before reading a queue whose writer died.
+            for future in done:
+                error = future.exception()
+                if isinstance(error, BrokenProcessPool):
+                    raise error
             _drain_progress_queue(progress_queue, progress_callback, latest, run_id)
             for future in done:
                 task = futures[future]
                 try:
                     result = future.result()
-                except BaseException as exc:
+                except Exception as exc:
                     _drain_progress_queue(progress_queue, progress_callback, latest, run_id)
                     previous = latest.get(task.ordinal)
                     if previous is None or previous.status != "failed":
@@ -803,19 +816,20 @@ def _run_spawned_sequence_tasks(
                         latest,
                     )
     except BaseException:
+        interrupted = True
         for future in futures:
             future.cancel()
-        if _pool is None:
-            executor.shutdown(wait=True, cancel_futures=True)
         raise
-    else:
-        if _pool is None:
-            executor.shutdown(wait=True, cancel_futures=False)
     finally:
-        _drain_progress_queue(progress_queue, progress_callback, latest, run_id)
-        if progress_queue is not None and _pool is None:
-            progress_queue.close()
-            progress_queue.join_thread()
+        try:
+            if _pool is None and executor is not None:
+                shutdown_sequence_pool(executor, interrupted=interrupted)
+            if not interrupted:
+                _drain_progress_queue(progress_queue, progress_callback, latest, run_id)
+        finally:
+            if progress_queue is not None and _pool is None:
+                progress_queue.close()
+                progress_queue.join_thread()
 
     if failures:
         failures.sort(key=lambda item: item[0].ordinal)

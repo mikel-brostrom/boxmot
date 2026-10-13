@@ -701,6 +701,11 @@ the active worker count never exceeds the number of selected sequences.
 Use `--sequence-workers 1` to process sequences one at a time. The Rich panel
 reports frame progress separately for every sequence while those jobs run.
 
+Spawned sequence workers use one compute thread per BLAS, OpenMP, PyTorch, and
+OpenCV pool, overriding inherited thread counts to avoid nested CPU parallelism.
+These limits apply inside the workers; serial replay in the parent process
+keeps the caller's thread settings.
+
 Image-build previews and saved videos use serial replay. Saved 2D preview forces
 one sequence worker with a warning when it reduces the count. EagerMOT sensor replay runs serially
 with `--show`. Saved 2D and EagerMOT both support parallel video writing with `--save` alone.
@@ -805,6 +810,20 @@ Tracker output is serialized to MOT text at the evaluation boundary. Selected
 postprocessing steps run before scoring and retain the raw result files. The
 perception build remains immutable. `--compare-trackeval` is available for
 supported AABB MOTChallenge datasets.
+
+Perception-build evaluation writes class-keyed scores to
+`<project>/<dataset_id>/<name>/metrics.json` after scoring succeeds, including
+per-sequence scores and any class aggregates. The defaults are `--project runs`
+and `--name exp`; existing run names increment unless `--exist-ok` is set.
+The JSON is written for ordinary evaluation and CI runs alike. For MOT17, read
+the combined pedestrian scores from `pedestrian.HOTA`, `pedestrian.MOTA`, and
+`pedestrian.IDF1`, for example:
+
+```bash
+boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml \
+  --tracker bytetrack --project runs --name bytetrack --exist-ok
+jq '.pedestrian | {HOTA, MOTA, IDF1}' runs/mot17/bytetrack/metrics.json
+```
 
 Guided box trackers report box tracking metrics. Their output directory includes a
 guidance fingerprint, and `mask-guidance.json` records the official EdgeTAM

@@ -18,7 +18,13 @@ from boxmot.trackers.common.appearance import (
     ema_update_embedding,
     resolve_batch_embeddings,
 )
-from boxmot.trackers.common.association import feature_distance, solve_assignment
+from boxmot.trackers.common.association import (
+    apply_motion_fusion,
+    feature_distance,
+    fuse_iou,
+    fuse_score,
+    solve_assignment,
+)
 from boxmot.trackers.common.association.hybrid import (
     associate_hybrid,
     associate_hybrid_with_reid,
@@ -119,6 +125,25 @@ class HybridSort(BoxTracker):
         self.active_tracks: List[KalmanBoxTracker] = []
         self._requires_frame = self._requires_frame or self.cmc is not None
         self._requires_frame_dimensions_only = self._requires_frame_dimensions_only and self.cmc is None
+
+    def _first_pass_similarity(
+        self, similarity: np.ndarray, boxes: np.ndarray, scores: np.ndarray
+    ) -> np.ndarray:
+        """Optionally score-fuse geometry before the existing guidance and gate."""
+        if self.config.fuse_detection_score:
+            similarity = 1.0 - fuse_score((1.0 - similarity).T, scores).T
+        return self._condition_similarity(similarity, self.active_tracks, boxes, threshold=self.iou_threshold)
+
+    def _first_pass_cost(self, costs: np.ndarray, boxes: np.ndarray) -> np.ndarray:
+        """Apply optional Kalman fusion after HybridSORT's own ranking cues."""
+        return apply_motion_fusion(
+            (1.0 + costs).T,
+            self.active_tracks,
+            boxes,
+            mode=self.config.motion_fusion,
+            only_position=self.config.motion_fusion_only_position,
+            lambda_=self.config.motion_fusion_lambda,
+        ).T - 1.0
 
     def _track_detections(
         self,
@@ -228,6 +253,9 @@ class HybridSort(BoxTracker):
         ):
             track_features = np.asarray([t.smooth_feat for t in self.active_tracks], dtype=float)
             emb_dists = feature_distance(track_features, id_feature_keep).T
+            ranking_emb_dists = (
+                fuse_iou(emb_dists.T, trks[:, :4], high_batch.boxes).T if self.config.fuse_iou else None
+            )
 
             long_emb_dists = None
             if self.with_longterm_reid:
@@ -239,6 +267,8 @@ class HybridSort(BoxTracker):
                     dtype=float,
                 )
                 long_emb_dists = feature_distance(long_track_features, id_feature_keep).T
+                if self.config.fuse_iou:
+                    long_emb_dists = fuse_iou(long_emb_dists.T, trks[:, :4], high_batch.boxes).T
 
             matched, unmatched_dets, unmatched_trks = associate_hybrid_with_reid(
                 dets_first,
@@ -249,15 +279,18 @@ class HybridSort(BoxTracker):
                 self.inertia,
                 association_function,
                 embedding_cost=emb_dists,
+                ranking_embedding_cost=ranking_emb_dists,
                 embedding_weight=self.eg_weight_high_score,
                 longterm_embedding_cost=long_emb_dists,
                 longterm_embedding_weight=self.longterm_reid_weight,
                 correct_with_appearance=self.with_longterm_reid_correction,
                 appearance_threshold=self.longterm_reid_correction_thresh,
                 gate_before_assignment=self._asso_func_base_name == "centroid",
-                geometry_conditioner=lambda similarity: self._condition_similarity(
-                    similarity, self.active_tracks, high_batch.boxes, threshold=self.iou_threshold
+                geometry_conditioner=lambda similarity: self._first_pass_similarity(
+                    similarity, high_batch.boxes, high_batch.confs
                 ),
+                cost_conditioner=(lambda costs: self._first_pass_cost(costs, high_batch.boxes))
+                if self.config.motion_fusion != "off" else None,
             )
         elif self.tcm_first_step and len(dets_first) and len(trks):
             matched, unmatched_dets, unmatched_trks = associate_hybrid(
@@ -269,9 +302,11 @@ class HybridSort(BoxTracker):
                 self.inertia,
                 association_function,
                 gate_before_assignment=self._asso_func_base_name == "centroid",
-                geometry_conditioner=lambda similarity: self._condition_similarity(
-                    similarity, self.active_tracks, high_batch.boxes, threshold=self.iou_threshold
+                geometry_conditioner=lambda similarity: self._first_pass_similarity(
+                    similarity, high_batch.boxes, high_batch.confs
                 ),
+                cost_conditioner=(lambda costs: self._first_pass_cost(costs, high_batch.boxes))
+                if self.config.motion_fusion != "off" else None,
             )
         else:
             matched = np.empty((0, 2), dtype=int)
@@ -467,20 +502,28 @@ class HybridSort(BoxTracker):
         unmatched_tracks = np.arange(len(self.active_tracks))
         if len(high_dets) and len(predicted):
             similarity = self.asso_func(high.boxes, predicted)
+            if self.config.fuse_detection_score:
+                similarity = 1.0 - fuse_score((1.0 - similarity).T, high.confs).T
             embedding_cost = None
             if self.use_embeddings:
                 track_embs = np.asarray([track.smooth_feat for track in self.active_tracks])
                 embedding_cost = feature_distance(track_embs, high_embs).T
             assignment_cost = -similarity
             if embedding_cost is not None:
-                assignment_cost += self.eg_weight_high_score * embedding_cost
+                ranking_embedding_cost = (
+                    fuse_iou(embedding_cost.T, predicted, high.boxes, is_obb=True).T
+                    if self.config.fuse_iou else embedding_cost
+                )
+                assignment_cost += self.eg_weight_high_score * ranking_embedding_cost
             eligible = self.association_eligibility(high.boxes, predicted)
-            if self._asso_func_base_name == "centroid":
+            if self._asso_func_base_name == "centroid" or self.config.motion_fusion != "off":
                 accepted_geometry = similarity >= self.iou_threshold
                 if embedding_cost is not None:
                     accepted_geometry |= embedding_cost <= self.longterm_reid_correction_thresh
                 eligible &= accepted_geometry
             assignment_cost = np.where(eligible, assignment_cost, np.inf)
+            if self.config.motion_fusion != "off":
+                assignment_cost = self._first_pass_cost(assignment_cost, high.boxes)
             pairs = solve_assignment(assignment_cost)
             accepted = []
             for det_index, track_index in pairs:

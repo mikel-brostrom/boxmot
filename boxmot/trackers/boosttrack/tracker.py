@@ -22,6 +22,7 @@ from boxmot.trackers.common.association.boost import (
     soft_biou_batch_obb,
 )
 from boxmot.trackers.common.association.iou import AssociationFunction
+from boxmot.trackers.common.association.matching import apply_motion_fusion, fuse_iou, fuse_score
 from boxmot.trackers.common.box.base import BoxTracker
 from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runtime_options
 from boxmot.trackers.common.geometry.obb import xywha_to_xyxy
@@ -120,6 +121,17 @@ class BoostTrack(BoxTracker):
         if self.cmc is not None:
             self._requires_frame_dimensions_only = False
 
+    def _fuse_first_motion(self, costs: np.ndarray, tracks: list, boxes: np.ndarray) -> np.ndarray:
+        """Apply optional motion fusion to detection-by-track first-pass costs."""
+        return apply_motion_fusion(
+            costs.T,
+            tracks,
+            boxes,
+            mode=self.config.motion_fusion,
+            only_position=self.config.motion_fusion_only_position,
+            lambda_=self.config.motion_fusion_lambda,
+        ).T
+
     def _track_detections(
         self,
         dets: np.ndarray,
@@ -209,6 +221,10 @@ class BoostTrack(BoxTracker):
         association_trks = trks_obb_np if self.is_obb else trks_np
         tracker_boxes = trks_obb_np[:, :5] if self.is_obb else trks_np[:, :4]
         geometry_similarity = self.asso_func(batch.boxes, tracker_boxes)
+        if self.config.fuse_detection_score:
+            geometry_similarity = 1.0 - fuse_score((1.0 - geometry_similarity).T, batch.confs).T
+        if emb_cost is not None and self.config.fuse_iou:
+            emb_cost = 1.0 - fuse_iou(1.0 - emb_cost, batch.boxes, tracker_boxes, is_obb=self.is_obb)
         oriented_shape = shape_similarity_obb(batch.boxes, trks_obb_np[:, :5]) if self.is_obb else None
         matched, unmatched_dets, unmatched_trks, _ = associate(
             association_dets,
@@ -231,6 +247,9 @@ class BoostTrack(BoxTracker):
             geometry_conditioner=lambda similarity: self._condition_similarity(
                 similarity, self.trackers, batch.boxes, threshold=self.iou_threshold
             ),
+            cost_conditioner=(
+                lambda costs: self._fuse_first_motion(costs, self.trackers, batch.boxes)
+            ) if self.config.motion_fusion != "off" else None,
         )
 
         dets_alpha = confidence_aware_alpha(batch.confs, self.det_thresh, base_alpha=self.alpha_fixed_emb)

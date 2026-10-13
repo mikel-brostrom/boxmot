@@ -6,7 +6,11 @@ import numpy as np
 import torch
 from scipy.optimize import linear_sum_assignment
 
-from boxmot.trackers.common.association.matching import chi2inv95, linear_assignment
+from boxmot.trackers.common.association.matching import (
+    linear_assignment,
+    motion_gating_distance,
+    motion_gating_threshold,
+)
 
 INFTY_COST = 1e5
 
@@ -161,11 +165,13 @@ def gate_cost_matrix(
     *,
     gated_mask: np.ndarray | None = None,
 ):
-    """Invalidate infeasible entries in cost matrix based on the state
-    distributions obtained by Kalman filtering.
+    """Blend eligible costs with geometric Mahalanobis distance.
+
+    Rejected pairs retain ``gated_cost`` independently of ``mc_lambda``.
+    The gate uses selected-filter geometry coordinates, excluding confidence,
+    and aligns equivalent oriented rectangles before measuring residuals.
     Parameters
     ----------
-    kf : The Kalman filter.
     cost_matrix : ndarray
         The NxM dimensional cost matrix, where N is the number of track indices
         and M is the number of detection indices, such that entry (i, j) is the
@@ -199,16 +205,18 @@ def gate_cost_matrix(
 
     for row, track_idx in enumerate(track_indices):
         track = tracks[track_idx]
-        measurements = np.asarray([track.measurement_for_detection(detections[i]) for i in detection_indices])
-        gating_threshold = chi2inv95[2 if only_position else len(track.motion_model.geometry_measurement_indices)]
-        gating_distance = track.motion_model.gating_distance(
-            track.kf, track.mean, track.covariance, measurements, only_position
+        geometry_attr = "xywha" if track.is_obb else "xyxy"
+        boxes = np.asarray([getattr(detections[i], geometry_attr) for i in detection_indices]).reshape(
+            -1, 5 if track.is_obb else 4
         )
-        blocked = gating_distance > gating_threshold
+        distances = motion_gating_distance(track, boxes, only_position=only_position)
+        blocked = ~np.isfinite(cost_matrix[row]) | ~np.isfinite(distances)
+        blocked |= distances > motion_gating_threshold(track, only_position=only_position)
         if gated_mask is not None:
             gated_mask[row] = blocked
+        eligible = ~blocked
+        cost_matrix[row, eligible] = mc_lambda * cost_matrix[row, eligible] + (1 - mc_lambda) * distances[eligible]
         cost_matrix[row, blocked] = gated_cost
-        cost_matrix[row] = mc_lambda * cost_matrix[row] + (1 - mc_lambda) * gating_distance
     return cost_matrix
 
 

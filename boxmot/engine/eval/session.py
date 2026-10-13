@@ -11,6 +11,8 @@ from multiprocessing import get_context
 from typing import TYPE_CHECKING, Any, TypeVar
 from uuid import uuid4
 
+from boxmot.engine.eval.workers import shutdown_sequence_pool
+
 if TYPE_CHECKING:
     from boxmot.engine.eval.eagermot_kitti import _KittiSequenceResult, _KittiSequenceTask
     from boxmot.engine.eval.replay import ReplayProgressCallback, _SequenceReplayResult, _SequenceReplayTask
@@ -78,14 +80,7 @@ class ReplaySession:
         progress_queue, self._progress_queue = self._progress_queue, None
         try:
             if executor is not None:
-                if interrupted:
-                    # Python 3.11/3.12 provide no public terminate_workers API.
-                    # Stop active sequence work before staging directories vanish.
-                    processes = tuple((getattr(executor, "_processes", None) or {}).values())
-                    for process in processes:
-                        if process.is_alive():
-                            process.terminate()
-                executor.shutdown(wait=True, cancel_futures=interrupted)
+                shutdown_sequence_pool(executor, interrupted=interrupted)
         finally:
             if progress_queue is not None:
                 progress_queue.close()

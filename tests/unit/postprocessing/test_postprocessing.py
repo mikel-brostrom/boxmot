@@ -1,3 +1,5 @@
+from multiprocessing import active_children
+
 import numpy as np
 import pytest
 
@@ -58,6 +60,24 @@ def test_postprocessor_factory_creates_file_postprocessors():
 def test_postprocessor_factory_rejects_unknown_step():
     with pytest.raises(ValueError, match="Unknown postprocessing step"):
         create_postprocessor("missing")
+
+
+@pytest.mark.parametrize("with_progress", [False, True])
+def test_file_postprocessor_closes_workers_and_progress_manager(tmp_path, with_progress: bool) -> None:
+    """The direct API joins both numerical workers and the optional queue manager."""
+    path = tmp_path / "sequence.txt"
+    rows = np.array([[1, 1, 0, 0, 10, 10, 0.9, 1, 0], [3, 1, 0, 0, 10, 10, 0.9, 1, 1]])
+    np.savetxt(path, rows, delimiter=",")
+    existing_children = {child.pid for child in active_children()}
+    events = []
+    callback = (lambda *event: events.append(event)) if with_progress else None
+
+    create_postprocessor("gsi").run(tmp_path, progress_callback=callback)
+
+    assert np.loadtxt(path, delimiter=",").shape == (3, 9)
+    assert {child.pid for child in active_children()} <= existing_children
+    if with_progress:
+        assert events[-1] == ("sequence", 1, 1)
 
 
 def test_legacy_gta_postprocessor_is_not_registered():

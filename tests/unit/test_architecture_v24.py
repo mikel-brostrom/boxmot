@@ -668,7 +668,8 @@ def test_tracker_shared_support_and_algorithm_ownership_is_present() -> None:
 
 def test_utils_contains_only_cross_domain_helpers() -> None:
     utility_files = {path.name for path in (PACKAGE_ROOT / "utils").glob("*.py")}
-    assert utility_files == {"__init__.py", "config.py", "dependencies.py", "devices.py"}
+    # Parent lifetime protection is shared by engine and postprocessing pools.
+    assert utility_files == {"__init__.py", "config.py", "dependencies.py", "devices.py", "processes.py"}
 
 
 def test_dependency_validation_has_no_installer_or_legacy_checker_module() -> None:

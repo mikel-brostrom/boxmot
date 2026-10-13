@@ -101,11 +101,47 @@ Jacobians, velocities, and covariances in arrays. Observation-centric trackers
 also batch their retained observations and recovery states, preserving each
 tracker's existing compensation policy.
 
-Camera motion is estimated once per frame. ECC and sparse optical flow already
-use OpenCV array operations; ORB/SIFT match filtering and mask-coordinate
-calculations also use batches. Frame pairs remain sequential. General affine
-and projective OBB fitting still uses one OpenCV rectangle fit per box, and
-mask rasterization retains individual polygon calls to preserve overlaps.
+Camera motion is estimated once per frame. Choose `sof` for translation,
+rotation, and scale changes, or `ecc` for translation. These are the recommended
+fast methods. ORB and SIFT remain available as slower opt-in methods in the Python
+backend: select `cmc_method="orb"` or `cmc_method="sift"` in a Python tracker
+configuration that supports CMC. Their useful settings can exceed the
+one-millisecond latency target. Native backends support ECC and SOF only.
+
+ECC and SOF resize before grayscale conversion and cap their default working
+width regardless of source resolution. SOF uses a 192-pixel width, up to 48
+background corners, and an 11-by-11 optical-flow window with at most 10 iterations.
+It retains RANSAC inliers between feature refreshes (at most five frames), checking
+the current detection mask on every frame. ECC uses a 96-pixel width and at most
+10 iterations. Small inputs are not enlarged. Native BoT-SORT and OccluBoost
+use the same settings. Explicit estimator scale/width overrides can increase cost.
+
+The ECC and SOF defaults target one millisecond per frame; latency depends on
+hardware, scene content, OpenCV threads, and detection count. Measure warmed calls including
+preprocessing and state updates, alongside known-motion accuracy:
+
+```bash
+uv run --no-sync python -m tests.performance.trackers.motion.benchmark_cmc_latency \
+  --widths 1280 1920 3840 --iterations 100 --json /tmp/cmc-latency.json
+```
+
+The benchmark defaults to ECC and SOF. Compare the slower opt-in methods with:
+
+```bash
+uv run --no-sync python -m tests.performance.trackers.motion.benchmark_cmc_latency \
+  --methods orb sift --widths 1920 --iterations 100
+```
+
+This benchmark uses one OpenCV thread and preloaded BGR frames without detection
+masks. It reports mean, median, p95 and maximum latency plus original-image pixel
+error. Add `--check-budget` to fail when any measured p95 exceeds one millisecond.
+ECC's translation model cannot recover the benchmark's rotation/scale component.
+Re-run joint camera/Kalman selection for older fitted profiles: the estimator
+change advances the analysis rule to `sof-motion-v4`.
+
+Frame pairs remain sequential. General affine and projective OBB fitting still
+uses one OpenCV rectangle fit per box, and mask rasterization retains individual
+polygon calls to preserve overlaps.
 
 Compare cached replay against a saved package snapshot without rerunning
 detection or ReID:

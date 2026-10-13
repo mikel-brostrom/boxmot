@@ -386,6 +386,7 @@ dependencies = [
     { name = "rich" },
     { name = "scikit-learn", version = "1.7.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-6-boxmot-cpu' and extra == 'extra-6-boxmot-cu130') or (extra == 'extra-6-boxmot-cu130' and extra == 'group-6-boxmot-service-runtime')" },
     { name = "scikit-learn", version = "1.8.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-6-boxmot-cpu' and extra == 'extra-6-boxmot-cu130') or (extra == 'extra-6-boxmot-cu130' and extra == 'group-6-boxmot-service-runtime')" },
+    { name = "threadpoolctl" },
     { name = "timm" },
     { name = "torch", version = "2.12.1", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'darwin' and extra == 'extra-6-boxmot-cpu') or (sys_platform == 'darwin' and extra != 'extra-6-boxmot-cu130') or (extra == 'extra-6-boxmot-cpu' and extra == 'extra-6-boxmot-cu130') or (extra == 'extra-6-boxmot-cu130' and extra == 'group-6-boxmot-service-runtime')" },
     { name = "torch", version = "2.12.1+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform != 'darwin' and extra == 'extra-6-boxmot-cpu') or (sys_platform != 'darwin' and extra != 'extra-6-boxmot-cu130') or (extra == 'extra-6-boxmot-cpu' and extra == 'extra-6-boxmot-cu130') or (extra == 'extra-6-boxmot-cu130' and extra == 'group-6-boxmot-service-runtime')" },

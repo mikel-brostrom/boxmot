@@ -45,6 +45,11 @@ class BoostTrackConfig(TrackerConfig):
         track_confidence_warmup: Track age at which the initial confidence ramp ends.
         use_embeddings: Use supplied appearance embeddings, generating missing
             embeddings from image frames with the configured ReID backend.
+        motion_fusion: Additional first-pass Kalman gate or motion-cost blend.
+        motion_fusion_lambda: Existing-cost weight in the optional motion blend.
+        motion_fusion_only_position: Use only centers for the additional motion gate.
+        fuse_iou: Fuse appearance similarity with IoU before appearance weighting.
+        fuse_detection_score: Fuse detection confidence into first-pass geometry.
         det_thresh: Minimum detection confidence for the shared tracking kernel.
     """
 
@@ -76,6 +81,11 @@ class BoostTrackConfig(TrackerConfig):
     track_confidence_decay: float = field(default=0.9, metadata={"gt": 0.0, "le": 1.0})
     track_confidence_warmup: int = field(default=7, metadata={"ge": 1})
     use_embeddings: bool = True
+    motion_fusion: str = field(default="off", metadata={"choices": ("off", "gate", "blend")})
+    motion_fusion_lambda: float = field(default=0.98, metadata={"ge": 0.0, "le": 1.0})
+    motion_fusion_only_position: bool = False
+    fuse_iou: bool = False
+    fuse_detection_score: bool = False
     det_thresh: float = field(default=0.6, metadata={"ge": 0.0, "le": 1.0})
 
     cmc_min_conf: float | None = field(default=None, metadata={"ge": 0.0, "le": 1.0})

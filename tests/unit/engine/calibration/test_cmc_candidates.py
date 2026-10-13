@@ -19,7 +19,7 @@ from boxmot.trackers.bytetrack.config import ByteTrackConfig
 from boxmot.trackers.bytetrack.tracker import ByteTrack
 from boxmot.trackers.common.config import load_tracker_config
 from boxmot.trackers.common.motion.cmc.integration import resolve_cmc_min_conf
-from boxmot.trackers.common.motion.cmc.sof import SOF
+from boxmot.trackers.common.motion.cmc.sof import SOF, SOF_DEFAULT_TARGET_WIDTH
 from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_TRACKER_NAMES
 
 
@@ -29,6 +29,7 @@ def test_analysis_settings_preserve_estimator_identity_through_json(monkeypatch)
     estimator.target_width = 256
     estimator.resize_before_grayscale = False
     estimator.feature_params["maxCorners"] = 80
+    estimator.feature_refresh_interval = 3
     estimator.lk_params["winSize"] = (9, 9)
     estimator.lk_params["maxLevel"] = 1
     estimator.lk_params["criteria"] = (cv2.TERM_CRITERIA_COUNT, 15, 0.02)
@@ -40,6 +41,7 @@ def test_analysis_settings_preserve_estimator_identity_through_json(monkeypatch)
     assert settings["target_width"] == 256
     assert settings["resize_before_grayscale"] is False
     assert settings["feature_params"] == estimator.feature_params
+    assert settings["feature_refresh_interval"] == 3
     assert settings["lk_params"] == {
         "winSize": [9, 9],
         "maxLevel": 1,
@@ -102,7 +104,7 @@ def test_camera_candidates_cache_raw_warps_but_disable_static_sequences(prepared
 
     class Estimator:
         def __init__(self, **kwargs):
-            assert kwargs == {"target_width": None, "ransac_reproj_threshold": 3.0}
+            assert kwargs == {"target_width": SOF_DEFAULT_TARGET_WIDTH, "ransac_reproj_threshold": 3.0}
             self.number = len(instances)
             instances.append(self)
             self.frame = 0
@@ -176,7 +178,7 @@ def test_all_kalman_trackers_record_their_identity_and_fixed_mask(
 
 @pytest.mark.parametrize(
     "overrides,width,threshold",
-    [({}, None, 3.0), ({"sof_target_width": 320, "sof_ransac_reproj_threshold": 2.0}, 320, 2.0)],
+    [({}, SOF_DEFAULT_TARGET_WIDTH, 3.0), ({"sof_target_width": 320, "sof_ransac_reproj_threshold": 2.0}, 320, 2.0)],
 )
 def test_occluboost_analysis_uses_resolved_runtime_sof_settings(
     prepared_inputs, monkeypatch, tmp_path, overrides, width, threshold

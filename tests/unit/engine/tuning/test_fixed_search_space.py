@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from boxmot.datasets.manifest import canonical_json_bytes
 from boxmot.engine.config.trackers import resolve_tracker_options
 from boxmot.engine.tuning.backends.hyperopt_backend import yaml_to_hyperopt_space
 from boxmot.engine.tuning.backends.optuna_backend import yaml_to_optuna_define_space
@@ -42,8 +43,10 @@ def test_driver_records_filtered_search_and_preserves_fixed_trial_values(fake_tu
     _, directory, _, _ = driver.fit()
 
     profile = json.loads((directory / "search-space.json").read_text())
-    assert profile["schema"] == driver._yaml_cfg
-    sampled = _sample(profile["schema"], "optuna")
+    # JSON metadata stringifies boolean case keys; the optimizer receives the
+    # typed in-memory schema rather than restoring it from this audit record.
+    assert profile["schema"] == json.loads(canonical_json_bytes(driver._yaml_cfg))
+    sampled = _sample(driver._yaml_cfg, "optuna")
     excluded = {*KALMAN_NOISE_OPTIONS, "asso_func", "edgetam.max_objects"}
     assert not any(key.startswith("obb_") for key in profile["fixed_options"])
     assert not excluded.intersection(sampled)

@@ -13,7 +13,10 @@ from boxmot.trackers.common.appearance import (
 )
 from boxmot.trackers.common.association import (
     AssociationStage,
+    apply_motion_fusion,
     detection_track_similarity_assignment,
+    fuse_iou,
+    fuse_score,
     run_association_stage,
     solve_assignment,
 )
@@ -94,6 +97,15 @@ class DeepOcSort(BoxTracker):
             accepted = self.detection_layout.confidences(dets) > self.det_thresh
             return self.detection_layout.boxes(dets[accepted])
         return super().cmc_detection_boxes(dets)
+
+    def _first_pass_similarity(
+        self, similarity: np.ndarray, tracks: list, detections: np.ndarray, *, threshold: float
+    ) -> np.ndarray:
+        """Optionally score-fuse geometry before existing first-pass guidance."""
+        if self.config.fuse_detection_score:
+            scores = self.detection_layout.confidences(detections)
+            similarity = 1.0 - fuse_score((1.0 - similarity).T, scores).T
+        return self._condition_similarity(similarity, tracks, detections, threshold=threshold)
 
     def _track_detections(
         self,
@@ -184,6 +196,13 @@ class DeepOcSort(BoxTracker):
             stage1_emb_cost = None
         else:
             stage1_emb_cost = dets_embs @ trk_embs.T
+            if self.config.fuse_iou:
+                stage1_emb_cost = 1.0 - fuse_iou(
+                    (1.0 - stage1_emb_cost).T,
+                    trks[:, : self.detection_layout.box_cols],
+                    batch.boxes,
+                    is_obb=self.is_obb,
+                ).T
         first_stage = AssociationStage(
             name="deepocsort_high",
             threshold=self.iou_threshold,
@@ -201,9 +220,19 @@ class DeepOcSort(BoxTracker):
                 self.aw_param,
                 is_obb=self.is_obb,
                 gate_before_assignment=self._asso_func_base_name == "centroid",
-                similarity_conditioner=lambda similarity: self._condition_similarity(
+                similarity_conditioner=lambda similarity: self._first_pass_similarity(
                     similarity, _tracks, _detections, threshold=self.iou_threshold
                 ),
+                cost_conditioner=(
+                    lambda costs: apply_motion_fusion(
+                        (1.0 + costs).T,
+                        _tracks,
+                        self.detection_layout.boxes(_detections),
+                        mode=self.config.motion_fusion,
+                        only_position=self.config.motion_fusion_only_position,
+                        lambda_=self.config.motion_fusion_lambda,
+                    ).T - 1.0
+                ) if self.config.motion_fusion != "off" or (self.use_embeddings and self.config.fuse_iou) else None,
             ),
         )
         first_result = run_association_stage(first_stage, self.active_tracks, dets)

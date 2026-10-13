@@ -22,6 +22,8 @@ class MafHdaConfig(TrackerConfig):
         iou_threshold: Lower geometry-affinity bound for appearance gating
             and fusion.
         det_thresh: Minimum detection confidence.
+        fuse_detection_score: Weight segment-to-track affinity by observation
+            confidence while leaving tracklet recovery unchanged.
         velocity_alpha: Previous-velocity weight in the motion update.
         merge_iou_thresh: Mask IoU threshold for merging duplicate instances.
         appearance_lower: Minimum KCF affinity for track-to-track recovery.
@@ -52,6 +54,7 @@ class MafHdaConfig(TrackerConfig):
     iou_threshold: float = field(default=0.1, metadata={"ge": 0.0, "le": 1.0})
     asso_func: str = field(default="iou", metadata={"choices": ("iou", "giou", "diou", "ciou", "hmiou", "centroid")})
     det_thresh: float = field(default=0.7, metadata={"ge": 0.0, "le": 1.0})
+    fuse_detection_score: bool = False
     velocity_alpha: float = field(default=0.4, metadata={"ge": 0.0, "le": 1.0})
     merge_iou_thresh: float = field(default=0.4, metadata={"gt": 0.0, "le": 1.0})
     appearance_lower: float = field(default=0.1, metadata={"ge": 0.0, "le": 1.0})

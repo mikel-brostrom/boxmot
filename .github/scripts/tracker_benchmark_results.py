@@ -74,7 +74,10 @@ def extract_metrics(payload: Mapping[str, Any], benchmark: str) -> dict[str, flo
             raise BenchmarkError("MMOT OBB output is missing TrackEval Class Avg (Cls) metrics at 'cls_comb_cls_av'")
         section = candidate
     else:
-        section = payload
+        candidate = payload.get("pedestrian")
+        if not isinstance(candidate, Mapping):
+            raise BenchmarkError("MOT17 AABB output is missing pedestrian metrics at 'pedestrian'")
+        section = candidate
 
     extracted: dict[str, float] = {}
     for metric in METRICS:

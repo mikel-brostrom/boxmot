@@ -42,6 +42,60 @@ radius and other tracker settings. See [association settings](../config/trackers
 An explicit `asso_func` in `--tracker-config` also fixes the metric unless
 `--asso-func` overrides it. Other searchable preset values remain starting values.
 
+Conditional parameters are sampled only in their active branch. Optuna uses
+Ray Tune's [define-by-run interface](https://docs.ray.io/en/latest/tune/examples/optuna_example.html#conditional-search-spaces);
+HyperOpt and random search use branch-specific choice dictionaries. For example,
+`motion_fusion_lambda` is suggested only when `motion_fusion` is `blend`.
+Other modes can still record its fixed runtime default in `results.csv` and
+trial configs. A recorded value alone does not mean the optimizer sampled it;
+the analysis excludes these inactive defaults using the recorded search schema.
+
+## Inspect image-tracker tuning results
+
+Each image-tracker run saves `results.csv`, `best.yaml`, and `summary.md` under
+its reported run directory. The analysis uses that run's `search-space.json`
+and trial JSON metadata to explain which parameters were actually searched:
+
+| Output | What to inspect |
+| --- | --- |
+| `analysis.png` | Scores in completion order, best-so-far progress, score distribution, and detection/association and identity tradeoffs. |
+| `analysis_scatter.png` | Numeric search dimensions, active sample counts, and Spearman correlations with HOTA. |
+| `analysis_categories.png` | Categorical and Boolean choices, their sample counts, and association-function × motion-fusion comparisons. |
+| `analysis_candidates.png` | Top-ten trial metrics and per-sequence HOTA changes against the reference. |
+
+When a sequence CMC policy overrides the base tracker settings, `best.yaml`
+and each trial YAML start with the effective policy and the evaluated sequences
+where compensation was enabled or disabled. The `use_cmc` line is labeled as
+an overridden base value. `summary.md` includes the same effective CMC setup;
+`cmc-policy.yaml` records the decisions as machine-readable data.
+
+Near-best means within **0.2 absolute HOTA points** of the winner. The summary
+compares top-ten and near-best parameter ranges, active counts, and proximity
+to the recorded search bounds. Inactive conditional defaults are excluded;
+conditional ranges are shown separately. Numeric correlations are calculated
+within each active branch, and conditional categorical choices get separate
+panels with that branch's options and sample counts. An active sample is kept
+even when its value equals an inactive branch's default. Parameters that stayed
+constant are omitted from the scatter plots. A default baseline is identified by matching
+recorded defaults; otherwise the reference is labeled as the first completed
+trial. Missing metadata is reported, and diagnostics that require it are
+omitted.
+
+To regenerate the figures, parameter diagnostics, and saved CMC annotations,
+run this from the repository root, replacing the directory with your run:
+
+```bash
+uv run --no-sync python -m boxmot.engine.tuning.analysis \
+  runs/ray/mot17-ablation-yolox-lmbn/bytetrack_3
+```
+
+The summary's run provenance and other sections are preserved. Correlations,
+category comparisons, and concentrated ranges describe the sampled trials;
+unequal sampling and simultaneous parameter changes prevent causal conclusions.
+They guide the next experiment, but do not establish repeatability or
+statistically demonstrated superiority. Check sequence regressions and evaluate
+selected profiles on held-out data before drawing broader conclusions.
+
 ## Tune mask guidance
 
 The nine Python box trackers can search EdgeTAM guidance settings together with
@@ -197,8 +251,9 @@ several, or use `--split train` or `--split fulltrain` to select another
 dataset split. `--project` defaults to `runs/eagermot-tune`; each run saves
 `best.yaml` for `boxmot eval --tracker eagermot --class-config`.
 
-The shared Rich tuning panel shows trial and sequence progress, the best HOTA,
-and the saved profile paths. Add `--verbose` to display tracker and Optuna logs.
+The shared Rich tuning panel shows trial and sequence progress, the first,
+best, and last results with baseline comparisons, and the saved profile paths.
+Add `--verbose` to display tracker and Optuna logs.
 
 This sensor workflow reads the dataset and selected predictions directly.
 It supports `--search-alg optuna`; an explicit device must be `cpu`.
@@ -301,12 +356,28 @@ bounded by the number of selected sequences. Use `--max-concurrent-trials` to
 limit how many image-tracker trials run at once; sequence workers are allocated
 separately to each trial.
 
+Each spawned sequence worker limits BLAS, OpenMP, PyTorch, and OpenCV compute
+pools to one thread. This overrides inherited thread counts such as Ray's
+`OMP_NUM_THREADS` allocation, so sequence parallelism does not multiply the
+native thread count. The limits persist across trials in reused workers and
+apply when new workers start.
+
+For limited RAM, use `--max-concurrent-trials 1 --sequence-workers 1` together
+to run one trial and one sequence at a time. `--n-trials` controls the total
+number of trials, not how many run concurrently.
+
 Each reusable image tuning actor and each sensor study keeps its sequence-worker
 pool across trials. Every trial still creates fresh
 trackers, pipelines, frame cursors, and output files. Worker pools are closed
 when tuning ends; failed worker operations discard the pool before reuse.
 This applies to image search backends and the sensor Optuna workflow without an
 additional flag.
+
+Pool workers also monitor their owning process and exit if it dies, including
+when Ray terminates a trial for running out of memory. When BoxMOT starts Ray,
+it enables process-group cleanup by default on POSIX systems so actor
+descendants are terminated together. Existing Ray runtimes and explicit Ray
+cleanup settings remain caller-owned. Ray's memory threshold is unchanged.
 
 Add `--cache-inputs` to also reuse mapped inputs on disk across tuning sessions
 and evaluation commands:
@@ -337,11 +408,20 @@ thresholds and association settings reuse the same unfiltered input cache.
 See [replay input caching](eval.md#cache-replay-inputs-for-repeated-runs) for
 storage, preparation, and cleanup details.
 
-The progress panel keeps HOTA, MOTA, and IDF1 visible for the best trial under
-the configured objective and the latest completed trial, even as other trials
-start or fail. Each running image-tracker trial also lists its sequences with
-frame counts, progress bars, and pending, running, done, or failed status.
-Sequence progress resets for each trial, including when Ray reuses a worker.
+The progress panel keeps three rows visible: **First**, **Best**,
+and **Last**. The baseline is the first scheduled trial, even if another trial
+finishes sooner. Best updates when the configured objective improves; Last
+updates after each successful trial. Each row shows HOTA, MOTA, IDF1, and any
+additional objective metrics.
+
+Best and Last include signed differences from the baseline in metric units
+(percentage points for percentage metrics). Improvements are green and
+regressions red, respecting `--minimize` metrics; unavailable baseline metrics
+show `--`. The same comparison appears during saved-sensor tuning.
+
+Each running image-tracker trial also lists its sequences with frame counts,
+progress bars, and pending, running, done, or failed status. Sequence progress
+resets for each trial, including when Ray reuses a worker.
 
 An evaluation exception marks that trial as failed, retains its traceback in
 the Ray trial directory, and lets the remaining trials continue. Failed trials
@@ -424,6 +504,11 @@ Source images are required for camera analysis. Each candidate is calibrated
 under its camera behavior before held-out scoring. The winning strategy is
 saved in `best.yaml`; evaluation analyzes its own sequences when automatic
 CMC was selected. `--select-cmc` requires `--select-kf`.
+
+For example, `use_cmc: false` with `calibration.cmc_policy: auto` is a base
+setting overridden by automatic decisions for each sequence. The export's
+annotations show the tuning run's decisions; they do not freeze those sequence
+IDs into the policy for new evaluation data.
 
 Resume either selection workflow with `--resume-tune TUNING_DIRECTORY` and
 omit both selection flags. See [Kalman calibration](../guides/kalman-calibration.md)

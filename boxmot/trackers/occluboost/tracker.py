@@ -46,7 +46,7 @@ from boxmot.trackers.common.appearance import (
 )
 from boxmot.trackers.common.association.boost import associate
 from boxmot.trackers.common.association.iou import AssociationFunction
-from boxmot.trackers.common.association.matching import solve_assignment
+from boxmot.trackers.common.association.matching import fuse_iou, fuse_score, solve_assignment
 from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runtime_options
 from boxmot.trackers.common.motion.batching import predict_tracks
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
@@ -196,6 +196,10 @@ class OccluBoost(BoostTrack):
 
         mh_dist_matrix = self.get_mh_dist_matrix(dets)
         geometry_similarity = self.asso_func(high_batch.boxes, trks_np[:, :4])
+        if self.config.fuse_detection_score:
+            geometry_similarity = 1.0 - fuse_score((1.0 - geometry_similarity).T, high_batch.confs).T
+        if emb_cost is not None and self.config.fuse_iou:
+            emb_cost = 1.0 - fuse_iou(1.0 - emb_cost, high_batch.boxes, trks_np[:, :4])
 
         matched, unmatched_dets, unmatched_trks, _ = associate(
             dets,
@@ -217,6 +221,9 @@ class OccluBoost(BoostTrack):
             geometry_conditioner=lambda similarity: self._condition_similarity(
                 similarity, self.trackers, high_batch.boxes, threshold=self.iou_threshold
             ),
+            cost_conditioner=(
+                lambda costs: self._fuse_first_motion(costs, self.trackers, high_batch.boxes)
+            ) if self.config.motion_fusion != "off" else None,
         )
 
         dets_alpha = confidence_aware_alpha(
@@ -666,11 +673,15 @@ class OccluBoost(BoostTrack):
             iou = self.asso_func(high_batch.boxes, trks_xywha)
             eligible = self.association_eligibility(high_batch.boxes, trks_xywha)
             cost = 1.0 - iou
+            if self.config.fuse_detection_score:
+                cost = fuse_score(cost.T, high_batch.confs).T
             cost[iou < self.iou_threshold] = 1e6
 
             if self.use_embeddings and dets_embs.shape[0] > 0 and self.trackers[0].get_emb() is not None:
                 tracker_embs = np.stack([trk.get_emb() for trk in self.trackers], axis=0).reshape(n_trks, -1)
                 emb_sim = dets_embs.reshape(n_dets, -1) @ tracker_embs.T
+                if self.config.fuse_iou:
+                    emb_sim = 1.0 - fuse_iou(1.0 - emb_sim, high_batch.boxes, trks_xywha, is_obb=True)
                 # BoTSORT-style fusion: subtract a scaled appearance term.
                 lambda_emb = float(getattr(self, "lambda_iou", 0.5)) + 0.5
                 cost = cost - lambda_emb * emb_sim
@@ -678,7 +689,10 @@ class OccluBoost(BoostTrack):
                 cost[iou < self.iou_threshold] = 1e6
 
             centroid = self._asso_func_base_name == "centroid"
-            if centroid:
+            if self.config.motion_fusion != "off":
+                cost = np.where((iou >= self.iou_threshold) & eligible, cost, np.inf)
+                cost = self._fuse_first_motion(cost, self.trackers, high_batch.boxes)
+            if centroid or self.config.motion_fusion != "off":
                 cost = np.where(eligible, cost, np.inf)
                 row_ind, col_ind = solve_assignment(cost).T
             else:

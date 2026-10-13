@@ -25,7 +25,7 @@ asso_func:
   options: [iou, giou, diou, ciou, hmiou, centroid]
 
 # Maximum centroid displacement as a fraction of the frame diagonal.
-# The sole geometric cutoff for centroid; other geometric thresholds are inactive.
+# Centroid ignores overlap thresholds; optional motion fusion adds its own gate.
 centroid_max_distance:
   association: [centroid]
   type: uniform
@@ -165,6 +165,42 @@ use_embeddings:
       range: [0.1, 1.0]
 
 # Fixed KF mode; select it before calibration.
+
+# Optional first-pass uncertainty gate and raw squared-Mahalanobis cost blend.
+motion_fusion:
+  type: choice
+  default: 'off'
+  options: ['off', gate, blend]
+
+motion_fusion_lambda:
+  type: uniform
+  default: 0.98
+  range: [0.0, 1.0]
+  depends_on: motion_fusion
+  cases:
+    'off': {default: 0.98}
+    gate: {default: 0.98}
+
+motion_fusion_only_position:
+  type: choice
+  default: false
+  options: [false, true]
+  depends_on: motion_fusion
+  cases:
+    'off': {default: false}
+
+fuse_detection_score:
+  type: choice
+  default: false
+  options: [false, true]
+
+fuse_iou:
+  type: choice
+  default: false
+  options: [false, true]
+  depends_on: use_embeddings
+  cases:
+    false: {default: false}
 
 kalman:
   # Search filter types from this tracker's explicit default.

@@ -28,6 +28,11 @@ class BotSortConfig(TrackerConfig):
         cmc_method: Camera-motion compensation method used when CMC is enabled.
         fuse_first_associate: Fuse detection confidence into the first-pass geometry cost.
         fuse_unconfirmed_associate: Fuse detection confidence into tentative-track costs.
+        motion_fusion: First-pass motion handling: off, gate, or gate and blend.
+        motion_fusion_lambda: Existing-cost weight when blending motion distance.
+        motion_fusion_only_position: Gate motion using center coordinates only.
+        fuse_iou: Combine first-pass appearance distances with IoU when embeddings
+            are enabled.
         alpha_fixed_emb: Previous-embedding weight in appearance smoothing.
         duplicate_distance_thresh: Maximum IoU distance for suppressing duplicates
             between active and lost tracks. Zero disables duplicate suppression.
@@ -52,6 +57,10 @@ class BotSortConfig(TrackerConfig):
     cmc_min_conf: float | None = field(default=None, metadata={"ge": 0.0, "le": 1.0})
     fuse_first_associate: bool = True
     fuse_unconfirmed_associate: bool = True
+    motion_fusion: str = field(default="off", metadata={"choices": ("off", "gate", "blend")})
+    motion_fusion_lambda: float = field(default=0.98, metadata={"ge": 0.0, "le": 1.0})
+    motion_fusion_only_position: bool = False
+    fuse_iou: bool = False
     alpha_fixed_emb: float = field(default=0.9, metadata={"ge": 0.0, "le": 1.0})
     duplicate_distance_thresh: float = field(default=0.15, metadata={"ge": 0.0, "le": 1.0})
     use_embeddings: bool = True

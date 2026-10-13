@@ -6,7 +6,7 @@ from typing_extensions import Unpack
 from boxmot.trackers.bytetrack.config import ByteTrackConfig
 from boxmot.trackers.bytetrack.track import STrack, TrackState
 from boxmot.trackers.common.association import AssociationStage, run_association_stage
-from boxmot.trackers.common.association.matching import fuse_score
+from boxmot.trackers.common.association.matching import apply_motion_fusion, fuse_score
 from boxmot.trackers.common.box.base import BoxTracker
 from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runtime_options
 from boxmot.trackers.common.motion.cmc.registry import create_cmc
@@ -293,7 +293,17 @@ class ByteTrack(BoxTracker):
         costs = self.association_distance(tracks, detections)
         if self.config.fuse_first_associate:
             costs = fuse_score(costs, detections)
-        return self._condition_association(costs, tracks, detections, threshold=self.match_thresh)
+        costs = self._condition_association(costs, tracks, detections, threshold=self.match_thresh)
+        if self.config.motion_fusion == "off":
+            return costs
+        return apply_motion_fusion(
+            costs,
+            tracks,
+            self._association_boxes(detections),
+            mode=self.config.motion_fusion,
+            only_position=self.config.motion_fusion_only_position,
+            lambda_=self.config.motion_fusion_lambda,
+        )
 
     def _low_association_cost(self, tracks: list[STrack], detections: list[STrack]) -> np.ndarray:
         """Condition the low-confidence association pass at its own threshold."""

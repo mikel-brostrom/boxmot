@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+import csv
+import json
+import os
+import shutil
+import subprocess
+import sys
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -154,3 +161,103 @@ def test_obb_smoke_selects_obb_geometry_explicitly() -> None:
     assert "--name" not in track_args
     assert "--exist-ok" not in track_args
     assert job["env"]["EXPECTED_OBB_TRACKERS"].split() == job["env"]["TRACKERS"].split()
+
+
+@pytest.mark.skipif(shutil.which("bash") is None or shutil.which("jq") is None, reason="CI reporting uses bash and jq")
+@pytest.mark.parametrize("output", ("valid", "missing", "malformed", "null", "incomplete", "boolean", "failed"))
+def test_metrics_workflow_requires_current_numeric_scores(tmp_path: Path, output: str) -> None:
+    """Execute the CI shell against evaluator outputs, including a stale artifact."""
+    workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+    scripts = {step.get("name"): step["run"] for step in workflow["jobs"]["metrics"]["steps"] if "run" in step}
+    activate = tmp_path / ".venv/bin/activate"
+    activate.parent.mkdir(parents=True)
+    activate.touch()
+    stub = tmp_path / "evaluate.py"
+    stub.write_text(
+        textwrap.dedent(
+            """\
+            import json
+            import os
+            import sys
+            from pathlib import Path
+
+            args = sys.argv[1:]
+            assert args[0] == "eval"
+            assert "--exist-ok" in args
+            project = Path(args[args.index("--project") + 1])
+            name = args[args.index("--name") + 1]
+            path = project / "mot17-mini" / name / "metrics.json"
+            mode = os.environ["TEST_METRICS_OUTPUT"] if name == "bytetrack" else "valid"
+            if mode == "failed":
+                sys.exit(1)
+            if mode == "missing":
+                sys.exit(0)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            metrics = {"HOTA": 0, "MOTA": -1.5, "IDF1": 20.55}
+            if name == "ocsort":
+                metrics = {"HOTA": 29.54, "MOTA": 10.61, "IDF1": 19.87}
+            if mode == "null":
+                metrics["HOTA"] = None
+            elif mode == "incomplete":
+                del metrics["IDF1"]
+            elif mode == "boolean":
+                metrics["HOTA"] = True
+            payload = "{broken" if mode == "malformed" else json.dumps({"pedestrian": metrics})
+            path.write_text(payload)
+            """
+        ),
+        encoding="utf-8",
+    )
+    env_path = tmp_path / "github-env"
+    env = {
+        **os.environ,
+        "TRACKERS": "bytetrack ocsort",
+        "RUNNER_TEMP": str(tmp_path),
+        "BOXMOT_CI_BUILD": str(tmp_path / "build"),
+        "BOXMOT_CI_DATA_ROOT": str(tmp_path / "assets"),
+        "GITHUB_ENV": str(env_path),
+        "GITHUB_STEP_SUMMARY": str(tmp_path / "summary.md"),
+        "TEST_METRICS_OUTPUT": output,
+        "TEST_PYTHON": sys.executable,
+        "TEST_EVALUATOR": str(stub),
+    }
+    stale = tmp_path / "boxmot-ci-metrics/mot17-mini/bytetrack/metrics.json"
+    stale.parent.mkdir(parents=True)
+    stale.write_text(json.dumps({"pedestrian": {"HOTA": 99, "MOTA": 99, "IDF1": 99}}))
+    script = 'boxmot() { "$TEST_PYTHON" "$TEST_EVALUATOR" "$@"; }\n' + scripts["Evaluate MOT17-mini metrics"]
+    result = subprocess.run(
+        ["bash", "-e", "-o", "pipefail", "-c", script], cwd=tmp_path, env=env, capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    with (tmp_path / "metrics.csv").open() as stream:
+        rows = list(csv.DictReader(stream))
+    valid = output == "valid"
+    assert rows == [
+        {
+            "Tracker": "Bytetrack",
+            "Status❔": "✅" if valid else "❌",
+            "HOTA": "0" if valid else "",
+            "MOTA": "-1.5" if valid else "",
+            "IDF1": "20.55" if valid else "",
+        },
+        {"Tracker": "Ocsort", "Status❔": "✅", "HOTA": "29.54", "MOTA": "10.61", "IDF1": "19.87"},
+    ]
+    assert env_path.read_text().strip() == f"BOXMOT_METRICS_FAILED={0 if valid else 1}"
+    gate = subprocess.run(
+        ["bash", "-e", "-c", scripts["Enforce successful tracker evaluations"]],
+        cwd=tmp_path,
+        env={**env, "BOXMOT_METRICS_FAILED": "0" if valid else "1"},
+        capture_output=True,
+        text=True,
+    )
+    assert gate.returncode == (0 if valid else 1)
+    # The sorting step only reformats rows; use its output names to exercise
+    # the actual summary step without requiring the optional `column` binary.
+    shutil.copyfile(tmp_path / "metrics.csv", tmp_path / "sorted_results.csv")
+    (tmp_path / "pretty_results.txt").write_text("Metrics\n")
+    subprocess.run(
+        ["bash", "-e", "-c", scripts["Show Results"]], cwd=tmp_path, env=env, check=True, capture_output=True
+    )
+    summary = (tmp_path / "summary.md").read_text()
+    assert ("| Bytetrack | ✅ | 0 | -1.5 | 20.55 |" if valid else "| Bytetrack | ❌ |  |  |  |") in summary
+    assert "| Ocsort | ✅ | 29.54 | 10.61 | 19.87 |" in summary
