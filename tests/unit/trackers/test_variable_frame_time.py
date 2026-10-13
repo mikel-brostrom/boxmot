@@ -100,7 +100,11 @@ def test_frame_timestamp_drives_prediction_for_every_kalman_tracker(name: str, g
     mean, kf = _state(track)
     mean[kf.dim_z] = 12.0
     if geometry == "obb":
-        mean[-1] = 0.2
+        model = track.motion_model
+        angle_index = model.angle_measurement_index
+        assert angle_index is not None
+        angular_velocity_index = kf.dim_z + model.velocity_measurement_indices.index(angle_index)
+        mean[angular_velocity_index] = 0.2
     before = mean.copy()
 
     output = _update(tracker, _empty_rows(is_obb=geometry == "obb"), index=4, timestamp_s=10.55)
@@ -111,7 +115,7 @@ def test_frame_timestamp_drives_prediction_for_every_kalman_tracker(name: str, g
     assert output.is_obb is (geometry == "obb")
     assert predicted[0] == pytest.approx(before[0] + 3.0)
     if geometry == "obb":
-        assert predicted[4] == pytest.approx(before[4] + 0.05)
+        assert predicted[angle_index] == pytest.approx(before[angle_index] + 0.05)
 
 
 @pytest.mark.parametrize("name", KALMAN_TRACKERS)
