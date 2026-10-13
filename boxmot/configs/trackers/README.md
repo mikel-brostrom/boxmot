@@ -22,13 +22,20 @@ max_lost_frames:
 The loader adds canonical defaults to the resolved schema. The tuning engine reads
 `type`, `range`, `options`, `values`, applicability metadata `geometry` and
 `association`, and conditional `activates`, `depends_on`, and `cases` metadata.
-An empty mapping (`parameter: {}`) marks a fixed parameter.
-Built-in profiles explicitly list every algorithm field, including fixed fields,
-so missing search metadata is visible during review. Keep observation history,
-display-only settings, and input frame dimensions fixed when they do not affect
-association or track lifecycle. Omitted fields in custom profiles still use their
-typed defaults.
+An empty mapping (`parameter: {}`) marks an explicitly fixed parameter that affects
+the tracker's setup, such as camera-motion settings or input frame dimensions.
+Omit unused inherited fields and display-only controls from tuning profiles.
+Keep observation-history settings when they affect motion estimation or recovery.
+Omitted algorithm fields retain their typed defaults and are not searched.
 Component entries under `kalman` and `edgetam` retain their profile defaults.
+The eight 2D Kalman profiles include fixed `kalman.type: {default: null}`;
+`null` preserves the tracker/geometry default until a runtime profile or
+`--select-kf` chooses a filter. Optional covariance vectors and class-specific
+noise belong in calibrated or authored runtime profiles.
+
+The backend is fixed for the run with `--tracker-backend`. BoT-SORT, ByteTrack,
+and OccluBoost expose the same new algorithm controls in Python and C++, including
+score fusion, duplicate suppression, appearance smoothing, and boosting policies.
 
 The 2D box trackers and MAF-HDA declare the canonical association selector:
 

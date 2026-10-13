@@ -27,6 +27,10 @@ class BotSortConfig(TrackerConfig):
         use_cmc: Enable camera-motion compensation; requires image frames.
         cmc_method: Camera-motion compensation method used when CMC is enabled.
         fuse_first_associate: Fuse detection confidence into the first-pass geometry cost.
+        fuse_unconfirmed_associate: Fuse detection confidence into tentative-track costs.
+        alpha_fixed_emb: Previous-embedding weight in appearance smoothing.
+        duplicate_distance_thresh: Maximum IoU distance for suppressing duplicates
+            between active and lost tracks. Zero disables duplicate suppression.
         use_embeddings: Use supplied appearance embeddings, generating missing
             embeddings from image frames with the configured ReID backend.
         second_match_thresh: Maximum assignment cost for low-confidence detections.
@@ -47,6 +51,9 @@ class BotSortConfig(TrackerConfig):
     cmc_method: str = field(default="sof", metadata={"choices": ("ecc", "orb", "sof", "sift")})
     cmc_min_conf: float | None = field(default=None, metadata={"ge": 0.0, "le": 1.0})
     fuse_first_associate: bool = True
+    fuse_unconfirmed_associate: bool = True
+    alpha_fixed_emb: float = field(default=0.9, metadata={"ge": 0.0, "le": 1.0})
+    duplicate_distance_thresh: float = field(default=0.15, metadata={"ge": 0.0, "le": 1.0})
     use_embeddings: bool = True
     second_match_thresh: float = field(default=0.28795081514328974, metadata={"ge": 0})
     unconfirmed_match_thresh: float = field(default=0.41148010638233784, metadata={"ge": 0})

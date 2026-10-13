@@ -16,7 +16,7 @@ namespace {
 
 thread_local std::string g_last_error;
 
-botsort::Config ConvertConfig(const BoxMOTBotSortConfigV2& config) {
+botsort::Config ConvertConfig(const BoxMOTBotSortConfigV3& config) {
     botsort::Config native_config;
     native_config.track_high_thresh = config.track_high_thresh;
     native_config.track_low_thresh = config.track_low_thresh;
@@ -31,6 +31,9 @@ botsort::Config ConvertConfig(const BoxMOTBotSortConfigV2& config) {
     native_config.cmc_method =
         config.cmc_method == nullptr ? "ecc" : std::string(config.cmc_method);
     native_config.fuse_first_associate = config.fuse_first_associate != 0;
+    native_config.fuse_unconfirmed_associate = config.fuse_unconfirmed_associate != 0;
+    native_config.alpha_fixed_emb = config.alpha_fixed_emb;
+    native_config.duplicate_distance_thresh = config.duplicate_distance_thresh;
     native_config.use_embeddings = config.use_embeddings != 0;
     native_config.max_obs = config.max_obs;
     native_config.centroid_max_distance = config.centroid_max_distance;
@@ -51,7 +54,7 @@ struct BoxMOTBotSortHandle {
 
 extern "C" {
 
-BoxMOTBotSortHandle* boxmot_botsort_create_v2(const BoxMOTBotSortConfigV2* config) {
+BoxMOTBotSortHandle* boxmot_botsort_create_v3(const BoxMOTBotSortConfigV3* config) {
     try {
         if (config == nullptr) {
             throw std::runtime_error("Native BotSort config is required.");

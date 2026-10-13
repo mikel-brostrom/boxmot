@@ -50,6 +50,7 @@ class STrack(BaseTrack):
         id_allocator: TrackIdAllocator,
         feat_history=50,
         max_obs=50,
+        alpha: float = 0.9,
         is_obb=False,
         motion_model: MotionModelAdapter | None = None,
     ):
@@ -62,7 +63,7 @@ class STrack(BaseTrack):
         self.features = deque(maxlen=feat_history)
         self.smooth_feat = None
         self.curr_feat = None
-        self.alpha = 0.9
+        self.alpha = alpha
 
         # Update initial class and features
         self.update_cls(self.cls, self.conf)

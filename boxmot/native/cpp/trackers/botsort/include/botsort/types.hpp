@@ -29,6 +29,9 @@ struct Config {
     float unconfirmed_emb_scale = 2.0F;
     std::string cmc_method = "ecc";
     bool fuse_first_associate = false;
+    bool fuse_unconfirmed_associate = true;
+    float alpha_fixed_emb = 0.9F;
+    double duplicate_distance_thresh = 0.15;
     bool use_embeddings = true;
     int max_obs = 50;
 };

@@ -3,6 +3,7 @@
 #include "boxmot/trackers/base/assignment.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <unordered_set>
 
@@ -88,14 +89,15 @@ std::vector<Track::Ptr> SubTracks(const std::vector<Track::Ptr>& lhs,
 }
 
 std::pair<std::vector<Track::Ptr>, std::vector<Track::Ptr>> RemoveDuplicateTracks(
-    const std::vector<Track::Ptr>& lhs, const std::vector<Track::Ptr>& rhs) {
+    const std::vector<Track::Ptr>& lhs, const std::vector<Track::Ptr>& rhs,
+    const double duplicate_distance_thresh) {
     const Eigen::MatrixXd distances = boxmot::trackers::base::TrackAssociationDistance(
         lhs, rhs, boxmot::trackers::base::AssociationMode::kIou);
     std::unordered_set<int> dup_lhs;
     std::unordered_set<int> dup_rhs;
     for (int row = 0; row < distances.rows(); ++row) {
         for (int col = 0; col < distances.cols(); ++col) {
-            if (distances(row, col) < 0.15) {
+            if (distances(row, col) < duplicate_distance_thresh) {
                 const int lhs_time = lhs[row]->frame_id - lhs[row]->start_frame;
                 const int rhs_time = rhs[col]->frame_id - rhs[col]->start_frame;
                 if (lhs_time > rhs_time) {
@@ -132,6 +134,14 @@ BotSortTracker::BotSortTracker(Config config)
     if (config_.max_lost_frames < 0) {
         throw std::invalid_argument("BotSort max_lost_frames must be nonnegative.");
     }
+    if (!std::isfinite(config_.alpha_fixed_emb) || config_.alpha_fixed_emb < 0.0F ||
+        config_.alpha_fixed_emb > 1.0F) {
+        throw std::invalid_argument("BotSort alpha_fixed_emb must lie in [0, 1].");
+    }
+    if (!std::isfinite(config_.duplicate_distance_thresh) || config_.duplicate_distance_thresh < 0.0F ||
+        config_.duplicate_distance_thresh > 1.0F) {
+        throw std::invalid_argument("BotSort duplicate_distance_thresh must lie in [0, 1].");
+    }
 }
 
 void BotSortTracker::Reset() {
@@ -153,7 +163,7 @@ std::vector<Track::Ptr> BotSortTracker::CreateDetectionTracks(
     std::vector<Track::Ptr> result;
     result.reserve(detections.size());
     for (const auto& detection : detections) {
-        result.push_back(std::make_shared<Track>(detection));
+        result.push_back(std::make_shared<Track>(detection, config_.alpha_fixed_emb));
     }
     return result;
 }
@@ -224,7 +234,8 @@ std::vector<TrackOutput> BotSortTracker::PrepareOutput(
     lost_tracks_ = SubTracks(lost_tracks_, removed_tracks_);
     removed_tracks_.insert(removed_tracks_.end(), removed_tracks.begin(), removed_tracks.end());
 
-    auto [dedup_active, dedup_lost] = RemoveDuplicateTracks(active_tracks_, lost_tracks_);
+    auto [dedup_active, dedup_lost] =
+        RemoveDuplicateTracks(active_tracks_, lost_tracks_, config_.duplicate_distance_thresh);
     active_tracks_ = std::move(dedup_active);
     lost_tracks_ = std::move(dedup_lost);
 
@@ -392,7 +403,8 @@ std::vector<TrackOutput> BotSortTracker::Update(const std::vector<Detection>& de
                                                          association_frame_width_,
                                                          association_frame_height_,
                                                          config_.centroid_max_distance);
-    Eigen::MatrixXd dist_unc = FuseScore(geometry_unc, remaining_high);
+    Eigen::MatrixXd dist_unc =
+        config_.fuse_unconfirmed_associate ? FuseScore(geometry_unc, remaining_high) : geometry_unc;
     if (config_.use_embeddings && dist_unc.size() > 0) {
         Eigen::MatrixXd emb_unc = EmbeddingDistance(unconfirmed, remaining_high);
         emb_unc /= std::max(static_cast<double>(config_.unconfirmed_emb_scale), 1.0e-12);

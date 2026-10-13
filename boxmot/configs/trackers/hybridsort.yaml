@@ -69,6 +69,11 @@ track_thresh:
   type: uniform
   range: [0.3, 0.9]
 
+confidence_floor:
+  geometry: aabb
+  type: uniform
+  range: [0.0, 0.3]
+
 use_embeddings:
   type: choice
   options: [False, True]
@@ -110,6 +115,10 @@ use_embeddings:
 # Timing and reference-prior units stay fixed across all tuning trials.
 
 kalman:
+  # Preserve the tracker-specific filter unless a profile or --select-kf chooses one.
+  type:
+    default: null
+
   variable_dt:
     default: false
 

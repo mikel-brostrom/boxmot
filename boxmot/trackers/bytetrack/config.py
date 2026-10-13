@@ -26,6 +26,10 @@ class ByteTrackConfig(TrackerConfig):
         unconfirmed_match_thresh: Maximum score-fused cost for tentative tracks.
         max_lost_frames: Maximum missed tracker updates before a lost track is
             marked removed. Measured directly in frames, without FPS scaling.
+        fuse_first_associate: Fuse detection confidence into first-pass matching costs.
+        fuse_unconfirmed_associate: Fuse detection confidence into tentative-track costs.
+        duplicate_distance_thresh: Maximum IoU distance for suppressing duplicates
+            between active and lost tracks. Zero disables duplicate suppression.
     """
 
     min_conf: float = field(default=0.1, metadata={"ge": 0.0, "le": 1.0})
@@ -34,6 +38,9 @@ class ByteTrackConfig(TrackerConfig):
     second_match_thresh: float = field(default=0.5, metadata={"ge": 0})
     unconfirmed_match_thresh: float = field(default=0.7, metadata={"ge": 0})
     max_lost_frames: int = field(default=30, metadata={"ge": 0})
+    fuse_first_associate: bool = True
+    fuse_unconfirmed_associate: bool = True
+    duplicate_distance_thresh: float = field(default=0.15, metadata={"ge": 0.0, "le": 1.0})
 
     use_cmc: bool = False
     cmc_method: str = field(default="sof", metadata={"choices": ("ecc", "orb", "sof", "sift")})

@@ -31,11 +31,16 @@ keeps entries for the other geometry fixed at their runtime values, including
 any conditional descendants. OccluBoost uses this to exclude OBB thresholds
 from AABB searches and AABB-only settings from OBB searches.
 
-An algorithm entry without search metadata is fixed at its config default.
-Built-in YAMLs list every algorithm parameter. Settings used only for history,
-display, or input frame dimensions have explicit empty mappings (`{}`) where
-searching them would not improve tracking. For example, OC-SORT searches
-`iou_threshold` over `[0.1, 0.7]`, while `max_obs` stays fixed; StrongSORT searches
+Select the backend for the run with `--tracker-backend`; it is not a search
+dimension. BoT-SORT, ByteTrack, and OccluBoost share their new algorithm controls
+and search ranges across the Python and C++ implementations.
+
+Algorithm fields omitted from a tuning profile retain their typed defaults and
+are not searched. Built-in YAMLs omit unused inherited fields and display-only
+controls. Empty mappings (`{}`) keep effective setup parameters fixed, such as
+camera-motion settings, input frame dimensions, and recovery-history capacity.
+For example, OC-SORT searches `iou_threshold` over `[0.1, 0.7]`, while its recovery
+history `max_obs` stays fixed; StrongSORT searches
 `nn_budget` over `[25, 50, 100, 200]` appearance features per track.
 ByteTrack and BotSort search `max_lost_frames` directly over integers 1 through
 199 (`range: [1, 200]`). This lifetime counts tracker updates and is independent
@@ -96,6 +101,32 @@ frozen dataclasses with validation, `to_dict()`, and `from_mapping()`.
 [tracker classes and autocomplete](../python/index.md#tracker-classes-and-autocomplete)
 for the complete list and factory override precedence.
 
+Useful algorithm controls include:
+
+| Tracker | Controls |
+| --- | --- |
+| BoT-SORT | `alpha_fixed_emb` controls appearance smoothing; `fuse_unconfirmed_associate` controls tentative-track score fusion. |
+| ByteTrack | `fuse_first_associate` and `fuse_unconfirmed_associate` control score fusion in the two high-confidence association stages. |
+| BoT-SORT / ByteTrack | `duplicate_distance_thresh` controls active/lost duplicate suppression using IoU distance, independently of the association metric. Zero disables suppression. |
+| BoostTrack / OccluBoost | `alpha_fixed_emb`, `lambda_emb_multiplier`, `appearance_thresh`, and `appearance_iou_fraction` configure first-pass appearance matching; `dlo_soft_alpha`, `dlo_soft_power`, `dlo_threshold_start`, and `dlo_threshold_end` configure DLO boosting; `duo_mahalanobis_thresh` and `duo_iou_thresh` configure DUO boosting. `track_confidence_decay` and `track_confidence_warmup` control track confidence. |
+| StrongSORT | `gating_only_position` selects position-only motion gating; `geometric_recovery_max_age` controls how long unmatched tracks can use geometric recovery. |
+| HybridSORT | `confidence_floor` sets the lower bound on predicted confidence in AABB mode. |
+| MAF-HDA | `kcf_padding`, `kcf_sigma`, `kcf_regularization`, and `kcf_output_sigma_factor` configure its appearance filter. `kcf_update_mode` chooses template reinitialization or interpolation; `kcf_interp_factor` applies to interpolation. `max_area_ratio`, `min_intersection_ratio`, and `recovery_overlap_thresh` configure non-centroid geometric gates. |
+
+Their defaults preserve the original algorithms. For example, this runtime preset
+adjusts BoT-SORT's appearance smoothing and duplicate suppression:
+
+```yaml title="botsort-appearance.yaml"
+tracker: botsort
+alpha_fixed_emb: 0.8
+duplicate_distance_thresh: 0.1
+fuse_unconfirmed_associate: false
+```
+
+These BoT-SORT overrides and the new ByteTrack and OccluBoost algorithm controls
+work with both tracker backends. Rebuild native libraries after upgrading to
+the expanded configuration ABI.
+
 ## Kalman noise
 
 Runtime YAML groups all configurable Kalman settings under `kalman`. Covariance
@@ -129,8 +160,9 @@ OccluBoost. `kalman.is_angular` selects EagerMOT's object yaw-velocity state.
 OccluBoost's `kalman.ams` group holds `enabled`, `alpha0`, `threshold`,
 `buffer_size`, and `shrink_ratio` for its AABB gain-suppression policy. Other
 trackers reject these policy groups. `kalman.type` selects a compatible Python
-2D filter (`xyah`, `xywh`, `xysr`, `xyhr`, or `xyscr`); omitting it preserves
-the original filter for the tracker and geometry. Use
+2D filter (`xyah`, `xywh`, `xysr`, `xyhr`, or `xyscr`); omitting it or using `null`
+preserves the original filter for the tracker and geometry. Built-in 2D Kalman
+profiles declare this selector with fixed `default: null`. Use
 [`tune --select-kf`](../modes/tune.md#select-the-kf-before-tracker-tuning) to
 compare types and noise profiles before tuning tracker thresholds.
 

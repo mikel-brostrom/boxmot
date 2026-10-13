@@ -44,11 +44,11 @@ def tracker_implementations(request: pytest.FixtureRequest) -> tuple:
 def test_native_lifetime_rejects_stale_configuration_abi(
     tracker_implementations: tuple, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Never pass the shortened configuration struct to an old constructor."""
+    """Never pass the expanded configuration struct to an old constructor."""
     binding, library_type, *_ = tracker_implementations
     calls = []
     stale_library = SimpleNamespace(
-        **{f"boxmot_{binding._TRACKER_NAME}_create": lambda _config: calls.append("unsafe create")}
+        **{f"boxmot_{binding._TRACKER_NAME}_create_v2": lambda _config: calls.append("unsafe create")}
     )
     monkeypatch.setattr(binding.ctypes, "CDLL", lambda _path: stale_library)
 

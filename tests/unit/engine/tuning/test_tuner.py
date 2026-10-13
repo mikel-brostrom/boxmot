@@ -229,6 +229,9 @@ def test_built_in_tracker_yaml_combines_runtime_defaults_and_tuning_metadata():
     assert {parameter: details["default"] for parameter, details in flat_config.items()} == runtime_defaults
     assert default_tune_config(yaml_cfg) == {
         "min_conf": 0.1,
+        "fuse_first_associate": True,
+        "fuse_unconfirmed_associate": True,
+        "duplicate_distance_thresh": 0.15,
         "track_thresh": 0.6,
         "max_lost_frames": 30,
         "match_thresh": 0.9,

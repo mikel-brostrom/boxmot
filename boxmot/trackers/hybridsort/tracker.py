@@ -98,6 +98,7 @@ class HybridSort(BoxTracker):
         self.alpha = float(config.alpha)
         self.adapfs = bool(config.adapfs)
         self.track_thresh = float(config.track_thresh)
+        self.confidence_floor = config.confidence_floor
 
         self.eg_weight_high_score = float(config.eg_weight_high_score)
         self.eg_weight_low_score = float(config.eg_weight_low_score)
@@ -396,6 +397,7 @@ class HybridSort(BoxTracker):
                 longterm_bank_length=self.longterm_bank_length,
                 max_obs=self.max_obs,
                 alpha=self.alpha,
+                confidence_floor=self.confidence_floor,
                 adapfs=self.adapfs,
                 track_thresh=self.track_thresh,
                 cls=_safe_cls(cls_keep[i]),

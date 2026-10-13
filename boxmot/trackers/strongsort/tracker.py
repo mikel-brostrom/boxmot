@@ -138,6 +138,8 @@ class StrongSort(BoxTracker):
         self.n_init = config.n_init
         self.mc_lambda = config.mc_lambda
         self.ema_alpha = config.ema_alpha
+        self.gating_only_position = config.gating_only_position
+        self.geometric_recovery_max_age = config.geometric_recovery_max_age
         self.tracks: list[Track] = []
         self.active_tracks = self.tracks
         self.cmc = create_cmc(config.cmc_method, enabled=config.use_cmc)
@@ -258,6 +260,7 @@ class StrongSort(BoxTracker):
                 track_indices,
                 detection_indices,
                 self.mc_lambda,
+                only_position=self.gating_only_position,
                 gated_mask=gated_mask,
             )
             return self._condition_gated_association(
@@ -280,9 +283,13 @@ class StrongSort(BoxTracker):
         )
 
         iou_track_candidates = unconfirmed_tracks + [
-            index for index in unmatched_tracks_a if self.tracks[index].time_since_update == 1
+            index for index in unmatched_tracks_a
+            if self.tracks[index].time_since_update <= self.geometric_recovery_max_age
         ]
-        unmatched_tracks_a = [index for index in unmatched_tracks_a if self.tracks[index].time_since_update != 1]
+        unmatched_tracks_a = [
+            index for index in unmatched_tracks_a
+            if self.tracks[index].time_since_update > self.geometric_recovery_max_age
+        ]
         matches_b, unmatched_tracks_b, unmatched_detections = min_cost_matching(
             self._association_cost,
             self.max_iou_dist,
@@ -313,7 +320,7 @@ class StrongSort(BoxTracker):
         selected_detections = [detections[int(index)] for index in detection_indices]
         cost_matrix = self.association_distance(selected_tracks, selected_detections)
         for row, track in enumerate(selected_tracks):
-            if track.time_since_update > 1:
+            if track.time_since_update > self.geometric_recovery_max_age:
                 cost_matrix[row, :] = INFTY_COST
         return self._condition_gated_association(
             cost_matrix,

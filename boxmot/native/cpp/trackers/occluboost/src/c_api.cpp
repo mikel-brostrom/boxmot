@@ -16,7 +16,7 @@ namespace {
 
 thread_local std::string g_last_error;
 
-occluboost::Config ConvertConfig(const BoxMOTOccluBoostConfigV2& config) {
+occluboost::Config ConvertConfig(const BoxMOTOccluBoostConfigV3& config) {
     occluboost::Config c;
     c.max_age = config.max_age;
     c.min_hits = config.min_hits;
@@ -37,6 +37,17 @@ occluboost::Config ConvertConfig(const BoxMOTOccluBoostConfigV2& config) {
     c.use_embeddings = config.use_embeddings != 0;
     c.cmc_method = config.cmc_method == nullptr ? "ecc" : std::string(config.cmc_method);
     c.max_obs = config.max_obs;
+    c.alpha_fixed_emb = config.alpha_fixed_emb;
+    c.appearance_thresh = config.appearance_thresh;
+    c.appearance_iou_fraction = config.appearance_iou_fraction;
+    c.dlo_soft_alpha = config.dlo_soft_alpha;
+    c.dlo_soft_power = config.dlo_soft_power;
+    c.dlo_threshold_start = config.dlo_threshold_start;
+    c.dlo_threshold_end = config.dlo_threshold_end;
+    c.duo_mahalanobis_thresh = config.duo_mahalanobis_thresh;
+    c.duo_iou_thresh = config.duo_iou_thresh;
+    c.track_confidence_decay = config.track_confidence_decay;
+    c.track_confidence_warmup = config.track_confidence_warmup;
 
     c.recovery_appearance_thresh = config.recovery_appearance_thresh;
     c.recovery_iou_thresh = config.recovery_iou_thresh;
@@ -78,7 +89,7 @@ struct BoxMOTOccluBoostHandle {
 
 extern "C" {
 
-BoxMOTOccluBoostHandle* boxmot_occluboost_create_v2(const BoxMOTOccluBoostConfigV2* config) {
+BoxMOTOccluBoostHandle* boxmot_occluboost_create_v3(const BoxMOTOccluBoostConfigV3* config) {
     try {
         if (config == nullptr) {
             throw std::runtime_error("Native OccluBoost config is required.");

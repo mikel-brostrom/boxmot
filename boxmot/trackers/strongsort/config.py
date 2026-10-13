@@ -25,6 +25,10 @@ class StrongSortConfig(TrackerConfig):
             the motion-distance weight is one minus this value.
         ema_alpha: Previous-embedding weight in exponential smoothing; higher values
             retain more history and adapt more slowly.
+        gating_only_position: Gate appearance matches using center coordinates
+            instead of all measured geometry coordinates.
+        geometric_recovery_max_age: Maximum unmatched age eligible for geometric
+            fallback after appearance matching, measured after prediction.
         det_thresh: Minimum detection confidence for the shared tracking kernel.
     """
 
@@ -35,6 +39,8 @@ class StrongSortConfig(TrackerConfig):
     nn_budget: int | None = field(default=100, metadata={"gt": 0})
     mc_lambda: float = field(default=0.98, metadata={"ge": 0.0, "le": 1.0})
     ema_alpha: float = field(default=0.9, metadata={"ge": 0.0, "le": 1.0})
+    gating_only_position: bool = False
+    geometric_recovery_max_age: int = field(default=1, metadata={"ge": 1})
     det_thresh: float = field(default=0.3, metadata={"ge": 0.0, "le": 1.0})
 
     use_cmc: bool = True

@@ -241,6 +241,7 @@ class BotSort(BoxTracker):
                         f,
                         id_allocator=self.id_allocator,
                         max_obs=self.max_obs,
+                        alpha=self.config.alpha_fixed_emb,
                         is_obb=self.is_obb,
                         motion_model=self.motion_model,
                     )
@@ -252,6 +253,7 @@ class BotSort(BoxTracker):
                         det,
                         id_allocator=self.id_allocator,
                         max_obs=self.max_obs,
+                        alpha=self.config.alpha_fixed_emb,
                         is_obb=self.is_obb,
                         motion_model=self.motion_model,
                     )
@@ -351,6 +353,7 @@ class BotSort(BoxTracker):
                     det,
                     id_allocator=self.id_allocator,
                     max_obs=self.max_obs,
+                    alpha=self.config.alpha_fixed_emb,
                     is_obb=self.is_obb,
                     motion_model=self.motion_model,
                 )
@@ -440,7 +443,8 @@ class BotSort(BoxTracker):
     def _unconfirmed_association_cost(self, tracks, detections) -> np.ndarray:
         geometry_dists = self.association_distance(tracks, detections)
         geometry_dists_mask = geometry_dists > self.proximity_thresh
-        geometry_dists = fuse_score(geometry_dists, detections)
+        if self.config.fuse_unconfirmed_associate:
+            geometry_dists = fuse_score(geometry_dists, detections)
 
         costs = geometry_dists
         if self.use_embeddings:
@@ -503,7 +507,11 @@ class BotSort(BoxTracker):
         self.lost_stracks.extend(lost_stracks)
         self.lost_stracks = sub_stracks(self.lost_stracks, self.removed_stracks)
         self.removed_stracks.extend(removed_stracks)
-        self.active_tracks, self.lost_stracks = remove_duplicate_stracks(self.active_tracks, self.lost_stracks)
+        self.active_tracks, self.lost_stracks = remove_duplicate_stracks(
+            self.active_tracks,
+            self.lost_stracks,
+            duplicate_threshold=self.config.duplicate_distance_thresh,
+        )
 
         return self.format_outputs(
             [t for t in self.active_tracks if t.is_activated],

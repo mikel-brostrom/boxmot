@@ -132,7 +132,9 @@ AssociationResult Associate(const Eigen::MatrixXd& detections,
                             const boxmot::trackers::base::AssociationMode association_mode,
                             const int frame_width,
                             const int frame_height,
-                            const double centroid_max_distance) {
+                            const double centroid_max_distance,
+                            const double appearance_thresh,
+                            const double appearance_iou_fraction) {
     const double geometry_threshold = boxmot::trackers::base::GeometrySimilarityThreshold(
         association_mode, similarity_threshold);
     AssociationResult result;
@@ -205,8 +207,8 @@ AssociationResult Associate(const Eigen::MatrixXd& detections,
         const int t = match.second;
         const bool geometry_ok = geometry_matrix(d, t) >= geometry_threshold;
         bool emb_ok = false;
-        if (emb_cost.size() > 0 && geometry_matrix(d, t) >= 0.5 * geometry_threshold &&
-            emb_cost(d, t) >= 0.75) {
+        if (emb_cost.size() > 0 && geometry_matrix(d, t) >= appearance_iou_fraction * geometry_threshold &&
+            emb_cost(d, t) >= appearance_thresh) {
             emb_ok = true;
         }
         if (geometry_ok || emb_ok) {

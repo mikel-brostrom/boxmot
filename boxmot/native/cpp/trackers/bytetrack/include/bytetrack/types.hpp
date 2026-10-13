@@ -22,6 +22,9 @@ struct Config {
     float match_thresh = 0.9F;
     float second_match_thresh = 0.5F;
     float unconfirmed_match_thresh = 0.7F;
+    bool fuse_first_associate = true;
+    bool fuse_unconfirmed_associate = true;
+    double duplicate_distance_thresh = 0.15;
     int max_lost_frames = 30;
     int max_obs = 50;
 };

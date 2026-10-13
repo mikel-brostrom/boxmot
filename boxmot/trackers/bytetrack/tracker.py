@@ -279,14 +279,20 @@ class ByteTrack(BoxTracker):
                 self._removed_first_seen.pop(display_key, None)
                 self._removed_expired.discard(display_key)
         self.removed_stracks = recent_removals
-        self.active_tracks, self.lost_stracks = remove_duplicate_stracks(self.active_tracks, self.lost_stracks)
+        self.active_tracks, self.lost_stracks = remove_duplicate_stracks(
+            self.active_tracks,
+            self.lost_stracks,
+            duplicate_threshold=self.config.duplicate_distance_thresh,
+        )
         # get confs of lost tracks
         output_stracks = [track for track in self.active_tracks if track.is_activated]
         return self.format_outputs(output_stracks, dtype=np.float32)
 
     def _fused_association_cost(self, tracks: list[STrack], detections: list[STrack]) -> np.ndarray:
         """Build the ByteTrack score-fused geometric distance matrix."""
-        costs = fuse_score(self.association_distance(tracks, detections), detections)
+        costs = self.association_distance(tracks, detections)
+        if self.config.fuse_first_associate:
+            costs = fuse_score(costs, detections)
         return self._condition_association(costs, tracks, detections, threshold=self.match_thresh)
 
     def _low_association_cost(self, tracks: list[STrack], detections: list[STrack]) -> np.ndarray:
@@ -297,7 +303,9 @@ class ByteTrack(BoxTracker):
 
     def _unconfirmed_association_cost(self, tracks: list[STrack], detections: list[STrack]) -> np.ndarray:
         """Condition tentative matches using their configured cost threshold."""
-        costs = fuse_score(self.association_distance(tracks, detections), detections)
+        costs = self.association_distance(tracks, detections)
+        if self.config.fuse_unconfirmed_associate:
+            costs = fuse_score(costs, detections)
         return self._condition_association(costs, tracks, detections, threshold=self.unconfirmed_match_thresh)
 
     def reset(self) -> None:

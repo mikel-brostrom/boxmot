@@ -7,9 +7,6 @@ max_age:
   type: randint
   range: [10, 61]
 
-# History is retained for display; recovery uses the tracklet endpoints.
-max_obs: {}
-
 min_hits:
   type: randint
   range: [1, 5]
@@ -63,3 +60,45 @@ t2ta_mode:
 template_size:
   type: choice
   options: [64, 96, 128]
+
+kcf_padding:
+  type: uniform
+  range: [1.0, 4.0]
+
+kcf_sigma:
+  type: uniform
+  range: [0.1, 1.0]
+
+kcf_regularization:
+  type: loguniform
+  range: [0.00001, 0.01]
+
+kcf_output_sigma_factor:
+  type: uniform
+  range: [0.05, 0.3]
+
+kcf_update_mode:
+  type: choice
+  options: [reinitialize, interpolate]
+
+kcf_interp_factor:
+  depends_on: kcf_update_mode
+  cases:
+    interpolate:
+      type: loguniform
+      range: [0.001, 0.5]
+
+max_area_ratio:
+  association: [iou, giou, diou, ciou, hmiou]
+  type: uniform
+  range: [1.1, 4.0]
+
+min_intersection_ratio:
+  association: [iou, giou, diou, ciou, hmiou]
+  type: uniform
+  range: [0.1, 0.9]
+
+recovery_overlap_thresh:
+  association: [iou, giou, diou, ciou, hmiou]
+  type: uniform
+  range: [0.5, 1.0]

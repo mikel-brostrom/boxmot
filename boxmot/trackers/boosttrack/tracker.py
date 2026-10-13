@@ -93,6 +93,10 @@ class BoostTrack(BoxTracker):
         self.lambda_iou = config.lambda_iou
         self.lambda_mhd = config.lambda_mhd
         self.lambda_shape = config.lambda_shape
+        self.lambda_emb_multiplier = config.lambda_emb_multiplier
+        self.alpha_fixed_emb = config.alpha_fixed_emb
+        self.appearance_thresh = config.appearance_thresh
+        self.appearance_iou_fraction = config.appearance_iou_fraction
         self.use_dlo_boost = config.use_dlo_boost
         self.use_duo_boost = config.use_duo_boost
         self.dlo_boost_coef = config.dlo_boost_coef
@@ -101,6 +105,12 @@ class BoostTrack(BoxTracker):
         self.use_rich_s = config.use_rich_s
         self.use_sb = config.use_sb
         self.use_vt = config.use_vt
+        self.dlo_soft_alpha = config.dlo_soft_alpha
+        self.dlo_soft_power = config.dlo_soft_power
+        self.dlo_threshold_start = config.dlo_threshold_start
+        self.dlo_threshold_end = config.dlo_threshold_end
+        self.duo_mahalanobis_thresh = config.duo_mahalanobis_thresh
+        self.duo_iou_thresh = config.duo_iou_thresh
 
         self.use_embeddings = config.use_embeddings
 
@@ -212,6 +222,9 @@ class BoostTrack(BoxTracker):
             lambda_mhd=self.lambda_mhd,
             lambda_shape=self.lambda_shape,
             s_sim_corr=self.s_sim_corr,
+            lambda_emb_multiplier=self.lambda_emb_multiplier,
+            appearance_thresh=self.appearance_thresh,
+            appearance_iou_fraction=self.appearance_iou_fraction,
             geometry_matrix=geometry_similarity,
             shape_matrix=oriented_shape,
             gate_before_assignment=self._asso_func_base_name == "centroid",
@@ -220,7 +233,7 @@ class BoostTrack(BoxTracker):
             ),
         )
 
-        dets_alpha = confidence_aware_alpha(batch.confs, self.det_thresh)
+        dets_alpha = confidence_aware_alpha(batch.confs, self.det_thresh, base_alpha=self.alpha_fixed_emb)
 
         update_tracks([self.trackers[t] for _, t in matched], [dets[d] for d, _ in matched])
         for m in matched:
@@ -237,7 +250,9 @@ class BoostTrack(BoxTracker):
                         adaptive_kf=self.kalman_config.adaptive_kf,
                         id_allocator=self.id_allocator,
                         noise_config=self.kalman_noise_config,
-                kalman_type=self.kalman_config.type,
+                        kalman_type=self.kalman_config.type,
+                        track_confidence_decay=self.config.track_confidence_decay,
+                        track_confidence_warmup=self.config.track_confidence_warmup,
                     )
                 )
 
@@ -305,7 +320,7 @@ class BoostTrack(BoxTracker):
             return detections
 
         n_dims = 4
-        limit = 13.2767
+        limit = self.duo_mahalanobis_thresh
         mh_dist = self.get_mh_dist_matrix(detections, n_dims)
 
         # If there are no existing trackers, bail out immediately
@@ -315,7 +330,7 @@ class BoostTrack(BoxTracker):
         min_dists = mh_dist.min(1)
         mask = (min_dists > limit) & (detections[:, 4] < self.det_thresh)
         boost_inds = np.where(mask)[0]
-        iou_limit = 0.3
+        iou_limit = self.duo_iou_thresh
         if len(boost_inds) == 0:
             return detections
 
@@ -364,11 +379,13 @@ class BoostTrack(BoxTracker):
 
         if self.use_sb:
             max_s = S.max(1)
-            alpha = 0.65
-            detections[:, 4] = np.maximum(detections[:, 4], alpha * detections[:, 4] + (1 - alpha) * max_s**1.5)
+            alpha = self.dlo_soft_alpha
+            detections[:, 4] = np.maximum(
+                detections[:, 4], alpha * detections[:, 4] + (1 - alpha) * max_s**self.dlo_soft_power
+            )
         if self.use_vt:
-            threshold_s = 0.95
-            threshold_e = 0.8
+            threshold_s = self.dlo_threshold_start
+            threshold_e = self.dlo_threshold_end
             tmp = (
                 S
                 > np.maximum(threshold_s - np.array([trk.time_since_update - 1 for trk in self.trackers]), threshold_e)
@@ -420,15 +437,15 @@ class BoostTrack(BoxTracker):
             return boosted
 
         if self.use_sb:
-            alpha = 0.65
+            alpha = self.dlo_soft_alpha
             boosted[:, conf_idx] = np.maximum(
                 boosted[:, conf_idx],
-                alpha * boosted[:, conf_idx] + (1 - alpha) * max_similarity**1.5,
+                alpha * boosted[:, conf_idx] + (1 - alpha) * max_similarity**self.dlo_soft_power,
             )
         if self.use_vt:
             visibility_thresholds = np.maximum(
-                0.95 - np.array([trk.time_since_update - 1 for trk in self.trackers]),
-                0.8,
+                self.dlo_threshold_start - np.array([trk.time_since_update - 1 for trk in self.trackers]),
+                self.dlo_threshold_end,
             )
             visible = (similarity > visibility_thresholds).max(axis=1)
             boosted[visible, conf_idx] = np.maximum(
@@ -452,7 +469,9 @@ class BoostTrack(BoxTracker):
             return detections
 
         conf_idx = self.detection_layout.conf_idx
-        boost_indices = np.flatnonzero((mh_dist.min(axis=1) > 13.2767) & (detections[:, conf_idx] < threshold))
+        boost_indices = np.flatnonzero(
+            (mh_dist.min(axis=1) > self.duo_mahalanobis_thresh) & (detections[:, conf_idx] < threshold)
+        )
         if not len(boost_indices):
             return detections
 
@@ -460,9 +479,9 @@ class BoostTrack(BoxTracker):
         pairwise_iou = AssociationFunction.iou_batch_obb(candidate_boxes, candidate_boxes)
         np.fill_diagonal(pairwise_iou, 0.0)
         max_iou = pairwise_iou.max(axis=1)
-        remaining = list(boost_indices[max_iou <= 0.3])
-        for local_index in np.flatnonzero(max_iou > 0.3):
-            neighbors = np.flatnonzero(pairwise_iou[local_index] > 0.3)
+        remaining = list(boost_indices[max_iou <= self.duo_iou_thresh])
+        for local_index in np.flatnonzero(max_iou > self.duo_iou_thresh):
+            neighbors = np.flatnonzero(pairwise_iou[local_index] > self.duo_iou_thresh)
             group = boost_indices[np.append(neighbors, local_index)]
             best = group[np.argmax(detections[group, conf_idx])]
             remaining.append(int(best))

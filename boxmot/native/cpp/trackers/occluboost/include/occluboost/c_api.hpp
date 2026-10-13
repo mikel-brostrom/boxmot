@@ -14,7 +14,7 @@
 
 extern "C" {
 
-struct BoxMOTOccluBoostConfigV2 {
+struct BoxMOTOccluBoostConfigV3 {
     // BoostTrack inherited
     int max_age;
     int min_hits;
@@ -62,12 +62,25 @@ struct BoxMOTOccluBoostConfigV2 {
     // ReID
     const char* asso_func;
     double centroid_max_distance;
+
+    // Configurable BoostTrack appearance and confidence policies.
+    double alpha_fixed_emb;
+    double appearance_thresh;
+    double appearance_iou_fraction;
+    double dlo_soft_alpha;
+    double dlo_soft_power;
+    double dlo_threshold_start;
+    double dlo_threshold_end;
+    double duo_mahalanobis_thresh;
+    double duo_iou_thresh;
+    double track_confidence_decay;
+    int track_confidence_warmup;
 };
 
 struct BoxMOTOccluBoostHandle;
 
-BOXMOT_OCCLUBOOST_API BoxMOTOccluBoostHandle* boxmot_occluboost_create_v2(
-    const BoxMOTOccluBoostConfigV2* config);
+BOXMOT_OCCLUBOOST_API BoxMOTOccluBoostHandle* boxmot_occluboost_create_v3(
+    const BoxMOTOccluBoostConfigV3* config);
 BOXMOT_OCCLUBOOST_API void boxmot_occluboost_destroy(BoxMOTOccluBoostHandle* handle);
 BOXMOT_OCCLUBOOST_API int boxmot_occluboost_reset(BoxMOTOccluBoostHandle* handle);
 BOXMOT_OCCLUBOOST_API int boxmot_occluboost_update_v2(BoxMOTOccluBoostHandle* handle,

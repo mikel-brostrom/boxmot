@@ -39,6 +39,8 @@ AssociationResult Associate(const Eigen::MatrixXd& detections,
                             boxmot::trackers::base::AssociationMode association_mode,
                             int frame_width,
                             int frame_height,
-                            double centroid_max_distance);
+                            double centroid_max_distance,
+                            double appearance_thresh = 0.75,
+                            double appearance_iou_fraction = 0.5);
 
 }  // namespace occluboost

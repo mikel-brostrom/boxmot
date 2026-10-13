@@ -44,7 +44,8 @@ def expand_yaml_groups(yaml_cfg: dict, *, prefix: str = "") -> dict:
         if (
             (key in {"kalman", "edgetam"} or key.startswith(("kalman.", "edgetam.")))
             and isinstance(details, dict)
-            and not {"default", "type"}.intersection(details)
+            and "default" not in details
+            and ("type" not in details or isinstance(details["type"], dict))
         ):
             expanded.update(expand_yaml_groups(details, prefix=f"{key}."))
             continue

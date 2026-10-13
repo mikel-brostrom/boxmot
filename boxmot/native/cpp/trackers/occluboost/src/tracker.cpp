@@ -51,6 +51,18 @@ OccluBoostTracker::OccluBoostTracker(Config config)
       association_mode_(boxmot::trackers::base::ParseAssociationMode(config_.asso_func)),
       cmc_(CreateCameraMotionCompensator(config_.cmc_method)) {
     boxmot::trackers::base::ValidateCentroidMaxDistance(config_.centroid_max_distance);
+    const auto unit_interval = [](double value) { return std::isfinite(value) && value >= 0.0 && value <= 1.0; };
+    if (!unit_interval(config_.alpha_fixed_emb) ||
+        !std::isfinite(config_.appearance_thresh) || config_.appearance_thresh < -1.0 || config_.appearance_thresh > 1.0 ||
+        !unit_interval(config_.appearance_iou_fraction) || !unit_interval(config_.dlo_soft_alpha) ||
+        !std::isfinite(config_.dlo_soft_power) || config_.dlo_soft_power <= 0.0 ||
+        !unit_interval(config_.dlo_threshold_start) || !unit_interval(config_.dlo_threshold_end) ||
+        config_.dlo_threshold_end > config_.dlo_threshold_start ||
+        !std::isfinite(config_.duo_mahalanobis_thresh) || config_.duo_mahalanobis_thresh <= 0.0 ||
+        !unit_interval(config_.duo_iou_thresh) || !unit_interval(config_.track_confidence_decay) ||
+        config_.track_confidence_decay <= 0.0 || config_.track_confidence_warmup < 1) {
+        throw std::invalid_argument("Invalid OccluBoost appearance or confidence policy.");
+    }
 }
 
 void OccluBoostTracker::Reset() {
@@ -71,12 +83,26 @@ void OccluBoostTracker::DloConfidenceBoost(std::vector<Detection>& detections) c
     Eigen::MatrixXd dets_mat = DetectionsMatrix(detections);
     Eigen::MatrixXd trks_mat = PredictedTracksMatrix(trackers_);
 
-    // Python computes sbiou = soft_biou_batch(detections, trackers) but only
-    // uses it when (use_sb || use_vt) AND use_rich_s — locked off for OccluBoost.
     Eigen::MatrixXd S = boxmot::trackers::base::AabbAssociationMatrix(
         dets_mat, trks_mat, boxmot::trackers::base::AssociationMode::kIou);
     if (S.rows() == 0 || S.cols() == 0) {
         return;
+    }
+    if (config_.use_rich_s) {
+        Eigen::MatrixXd shape = ShapeSimilarityV1(dets_mat, trks_mat);
+        if (config_.s_sim_corr) {
+            for (int i = 0; i < dets_mat.rows(); ++i) {
+                const double dw = dets_mat(i, 2) - dets_mat(i, 0);
+                const double dh = dets_mat(i, 3) - dets_mat(i, 1);
+                for (int j = 0; j < trks_mat.rows(); ++j) {
+                    const double tw = trks_mat(j, 2) - trks_mat(j, 0);
+                    const double th = trks_mat(j, 3) - trks_mat(j, 1);
+                    shape(i, j) = std::exp(-std::abs(dw - tw) / std::max(dw, tw) -
+                                           std::abs(dh - th) / std::max(dh, th));
+                }
+            }
+        }
+        S = (MhDistSimilarity(GetMhDistMatrix(detections)) + shape + SoftBiouBatch(dets_mat, trks_mat)) / 3.0;
     }
 
     Eigen::VectorXd max_s = S.rowwise().maxCoeff();
@@ -85,25 +111,25 @@ void OccluBoostTracker::DloConfidenceBoost(std::vector<Detection>& detections) c
         for (int i = 0; i < static_cast<int>(detections.size()); ++i) {
             const double boosted = max_s(i) * config_.dlo_boost_coef;
             if (boosted > detections[i].conf) {
-                detections[i].conf = static_cast<float>(boosted);
+                detections[i].conf = static_cast<float>(std::clamp(boosted, 0.0, 1.0));
             }
         }
         return;
     }
 
     if (config_.use_sb) {
-        constexpr double alpha = 0.65;
+        const double alpha = config_.dlo_soft_alpha;
         for (int i = 0; i < static_cast<int>(detections.size()); ++i) {
             const double boosted =
-                alpha * detections[i].conf + (1.0 - alpha) * std::pow(max_s(i), 1.5);
+                alpha * detections[i].conf + (1.0 - alpha) * std::pow(max_s(i), config_.dlo_soft_power);
             if (boosted > detections[i].conf) {
                 detections[i].conf = static_cast<float>(boosted);
             }
         }
     }
     if (config_.use_vt) {
-        constexpr double threshold_s = 0.95;
-        constexpr double threshold_e = 0.8;
+        const double threshold_s = config_.dlo_threshold_start;
+        const double threshold_e = config_.dlo_threshold_end;
         for (int i = 0; i < static_cast<int>(detections.size()); ++i) {
             bool any = false;
             for (std::size_t j = 0; j < trackers_.size(); ++j) {
@@ -126,7 +152,7 @@ void OccluBoostTracker::DuoConfidenceBoost(std::vector<Detection>& detections) c
     if (!config_.use_duo_boost || detections.empty() || trackers_.empty()) {
         return;
     }
-    constexpr double limit = 13.2767;
+    const double limit = config_.duo_mahalanobis_thresh;
     Eigen::MatrixXd mh = GetMhDistMatrix(detections);
     if (mh.size() == 0) {
         return;
@@ -141,7 +167,7 @@ void OccluBoostTracker::DuoConfidenceBoost(std::vector<Detection>& detections) c
     if (boost_inds.empty()) {
         return;
     }
-    constexpr double iou_limit = 0.3;
+    const double iou_limit = config_.duo_iou_thresh;
 
     Eigen::MatrixXd boost_dets(static_cast<int>(boost_inds.size()), 5);
     for (std::size_t k = 0; k < boost_inds.size(); ++k) {
@@ -237,17 +263,17 @@ void OccluBoostTracker::DloConfidenceBoostObb(std::vector<Detection>& detections
         for (int i = 0; i < static_cast<int>(detections.size()); ++i) {
             detections[static_cast<std::size_t>(i)].conf =
                 std::max(detections[static_cast<std::size_t>(i)].conf,
-                         static_cast<float>(max_similarity(i) * config_.dlo_boost_coef));
+                         static_cast<float>(std::clamp(max_similarity(i) * config_.dlo_boost_coef, 0.0, 1.0)));
         }
         return;
     }
 
     if (config_.use_sb) {
-        constexpr double alpha = 0.65;
+        const double alpha = config_.dlo_soft_alpha;
         for (int i = 0; i < static_cast<int>(detections.size()); ++i) {
             const float original = detections[static_cast<std::size_t>(i)].conf;
             const double boosted =
-                alpha * original + (1.0 - alpha) * std::pow(max_similarity(i), 1.5);
+                alpha * original + (1.0 - alpha) * std::pow(max_similarity(i), config_.dlo_soft_power);
             detections[static_cast<std::size_t>(i)].conf =
                 std::max(original, static_cast<float>(boosted));
         }
@@ -257,9 +283,9 @@ void OccluBoostTracker::DloConfidenceBoostObb(std::vector<Detection>& detections
             bool visible = false;
             for (int j = 0; j < static_cast<int>(trackers_.size()); ++j) {
                 const double threshold = std::max(
-                    0.95 - static_cast<double>(
+                    config_.dlo_threshold_start - static_cast<double>(
                                trackers_[static_cast<std::size_t>(j)]->time_since_update - 1),
-                    0.8);
+                    config_.dlo_threshold_end);
                 if (similarity(i, j) > threshold) {
                     visible = true;
                     break;
@@ -277,7 +303,7 @@ void OccluBoostTracker::DuoConfidenceBoostObb(std::vector<Detection>& detections
     if (!config_.use_duo_boost || detections.empty() || trackers_.empty()) {
         return;
     }
-    constexpr double mhd_limit = 13.2767;
+    const double mhd_limit = config_.duo_mahalanobis_thresh;
     const Eigen::MatrixXd mh = GetMhDistMatrixObb(detections);
     if (mh.size() == 0) {
         return;
@@ -305,15 +331,16 @@ void OccluBoostTracker::DuoConfidenceBoostObb(std::vector<Detection>& detections
         pairwise_iou(i, i) = 0.0;
     }
 
-    constexpr double iou_limit = 0.3;
+    const double iou_limit = config_.duo_iou_thresh;
     std::unordered_set<int> remaining;
     for (int i = 0; i < static_cast<int>(boost_indices.size()); ++i) {
         if (pairwise_iou.row(i).maxCoeff() <= iou_limit) {
             remaining.insert(boost_indices[static_cast<std::size_t>(i)]);
             continue;
         }
-        int best = boost_indices[static_cast<std::size_t>(i)];
-        float best_conf = detections[static_cast<std::size_t>(best)].conf;
+        // Python ranks neighbors before the current candidate when confidences tie.
+        int best = -1;
+        float best_conf = -std::numeric_limits<float>::infinity();
         for (int j = 0; j < pairwise_iou.cols(); ++j) {
             if (pairwise_iou(i, j) > iou_limit) {
                 const int candidate = boost_indices[static_cast<std::size_t>(j)];
@@ -322,6 +349,10 @@ void OccluBoostTracker::DuoConfidenceBoostObb(std::vector<Detection>& detections
                     best_conf = detections[static_cast<std::size_t>(candidate)].conf;
                 }
             }
+        }
+        const int current = boost_indices[static_cast<std::size_t>(i)];
+        if (detections[static_cast<std::size_t>(current)].conf > best_conf) {
+            best = current;
         }
         remaining.insert(best);
     }
@@ -726,14 +757,16 @@ std::vector<TrackOutput> OccluBoostTracker::Update(const std::vector<Detection>&
                                         association_mode_,
                                         association_frame_width_,
                                         association_frame_height_,
-                                        config_.centroid_max_distance);
+                                        config_.centroid_max_distance,
+                                        config_.appearance_thresh,
+                                        config_.appearance_iou_fraction);
 
     // dets_alpha for ReID EMA on matched pairs.
     Eigen::VectorXd dets_alpha = Eigen::VectorXd::Zero(static_cast<int>(dets_first.size()));
-    constexpr double af = 0.95;
+    const double af = config_.alpha_fixed_emb;
     for (std::size_t i = 0; i < dets_first.size(); ++i) {
         const double trust =
-            (dets_first[i].conf - config_.det_thresh) / std::max(1.0 - config_.det_thresh, 1.0e-6);
+            (dets_first[i].conf - config_.det_thresh) / std::max(1.0 - config_.det_thresh, 1.0e-12);
         dets_alpha(static_cast<int>(i)) = af + (1.0 - af) * (1.0 - trust);
     }
 
@@ -981,7 +1014,8 @@ std::vector<TrackOutput> OccluBoostTracker::Update(const std::vector<Detection>&
             continue;
         }
         auto trk = std::make_shared<KalmanBoxTracker>(
-            dets_first[i], config_.max_obs, next_track_id_++);
+            dets_first[i], config_.max_obs, next_track_id_++,
+            config_.track_confidence_decay, config_.track_confidence_warmup);
         trk->is_activated =
             (dets_first[i].conf >= config_.instant_confirm_thresh) || (config_.confirm_hits <= 1);
         trackers_.push_back(trk);
@@ -1192,8 +1226,8 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(const std::vector<Detectio
         AmsUpdate(*trackers_[t], dets_first[d]);
         if (config_.use_embeddings && dets_first[d].has_embedding()) {
             const double trust = (dets_first[d].conf - config_.det_thresh) /
-                                 std::max(1.0 - config_.det_thresh, 1.0e-6);
-            constexpr double af = 0.95;
+                                 std::max(1.0 - config_.det_thresh, 1.0e-12);
+            const double af = config_.alpha_fixed_emb;
             const double alpha_emb = af + (1.0 - af) * (1.0 - trust);
             trackers_[t]->UpdateEmbedding(dets_first[d].embedding, alpha_emb);
         }
@@ -1414,7 +1448,8 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(const std::vector<Detectio
         if (dets_first[i].conf < config_.new_track_thresh)
             continue;
         auto trk = std::make_shared<KalmanBoxTracker>(
-            dets_first[i], config_.max_obs, next_track_id_++);
+            dets_first[i], config_.max_obs, next_track_id_++,
+            config_.track_confidence_decay, config_.track_confidence_warmup);
         trk->is_activated = (dets_first[i].conf >= config_.instant_confirm_thresh) ||
                             (config_.confirm_hits <= 1);
         trackers_.push_back(trk);

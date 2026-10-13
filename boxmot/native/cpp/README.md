@@ -82,15 +82,19 @@ noise priors are internal constants. Versioning the constructor prevents older
 libraries from reading the revised configuration layout. Detection and track
 batches continue to use the shared typed v2 API.
 
-OccluBoost uses `boxmot_occluboost_create_v2` with `BoxMOTOccluBoostConfigV2`.
+OccluBoost uses `boxmot_occluboost_create_v3` with `BoxMOTOccluBoostConfigV3`.
 Its configuration shares detection, association, confirmation, and lifetime
 settings across AABB and OBB. Rebuild older libraries to use this layout;
-the Python loader rejects the previous constructor ABI.
+the Python loader rejects the previous constructor ABI. Appearance smoothing,
+appearance rescue, DLO/DUO boosting, and track-confidence controls use the same
+settings and defaults as Python.
 
-ByteTrack and BotSort use `boxmot_bytetrack_create_v2` /
-`BoxMOTByteTrackConfigV2` and `boxmot_botsort_create_v2` /
-`BoxMOTBotSortConfigV2`. Both configurations expose `max_lost_frames` as a direct
-count of tracker updates, with no FPS scaling. Rebuild older libraries: the
+ByteTrack and BotSort use `boxmot_bytetrack_create_v3` /
+`BoxMOTByteTrackConfigV3` and `boxmot_botsort_create_v3` /
+`BoxMOTBotSortConfigV3`. Both configurations expose `max_lost_frames` as a direct
+count of tracker updates, with no FPS scaling, and share Python's score-fusion
+and duplicate-suppression controls. BotSort also exposes appearance smoothing
+through `alpha_fixed_emb`. Rebuild older libraries: the
 Python loader rejects the previous constructor ABI. Detection and track batches
 continue to use the shared typed v2 API.
 

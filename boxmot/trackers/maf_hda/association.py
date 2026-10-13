@@ -29,12 +29,14 @@ def gaussian_affinity(
     *,
     recovery: bool = False,
     gate_geometry: bool = True,
+    max_area_ratio: float = 2.0,
+    min_intersection_ratio: float = 0.5,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return gated center likelihoods and one posterior covariance per box.
 
-    Overlap modes require half of the smaller box to overlap in S2TA, any
-    overlap in T2TA, and area changes below a factor of two. Centroid mode
-    supplies its own radius gate and keeps these cues from rejecting pairs.
+    Overlap modes gate area changes and the fraction of the smaller box
+    intersecting in S2TA; T2TA requires any overlap. Centroid mode supplies
+    its own radius gate and keeps these cues from rejecting pairs.
     """
     innovation_covariance = covariance[:2, :2] + MEASUREMENT_NOISE
     gain = np.linalg.solve(innovation_covariance, covariance[:2, :]).T
@@ -53,8 +55,8 @@ def gaussian_affinity(
     )
     valid = np.ones(len(boxes), dtype=bool)
     if gate_geometry:
-        valid &= (areas < 2.0 * area) & (area < 2.0 * areas)
-        valid &= intersection > 0 if recovery else intersection >= 0.5 * np.minimum(area, areas)
+        valid &= (areas < max_area_ratio * area) & (area < max_area_ratio * areas)
+        valid &= intersection > 0 if recovery else intersection >= min_intersection_ratio * np.minimum(area, areas)
     # MAF can rescue a Gaussian-gated pair through appearance. Such a match
     # must retain the prediction's uncertainty: it supplied no motion update.
     posteriors = np.where(valid[:, None, None], posterior, covariance)
@@ -90,6 +92,7 @@ def fusion_cost(
     appearance_upper: float,
     overlap_lower: float,
     gate_geometry: bool = True,
+    recovery_overlap_thresh: float = 0.9,
 ) -> np.ndarray:
     """Fuse motion and appearance; centroid uses only the lower appearance gate."""
     if mode == "motion":
@@ -106,7 +109,7 @@ def fusion_cost(
             normalized_appearance[appearance < appearance_lower] = 0.0
         affinity = normalized_motion * normalized_appearance
         if recovery:
-            geometry_support = overlap >= (0.9 if gate_geometry else 0.0)
+            geometry_support = overlap >= (recovery_overlap_thresh if gate_geometry else 0.0)
             substitute = (normalized_motion == 0.0) & ((appearance >= appearance_upper) | geometry_support)
         else:
             substitute = (normalized_motion == 0.0) | (overlap > overlap_lower)

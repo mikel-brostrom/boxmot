@@ -1,14 +1,19 @@
-# Shared history/display controls; max_lost_frames owns lost-track lifetime.
-max_age: {}
-max_obs: {}
-min_hits: {}
-
-# Association uses match_thresh and the tracker's second-pass cost thresholds.
-iou_threshold: {}
-
 min_conf:
   type: uniform
   range: [0.1, 0.3]
+
+fuse_first_associate:
+  type: choice
+  options: [False, True]
+
+fuse_unconfirmed_associate:
+  type: choice
+  options: [False, True]
+
+# IoU distance cutoff, independent of the selected association metric.
+duplicate_distance_thresh:
+  type: uniform
+  range: [0.0, 0.3]
 
 track_thresh:
   type: uniform
@@ -77,6 +82,10 @@ cmc_min_conf: {}
 # Timing and reference-prior units stay fixed across all tuning trials.
 
 kalman:
+  # Preserve the tracker-specific filter unless a profile or --select-kf chooses one.
+  type:
+    default: null
+
   variable_dt:
     default: false
 

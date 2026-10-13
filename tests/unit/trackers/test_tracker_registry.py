@@ -213,12 +213,15 @@ def test_sfsort_config_includes_default_obb_angle_damping() -> None:
 
 
 @pytest.mark.parametrize("tracker_name", tuple(tracker_registry.TRACKER_DEFINITIONS))
-def test_all_python_configs_expose_canonical_association_choices(tracker_name: str) -> None:
+def test_python_configs_search_only_supported_association_choices(tracker_name: str) -> None:
+    """IoU-only EagerMOT stays fixed; other trackers search their supported metrics."""
     association = load_tracker_schema(tracker_name)["asso_func"]
 
-    assert association["type"] == "choice"
-    expected = ["iou"] if tracker_name == "eagermot" else ["iou", "giou", "diou", "ciou", "hmiou", "centroid"]
-    assert association["options"] == expected
+    if tracker_name == "eagermot":
+        assert association == {"default": "iou"}
+    else:
+        assert association["type"] == "choice"
+        assert association["options"] == ["iou", "giou", "diou", "ciou", "hmiou", "centroid"]
     assert load_tracker_config(tracker_name)["asso_func"] == association["default"]
 
 

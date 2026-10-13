@@ -14,8 +14,8 @@ from boxmot.trackers.common.manifest import _TRACKER_MANIFEST
 
 
 @pytest.mark.parametrize("name", tuple(_TRACKER_MANIFEST))
-def test_tracker_search_profiles_explicitly_cover_every_algorithm_parameter(name: str) -> None:
-    """Loader-injected defaults must not conceal missing tuning decisions."""
+def test_tracker_search_profiles_preserve_omitted_algorithm_defaults(name: str) -> None:
+    """Sparse profiles keep omitted settings fixed at their typed defaults."""
     authored = yaml.safe_load(get_tracker_config_path(name).read_text(encoding="utf-8"))
     algorithm_entries = {
         key: entry
@@ -23,8 +23,13 @@ def test_tracker_search_profiles_explicitly_cover_every_algorithm_parameter(name
         if not key.startswith(("kalman.", "edgetam."))
     }
 
-    assert algorithm_entries.keys() == set(get_tracker_config_class(name).fields())
+    defaults = get_tracker_config_class(name)().to_dict()
+    assert algorithm_entries.keys() <= defaults.keys()
     assert all("default" not in entry for entry in algorithm_entries.values())
+
+    resolved = flatten_yaml_config(load_yaml_config(name))
+    for parameter in defaults.keys() - algorithm_entries.keys():
+        assert resolved[parameter] == {"default": defaults[parameter]}
 
 
 def _search_boundaries(entry: dict[str, Any]) -> Iterator[object]:

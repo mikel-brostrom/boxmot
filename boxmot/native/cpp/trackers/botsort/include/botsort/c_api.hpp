@@ -14,7 +14,7 @@
 
 extern "C" {
 
-struct BoxMOTBotSortConfigV2 {
+struct BoxMOTBotSortConfigV3 {
     float track_high_thresh;
     float track_low_thresh;
     float new_track_thresh;
@@ -27,6 +27,9 @@ struct BoxMOTBotSortConfigV2 {
     float unconfirmed_emb_scale;
     const char* cmc_method;
     int fuse_first_associate;
+    int fuse_unconfirmed_associate;
+    float alpha_fixed_emb;
+    double duplicate_distance_thresh;
     int use_embeddings;
     int max_obs;
     const char* asso_func;
@@ -35,7 +38,7 @@ struct BoxMOTBotSortConfigV2 {
 
 struct BoxMOTBotSortHandle;
 
-BOXMOT_BOTSORT_API BoxMOTBotSortHandle* boxmot_botsort_create_v2(const BoxMOTBotSortConfigV2* config);
+BOXMOT_BOTSORT_API BoxMOTBotSortHandle* boxmot_botsort_create_v3(const BoxMOTBotSortConfigV3* config);
 BOXMOT_BOTSORT_API void boxmot_botsort_destroy(BoxMOTBotSortHandle* handle);
 BOXMOT_BOTSORT_API int boxmot_botsort_reset(BoxMOTBotSortHandle* handle);
 BOXMOT_BOTSORT_API int boxmot_botsort_update_v2(BoxMOTBotSortHandle* handle,

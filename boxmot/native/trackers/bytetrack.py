@@ -1,4 +1,4 @@
-"""Low-level typed-v2 binding for the native ByteTrack library."""
+"""Native ByteTrack binding with configuration ABI v3 and typed batch ABI v2."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ def ensure_bytetrack_cpp_library(force_rebuild: bool = False) -> Path:
     )
 
 
-class _ByteTrackCConfigV2(ctypes.Structure):
+class _ByteTrackCConfigV3(ctypes.Structure):
     _fields_ = [
         ("min_conf", ctypes.c_float),
         ("track_thresh", ctypes.c_float),
@@ -40,6 +40,9 @@ class _ByteTrackCConfigV2(ctypes.Structure):
         ("max_obs", ctypes.c_int),
         ("asso_func", ctypes.c_char_p),
         ("centroid_max_distance", ctypes.c_double),
+        ("fuse_first_associate", ctypes.c_int),
+        ("fuse_unconfirmed_associate", ctypes.c_int),
+        ("duplicate_distance_thresh", ctypes.c_double),
     ]
 
 
@@ -49,12 +52,12 @@ class ByteTrackLibrary:
             os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
         self.library_path = Path(library_path)
         self._library = ctypes.CDLL(str(self.library_path))
-        self._create = getattr(self._library, "boxmot_bytetrack_create_v2", None)
+        self._create = getattr(self._library, "boxmot_bytetrack_create_v3", None)
         if self._create is None:
             raise RuntimeError(
                 "Native ByteTrack library has an incompatible configuration ABI; rebuild the native library."
             )
-        self._create.argtypes = [ctypes.POINTER(_ByteTrackCConfigV2)]
+        self._create.argtypes = [ctypes.POINTER(_ByteTrackCConfigV3)]
         self._create.restype = ctypes.c_void_p
         self._library.boxmot_bytetrack_destroy.argtypes = [ctypes.c_void_p]
         self._library.boxmot_bytetrack_destroy.restype = None
@@ -69,7 +72,7 @@ class ByteTrackLibrary:
         return "Unknown native ByteTrack error." if raw is None else raw.decode("utf-8", errors="replace")
 
     def create(self, cfg: Mapping[str, Any]):
-        c_cfg = _ByteTrackCConfigV2(
+        c_cfg = _ByteTrackCConfigV3(
             min_conf=float(cfg["min_conf"]),
             track_thresh=float(cfg["track_thresh"]),
             match_thresh=float(cfg["match_thresh"]),
@@ -79,6 +82,9 @@ class ByteTrackLibrary:
             max_obs=int(cfg.get("max_obs", 50)),
             asso_func=str(cfg["asso_func"]).encode(),
             centroid_max_distance=float(cfg["centroid_max_distance"]),
+            fuse_first_associate=int(bool(cfg["fuse_first_associate"])),
+            fuse_unconfirmed_associate=int(bool(cfg["fuse_unconfirmed_associate"])),
+            duplicate_distance_thresh=float(cfg["duplicate_distance_thresh"]),
         )
         handle = self._create(ctypes.byref(c_cfg))
         if not handle:

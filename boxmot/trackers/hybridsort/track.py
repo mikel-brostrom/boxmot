@@ -80,6 +80,7 @@ class KalmanBoxTracker(SortBoxTrack):
         alpha: float = 0.9,
         adapfs: bool = False,
         track_thresh: float = 0.5,
+        confidence_floor: float = 0.1,
         is_obb: bool = False,
         cls: int = 0,
         det_ind: int = -1,
@@ -138,6 +139,7 @@ class KalmanBoxTracker(SortBoxTrack):
         self.alpha = float(alpha)
         self.adapfs = bool(adapfs)
         self.track_thresh = float(track_thresh)
+        self.confidence_floor = float(confidence_floor)
 
         # metadata
         self.cls = int(cls)
@@ -393,12 +395,12 @@ class KalmanBoxTracker(SortBoxTrack):
         kalman_score = float(np.clip(x3, self.track_thresh, 1.0))
 
         if not self.confidence_pre:
-            simple_score = float(np.clip(self.conf, 0.1, self.track_thresh))
+            simple_score = float(np.clip(self.conf, self.confidence_floor, self.track_thresh))
         else:
             simple_score = float(
                 np.clip(
                     self.conf - (self.confidence_pre - self.conf),
-                    0.1,
+                    self.confidence_floor,
                     self.track_thresh,
                 )
             )

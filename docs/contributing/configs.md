@@ -28,11 +28,21 @@ Adding a tuned tracker usually means:
 
 Tracker YAML algorithm entries declare tuning metadata such as `type`, `range`,
 `options`, or conditional `activates`. The loader supplies each algorithm field's
-`default` from its config class. List every algorithm field in built-in profiles:
-give effective algorithm parameters valid search ranges, and mark fixed settings
-with an empty mapping and a short explanation. Custom profiles may omit fields
-to keep their typed defaults. Component groups retain profile defaults. Presets under
+`default` from its config class. Give effective algorithm parameters valid search
+ranges, and mark fixed settings that affect tracker setup with an empty mapping
+and a short explanation. Omit unused inherited fields and display-only controls;
+keep observation-history settings when they affect motion estimation or recovery.
+Omitted algorithm fields retain their typed defaults and are not searched.
+Component groups retain profile defaults. Presets under
 `presets/` are runtime overlays and should identify their target tracker.
+
+When exposing a hardcoded algorithm setting, add a validated typed field, pass
+it through every applicable tracking path, and retain the previous constant as
+its default. Add a behavioral test showing that an override affects tracking.
+Use `geometry` and `association` metadata to exclude settings from searches that
+cannot use them. For trackers with a C++ implementation, implement each new
+algorithm control in both backends, including the C configuration, Python
+binding, and behavioral parity tests. Keep backend selection fixed for the run.
 
 Validate catalog and tracker-config changes with:
 

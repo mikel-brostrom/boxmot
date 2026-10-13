@@ -68,6 +68,10 @@ aw_off:
 # Timing and reference-prior units stay fixed across all tuning trials.
 
 kalman:
+  # Preserve the tracker-specific filter unless a profile or --select-kf chooses one.
+  type:
+    default: null
+
   variable_dt:
     default: false
 

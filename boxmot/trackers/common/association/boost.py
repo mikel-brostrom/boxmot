@@ -146,7 +146,10 @@ def linear_assignment(
     threshold: float,
     emb_cost: Optional[np.ndarray] = None,
     gate_before_assignment: bool = False,
+    appearance_thresh: float = 0.75,
+    appearance_iou_fraction: float = 0.5,
 ):
+    """Assign pairs, allowing appearance rescue through its configured geometry gate."""
     if similarity_matrix is None and cost_matrix is None:
         raise ValueError("Both similarity_matrix and cost_matrix are None")
     if similarity_matrix is None:
@@ -156,7 +159,7 @@ def linear_assignment(
     if gate_before_assignment or not np.isfinite(similarity_matrix).all():
         allowed = similarity_matrix >= threshold
         if emb_cost is not None:
-            allowed |= (similarity_matrix >= threshold / 2) & (emb_cost >= 0.75)
+            allowed |= (similarity_matrix >= threshold * appearance_iou_fraction) & (emb_cost >= appearance_thresh)
         cost_matrix = np.where(allowed, cost_matrix, -np.inf)
     # Centroid fusion ranks every radius-eligible pair, including pairs whose
     # appearance contribution makes the combined similarity nonpositive.
@@ -177,7 +180,10 @@ def linear_assignment(
             or (
                 False
                 if emb_cost is None
-                else (similarity_matrix[m[0], m[1]] >= threshold / 2 and emb_cost[m[0], m[1]] >= 0.75)
+                else (
+                    similarity_matrix[m[0], m[1]] >= threshold * appearance_iou_fraction
+                    and emb_cost[m[0], m[1]] >= appearance_thresh
+                )
             )
         )
         if valid_match:
@@ -207,7 +213,10 @@ def associate(
     shape_matrix: Optional[np.ndarray] = None,
     geometry_conditioner: Callable[[np.ndarray], np.ndarray] | None = None,
     gate_before_assignment: bool = False,
+    appearance_thresh: float = 0.75,
+    appearance_iou_fraction: float = 0.5,
 ):
+    """Combine geometry, motion, shape, and weighted appearance before gated matching."""
     if len(trackers) == 0:
         return (
             np.empty((0, 2), dtype=int),
@@ -261,4 +270,6 @@ def associate(
         similarity_threshold,
         emb_cost,
         gate_before_assignment=gate_before_assignment,
+        appearance_thresh=appearance_thresh,
+        appearance_iou_fraction=appearance_iou_fraction,
     )

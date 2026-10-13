@@ -210,6 +210,8 @@ class OccluBoost(BoostTrack):
             lambda_shape=self.lambda_shape,
             s_sim_corr=self.s_sim_corr,
             lambda_emb_multiplier=self.lambda_emb_multiplier,
+            appearance_thresh=self.appearance_thresh,
+            appearance_iou_fraction=self.appearance_iou_fraction,
             geometry_matrix=geometry_similarity,
             gate_before_assignment=self._asso_func_base_name == "centroid",
             geometry_conditioner=lambda similarity: self._condition_similarity(
@@ -220,6 +222,7 @@ class OccluBoost(BoostTrack):
         dets_alpha = confidence_aware_alpha(
             self.detection_layout.confidences(dets),
             self.det_thresh,
+            base_alpha=self.alpha_fixed_emb,
         )
 
         self._ams_multi_update([self.trackers[index] for index in matched[:, 1]], dets[matched[:, 0]])
@@ -363,7 +366,9 @@ class OccluBoost(BoostTrack):
                     adaptive_kf=self.kalman_config.adaptive_kf,
                     id_allocator=self.id_allocator,
                     noise_config=self.kalman_noise_config,
-                kalman_type=self.kalman_config.type,
+                    kalman_type=self.kalman_config.type,
+                    track_confidence_decay=self.config.track_confidence_decay,
+                    track_confidence_warmup=self.config.track_confidence_warmup,
                 )
                 # Tentative until confirmed; high-conf detections skip the
                 # confirmation period so first-frame appearances still emit.
@@ -698,6 +703,7 @@ class OccluBoost(BoostTrack):
                 alpha_emb = confidence_aware_alpha(
                     self.detection_layout.confidences(dets)[m[0] : m[0] + 1],
                     self.det_thresh,
+                    base_alpha=self.alpha_fixed_emb,
                 )[0]
                 self.trackers[m[1]].update_emb(dets_embs[m[0]], alpha=float(alpha_emb))
             self._maybe_activate(self.trackers[m[1]])
@@ -818,7 +824,9 @@ class OccluBoost(BoostTrack):
                     adaptive_kf=self.kalman_config.adaptive_kf,
                     id_allocator=self.id_allocator,
                     noise_config=self.kalman_noise_config,
-                kalman_type=self.kalman_config.type,
+                    kalman_type=self.kalman_config.type,
+                    track_confidence_decay=self.config.track_confidence_decay,
+                    track_confidence_warmup=self.config.track_confidence_warmup,
                 )
                 new_trk.is_activated = bool(det_conf >= self.instant_confirm_thresh or self.confirm_hits <= 1)
                 self.trackers.append(new_trk)

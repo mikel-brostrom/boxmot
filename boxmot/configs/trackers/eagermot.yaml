@@ -1,7 +1,4 @@
 # Search metadata for the upstream KITTI car settings in EagerMotConfig.
-# Unused inherited distance setting; EagerMOT image association is IoU-only.
-centroid_max_distance: {}
-
 det_thresh:
   type: uniform
   range: [0.0, 0.99]
@@ -14,9 +11,6 @@ det_thresh_3d:
 max_age:
   type: randint
   range: [1, 11]
-
-# Stored image-box history is only used for display.
-max_obs: {}
 
 min_hits:
   type: randint
@@ -33,10 +27,6 @@ fusion_iou_threshold:
 iou_threshold:
   type: uniform
   range: [0.01, 0.7]
-
-asso_func:
-  type: choice
-  options: [iou]
 
 first_matching_method:
   type: choice

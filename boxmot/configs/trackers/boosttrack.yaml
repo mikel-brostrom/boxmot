@@ -2,9 +2,6 @@ max_age:
   type: randint
   range: [15, 90]
 
-# Display history capacity; runtime expands it beyond max_age when needed.
-max_obs: {}
-
 min_hits:
   type: randint
   range: [1, 5]
@@ -60,41 +57,87 @@ lambda_shape:
   type: uniform
   range: [0.5, 2.0]
 
+# Confidence assigned to young tracks and tracks missing recent detections.
+track_confidence_decay:
+  type: uniform
+  range: [0.7, 0.99]
+
+track_confidence_warmup:
+  type: randint
+  range: [1, 15]
+
 use_dlo_boost:
   type: choice
   options: [False, True]
+  activates:
+    dlo_boost_coef:
+      type: uniform
+      range: [0.3, 2.0]
+    use_rich_s:
+      type: choice
+      options: [False, True]
+    use_sb:
+      type: choice
+      options: [False, True]
+      activates:
+        dlo_soft_alpha:
+          type: uniform
+          range: [0.3, 0.9]
+        dlo_soft_power:
+          type: uniform
+          range: [0.5, 3.0]
+    use_vt:
+      type: choice
+      options: [False, True]
+      activates:
+        dlo_threshold_start:
+          type: uniform
+          range: [0.8, 1.0]
+        dlo_threshold_end:
+          type: uniform
+          range: [0.5, 0.8]
 
 use_duo_boost:
   type: choice
   options: [False, True]
-
-dlo_boost_coef:
-  type: uniform
-  range: [0.3, 2.0]
+  activates:
+    duo_mahalanobis_thresh:
+      type: uniform
+      range: [5.0, 25.0]
+    duo_iou_thresh:
+      type: uniform
+      range: [0.1, 0.7]
 
 s_sim_corr:
-  type: choice
-  options: [False, True]
-
-use_rich_s:
-  type: choice
-  options: [False, True]
-
-use_sb:
-  type: choice
-  options: [False, True]
-
-use_vt:
   type: choice
   options: [False, True]
 
 use_embeddings:
   type: choice
   options: [False, True]
+  activates:
+    lambda_emb_multiplier:
+      type: uniform
+      range: [0.1, 8.0]
+    alpha_fixed_emb:
+      type: uniform
+      range: [0.7, 1.0]
+    appearance_thresh:
+      association: [iou, giou, diou, ciou, hmiou]
+      type: uniform
+      range: [0.5, 0.95]
+    appearance_iou_fraction:
+      association: [iou, giou, diou, ciou, hmiou]
+      type: uniform
+      range: [0.1, 1.0]
 
 # Fixed KF mode; select it before calibration.
 
 kalman:
+  # Preserve the tracker-specific filter unless a profile or --select-kf chooses one.
+  type:
+    default: null
+
   adaptive_kf:
     default: False
 

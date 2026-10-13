@@ -43,7 +43,10 @@ class KalmanBoxTracker(SortBoxTrack):
         noise_config: KalmanNoiseConfig | None = None,
         kalman_type: str | None = None,
         confidence: float | None = None,
+        track_confidence_decay: float = 0.9,
+        track_confidence_warmup: int = 7,
     ):
+        """Initialize motion, appearance, and the track's confidence-discount policy."""
         self.is_obb = bool(is_obb)
         self._assign_sort_id(id_allocator=id_allocator, track_id=track_id)
         if self.is_obb:
@@ -72,14 +75,18 @@ class KalmanBoxTracker(SortBoxTrack):
                 confidence=float(self.conf if confidence is None else confidence),
             )
         self.emb = emb
+        self.track_confidence_decay = track_confidence_decay
+        self.track_confidence_warmup = track_confidence_warmup
         self._init_sort_counters(max_obs=max_obs)
         self.history_observations = deque([], maxlen=self.max_obs)
         self._plot_angle = None
         self._append_current_history()
         self._sync_initial_sort_meta()
 
-    def get_confidence(self, coef: float = 0.9) -> float:
-        n = 7
+    def get_confidence(self) -> float:
+        """Discount young and missing tracks using their configured confidence policy."""
+        coef = self.track_confidence_decay
+        n = self.track_confidence_warmup
         if self.age < n:
             return coef ** (n - self.age)
         return coef ** (self.time_since_update - 1)

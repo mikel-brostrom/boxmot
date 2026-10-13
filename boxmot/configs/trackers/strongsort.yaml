@@ -2,18 +2,6 @@ min_conf:
   type: uniform
   range: [0.2, 0.8]
 
-# StrongSORT filters with min_conf; the inherited threshold is unused.
-det_thresh: {}
-
-# Confirmation uses n_init; min_hits only filters shared display output.
-min_hits: {}
-
-# Observation history is for display, not matching or gallery retention.
-max_obs: {}
-
-# Fallback association uses max_iou_dist, not the inherited IoU threshold.
-iou_threshold: {}
-
 ema_alpha:
   type: uniform
   range: [0.7, 0.95]
@@ -50,6 +38,14 @@ mc_lambda:
   type: uniform
   range: [0.90, 0.999]
 
+gating_only_position:
+  type: choice
+  options: [false, true]
+
+geometric_recovery_max_age:
+  type: randint
+  range: [1, 6]
+
 nn_budget:
   type: choice
   # Bound the per-track appearance gallery while varying its memory horizon.
@@ -63,6 +59,10 @@ cmc_min_conf: {}
 # Timing and reference-prior units stay fixed across all tuning trials.
 
 kalman:
+  # Preserve the tracker-specific filter unless a profile or --select-kf chooses one.
+  type:
+    default: null
+
   variable_dt:
     default: false
 

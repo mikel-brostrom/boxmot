@@ -30,6 +30,17 @@ struct Config {
     bool use_embeddings = true;
     std::string cmc_method = "ecc";
     int max_obs = 50;
+    double alpha_fixed_emb = 0.95;
+    double appearance_thresh = 0.75;
+    double appearance_iou_fraction = 0.5;
+    double dlo_soft_alpha = 0.65;
+    double dlo_soft_power = 1.5;
+    double dlo_threshold_start = 0.95;
+    double dlo_threshold_end = 0.8;
+    double duo_mahalanobis_thresh = 13.2767;
+    double duo_iou_thresh = 0.3;
+    double track_confidence_decay = 0.9;
+    int track_confidence_warmup = 7;
 
     // OccluBoost specific
     float recovery_appearance_thresh = 0.4F;

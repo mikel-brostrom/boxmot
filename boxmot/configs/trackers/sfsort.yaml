@@ -1,11 +1,3 @@
-# Shared history/display controls; regional timeouts own track lifetime.
-max_age: {}
-max_obs: {}
-min_hits: {}
-
-# Matching uses match_th_first and match_th_second instead.
-iou_threshold: {}
-
 # Input dimensions are inferred from frames, not optimized against ground truth.
 frame_width: {}
 frame_height: {}
