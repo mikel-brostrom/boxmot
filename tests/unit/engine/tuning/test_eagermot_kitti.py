@@ -273,6 +273,13 @@ def test_each_serial_optuna_trial_forwards_resolved_sequence_parallelism(
         return {name: {"HOTA": 75.0} for name in ("car", "pedestrian", "cls_comb_cls_av")}
 
     monkeypatch.setattr(evaluation, "evaluate_eagermot_kitti", evaluate)
+    create_study = optuna.create_study
+
+    def create_memory_study(**kwargs: Any) -> Any:
+        """Keep real search trials without repeating persistence checks here."""
+        return create_study(**{**kwargs, "storage": None})
+
+    monkeypatch.setattr(optuna, "create_study", create_memory_study)
     optimize = optuna.Study.optimize
     search_workers = []
 
