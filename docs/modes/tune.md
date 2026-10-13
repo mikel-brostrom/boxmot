@@ -63,6 +63,12 @@ and trial JSON metadata to explain which parameters were actually searched:
 | `analysis_categories.png` | Categorical and Boolean choices, their sample counts, and association-function × motion-fusion comparisons. |
 | `analysis_candidates.png` | Top-ten trial metrics and per-sequence HOTA changes against the reference. |
 
+When a sequence CMC policy overrides the base tracker settings, `best.yaml`
+and each trial YAML start with the effective policy and the evaluated sequences
+where compensation was enabled or disabled. The `use_cmc` line is labeled as
+an overridden base value. `summary.md` includes the same effective CMC setup;
+`cmc-policy.yaml` records the decisions as machine-readable data.
+
 Near-best means within **0.2 absolute HOTA points** of the winner. The summary
 compares top-ten and near-best parameter ranges, active counts, and proximity
 to the recorded search bounds. Inactive conditional defaults are excluded;
@@ -75,7 +81,7 @@ recorded defaults; otherwise the reference is labeled as the first completed
 trial. Missing metadata is reported, and diagnostics that require it are
 omitted.
 
-To regenerate the figures and the parameter section of an existing summary,
+To regenerate the figures, parameter diagnostics, and saved CMC annotations,
 run this from the repository root, replacing the directory with your run:
 
 ```bash
@@ -498,6 +504,11 @@ Source images are required for camera analysis. Each candidate is calibrated
 under its camera behavior before held-out scoring. The winning strategy is
 saved in `best.yaml`; evaluation analyzes its own sequences when automatic
 CMC was selected. `--select-cmc` requires `--select-kf`.
+
+For example, `use_cmc: false` with `calibration.cmc_policy: auto` is a base
+setting overridden by automatic decisions for each sequence. The export's
+annotations show the tuning run's decisions; they do not freeze those sequence
+IDs into the policy for new evaluation data.
 
 Resume either selection workflow with `--resume-tune TUNING_DIRECTORY` and
 omit both selection flags. See [Kalman calibration](../guides/kalman-calibration.md)
