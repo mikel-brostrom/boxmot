@@ -40,6 +40,7 @@ def cmc_analysis_settings(options: Mapping[str, Any] | None = None) -> dict[str,
         "target_width": estimator.target_width,
         "resize_before_grayscale": estimator.resize_before_grayscale,
         "feature_params": dict(estimator.feature_params),
+        "feature_refresh_interval": estimator.feature_refresh_interval,
         "lk_params": {
             "winSize": list(estimator.lk_params["winSize"]),
             "maxLevel": estimator.lk_params["maxLevel"],

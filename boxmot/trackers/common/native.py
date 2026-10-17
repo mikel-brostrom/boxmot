@@ -34,6 +34,25 @@ from boxmot.trackers.common.motion.kalman_filters.noise import (
 from boxmot.trackers.common.protocols import TrackerRequirements
 
 ASSOCIATION_FUNCTIONS = frozenset({"centroid", "ciou", "diou", "giou", "hmiou", "iou"})
+NATIVE_FUSION_DEFAULTS = {
+    "motion_fusion": "off",
+    "fuse_iou": False,
+    "fuse_detection_score": False,
+}
+
+
+def validate_native_fusion_options(tracker_name: str, options: Mapping[str, Any]) -> None:
+    """Reject enabled fusion policies absent from the native tracker ABIs."""
+    unsupported = [
+        name for name, disabled in NATIVE_FUSION_DEFAULTS.items()
+        if options.get(name, disabled) != disabled
+    ]
+    if unsupported:
+        raise ValueError(
+            f"Native {tracker_name} does not implement these fusion options: "
+            + ", ".join(unsupported)
+            + ". Use the Python tracker backend to enable them."
+        )
 
 
 class NativeTrackerLibrary(Protocol):
@@ -110,6 +129,7 @@ def load_native_tracker_config(
     config_type = get_tracker_config_class(tracker_name)
     algorithm = config_type.from_mapping({name: resolved[name] for name in config_type.fields() if name in resolved})
     resolved.update(algorithm.to_dict())
+    validate_native_fusion_options(tracker_name, resolved)
     kalman = normalize_kalman_config(resolved, tracker_name=tracker_name, backend="cpp")
     resolved = {key: value for key, value in resolved.items() if not key.startswith("kalman.")}
     if kalman.ams is not None:

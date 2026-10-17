@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from multiprocessing import get_context
 from typing import Generic, Literal, Protocol, TypeVar
 
+from boxmot.utils.processes import guard_parent_lifetime
+
 InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")
 ExecutorKind = Literal["inline", "thread", "process"]
@@ -63,7 +65,11 @@ class PoolStageExecutor(Generic[InputT, OutputT]):
         if kind == "thread":
             self._pool = ThreadPoolExecutor(max_workers=max_workers)
         else:
-            self._pool = ProcessPoolExecutor(max_workers=max_workers, mp_context=get_context("spawn"))
+            self._pool = ProcessPoolExecutor(
+                max_workers=max_workers,
+                mp_context=get_context("spawn"),
+                initializer=guard_parent_lifetime,
+            )
         self._closed = False
 
     def map(self, function: Callable[[InputT], OutputT], items: Iterable[InputT]) -> list[OutputT]:

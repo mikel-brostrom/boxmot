@@ -257,27 +257,34 @@ def validate_tuning_config(tracker_name: str, config: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Flat Ray Tune search space (used by HyperOpt and random backends)
+# Native Ray Tune search space (used by the random backend)
 # ---------------------------------------------------------------------------
 
 
-def yaml_to_tune_space(config: dict, tune) -> dict:
-    """Convert a tracker YAML config into a flat Ray Tune search space dict.
+def yaml_to_tune_space(config: dict, tune: Any) -> dict:
+    """Convert a tracker schema into Ray Tune's native conditional search space.
 
-    The ``activates`` children are treated as regular top-level params.
+    Choice dictionaries contain child distributions only in active branches.
+    Normalize sampled configurations before passing them to the tracker.
     """
     from boxmot.engine.tuning.conditions import branch_parameters, categorical_branch, resolve_fixed_cases
 
     config = resolve_fixed_cases(config)
     controlled = branch_parameters(config)
+    _, activation_children, _ = conditional_yaml_tree(config)
+    flat = flatten_yaml_config(config)
+    activation_children = {
+        name for name in activation_children
+        if isinstance(flat[name], dict) and set(flat[name]) != {"default"}
+    }
 
     def build(schema: dict) -> dict:
         branch = categorical_branch(schema, controlled)
         if branch is None:
-            result = _flat_tune_space(schema, tune)
+            result = _resolved_tune_space(schema, tune)
             result.update({
                 name: entry["default"] for name, entry in flatten_yaml_config(schema).items()
-                if name in controlled and set(entry) == {"default"}
+                if name in controlled | activation_children and set(entry) == {"default"}
             })
             return result
         parent, cases = branch
@@ -286,26 +293,39 @@ def yaml_to_tune_space(config: dict, tune) -> dict:
 
     if any(isinstance(entry, dict) and "depends_on" in entry for entry in flatten_yaml_config(config).values()):
         return build(config)
-    return _flat_tune_space(config, tune)
+    return _resolved_tune_space(config, tune)
 
 
-def _flat_tune_space(config: dict, tune: Any) -> dict:
+def _resolved_tune_space(config: dict, tune: Any) -> dict:
     """Convert a schema whose categorical cases have already been resolved."""
-    flat = flatten_yaml_config(config)
     space = {}
-    for param, details in flat.items():
+    for param, details in expand_yaml_groups(config).items():
         if not isinstance(details, dict):
             LOGGER.warning(
                 f"Skipping malformed config entry '{param}': expected a mapping, got {type(details).__name__}"
             )
             continue
-        if set(details) == {"default"}:
+        children = details.get("activates")
+        if set(details) <= {"default", "activates"}:
+            if isinstance(children, dict) and bool(details.get("default")):
+                space.update(_resolved_tune_space(children, tune))
             continue
         t = details.get("type")
         rng = details.get("range")
         opts = details.get("options") or details.get("values")
 
-        if t == "uniform":
+        if isinstance(children, dict):
+            if t not in {"choice", "grid_search"} or not opts:
+                raise ValueError(f"Random-search conditional parent {param!r} must be categorical.")
+            child_space = _resolved_tune_space(children, tune) if any(bool(value) for value in opts) else {}
+            child_defaults = {
+                name: entry["default"] for name, entry in flatten_yaml_config(children).items()
+                if isinstance(entry, dict) and "default" in entry
+            }
+            space[param] = tune.choice([
+                {param: value, **(child_space if bool(value) else child_defaults)} for value in opts
+            ])
+        elif t == "uniform":
             if not rng or len(rng) < 2:
                 LOGGER.warning(f"Skipping param '{param}': 'uniform' requires a range with 2 values")
                 continue
@@ -357,7 +377,7 @@ def default_tune_config(
 
     By default, children of inactive parents are excluded (Optuna mode).
     Set ``unconditional=True`` to include all defaults regardless of parent
-    state (needed for flat search spaces like HyperOpt/random). Defaults are
+    state when the caller needs an unconditional baseline. Defaults are
     read from the combined tracker YAML; ``defaults`` may override them for a
     selected runtime preset or caller-provided baseline.
     """
@@ -447,7 +467,7 @@ def to_builtin_value(value: Any) -> Any:
 
 
 def unpack_nested_dict(dct: dict[str, Any]) -> dict[str, Any]:
-    """Recursively flatten nested dicts produced by conditional HyperOpt branches."""
+    """Recursively flatten nested dictionaries produced by conditional search branches."""
     out: dict[str, Any] = {}
     for key, value in dct.items():
         if key.startswith(SCOPED_PARAMETER_PREFIX):

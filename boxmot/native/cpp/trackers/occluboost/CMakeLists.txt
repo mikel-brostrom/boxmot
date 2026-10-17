@@ -24,3 +24,13 @@ add_executable(occluboost_cmc_state_probe EXCLUDE_FROM_ALL tests/cmc_state_probe
 target_compile_features(occluboost_cmc_state_probe PRIVATE cxx_std_17)
 target_link_libraries(occluboost_cmc_state_probe PRIVATE occluboost_core)
 boxmot_enable_native_warnings(occluboost_cmc_state_probe)
+
+# Exercise the bounded CMC estimators and resolution-change state resets.
+add_executable(occluboost_cmc_estimator_probe EXCLUDE_FROM_ALL ../../tests/cmc_estimator_probe.cpp)
+target_compile_features(occluboost_cmc_estimator_probe PRIVATE cxx_std_17)
+target_compile_definitions(occluboost_cmc_estimator_probe PRIVATE
+    BOXMOT_CMC_HEADER="occluboost/cmc.hpp"
+    BOXMOT_CMC_NAMESPACE=occluboost
+)
+target_link_libraries(occluboost_cmc_estimator_probe PRIVATE occluboost_core)
+boxmot_enable_native_warnings(occluboost_cmc_estimator_probe)

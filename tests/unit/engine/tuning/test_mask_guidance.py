@@ -15,7 +15,6 @@ from click.testing import CliRunner
 from boxmot.engine.cli import boxmot
 from boxmot.engine.config.trackers import edgetam_checkpoint, resolve_tracker_options
 from boxmot.engine.tuning import tuner
-from boxmot.engine.tuning.backends.hyperopt_backend import yaml_to_hyperopt_space
 from boxmot.engine.tuning.backends.optuna_backend import yaml_to_optuna_define_space
 from boxmot.engine.tuning.mask_guidance import (
     condition_mask_guidance_schema,
@@ -24,10 +23,11 @@ from boxmot.engine.tuning.mask_guidance import (
     record_mask_guidance_tuning,
 )
 from boxmot.engine.tuning.postprocessing import write_trial_yaml
-from boxmot.engine.tuning.search_space import load_yaml_config, normalize_trial_config, yaml_to_tune_space
+from boxmot.engine.tuning.search_space import load_yaml_config, normalize_trial_config
 from boxmot.engine.tuning.trainable import build_tracker_trainable
 from boxmot.trackers.common.config import load_tracker_config
 from boxmot.trackers.common.mask_guidance import MASK_GUIDANCE_OPTIONS
+from tests.unit.configs.test_centroid_tuning import _samples
 from tests.unit.engine.tuning.test_calibrated_tuner import _SuggestionTrial
 
 
@@ -55,23 +55,19 @@ def test_all_search_backends_only_sample_active_guidance_knobs(backend: str, gui
     original = load_yaml_config(args.tracker)
     snapshot = deepcopy(original)
     schema = condition_mask_guidance_schema(original, args, runtime)
-    if backend == "optuna":
-        trial = _SuggestionTrial()
-        yaml_to_optuna_define_space(schema)(trial)
-        sampled = trial.params
-    elif backend == "hyperopt":
-        sampled = yaml_to_hyperopt_space(schema)
-    else:
-        from ray import tune
-
-        sampled = yaml_to_tune_space(schema, tune)
+    # Conditional motion/association selectors nest backend graphs. Inspect
+    # actual normalized trials so nested distributions cannot look absent.
+    samples = list(_samples(schema, backend, count=6))
     assert original == snapshot
-    assert set(MASK_GUIDANCE_OPTIONS).intersection(sampled) == (set(MASK_GUIDANCE_OPTIONS) if guided else set())
-    assert ("asso_func" in sampled) is not guided
+    for sampled in samples:
+        assert set(MASK_GUIDANCE_OPTIONS).intersection(sampled) == (set(MASK_GUIDANCE_OPTIONS) if guided else set())
+        assert ("asso_func" in sampled) is not guided
+        assert "edgetam" not in sampled
+        assert not {"min_coverage", "min_fill", "prompt_overlap", "max_objects"}.intersection(sampled)
     if guided:
         assert schema["asso_func"] == {"default": "iou"}
-    assert "edgetam" not in sampled
-    assert not {"min_coverage", "min_fill", "prompt_overlap", "max_objects"}.intersection(sampled)
+        for option in MASK_GUIDANCE_OPTIONS:
+            assert len({sample[option] for sample in samples}) > 1
 
 
 def test_nested_edgetam_profile_roundtrips_through_saved_best_yaml(tmp_path: Path) -> None:

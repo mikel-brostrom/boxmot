@@ -4,6 +4,11 @@ det_thresh:
   default: 0.7
   range: [0.3, 0.9]
 
+fuse_detection_score:
+  type: choice
+  default: false
+  options: [false, true]
+
 max_age:
   type: randint
   default: 30

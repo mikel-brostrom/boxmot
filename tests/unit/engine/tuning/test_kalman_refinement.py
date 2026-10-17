@@ -44,7 +44,7 @@ def test_grouped_schema_preserves_conditional_children_across_search_backends() 
     assert key in flat and key in parents["enabled"]
     assert children == {key} and mapping == {key: "enabled"}
     ray = SimpleNamespace(choice=lambda choices: choices[0], loguniform=lambda low, high: (low, high))
-    assert yaml_to_tune_space(schema, ray) == {"enabled": True, key: (0.5, 8.0)}
+    assert normalize_trial_config(yaml_to_tune_space(schema, ray)) == {"enabled": True, key: (0.5, 8.0)}
     optuna = pytest.importorskip("optuna")
     trial = optuna.trial.FixedTrial({"enabled": True, key: 3.0})
     yaml_to_optuna_define_space(schema)(trial)
@@ -114,8 +114,8 @@ def test_grouped_ams_remains_conditionally_searchable_with_noise_refinement(enab
     ray = SimpleNamespace(
         choice=lambda choices: choices[0], uniform=lambda low, high: (low, high), randint=lambda low, high: (low, high)
     )
-    ray_space = yaml_to_tune_space(ams_schema, ray)
-    assert ray_space == {parent: enabled, **fields}
+    ray_space = normalize_trial_config(yaml_to_tune_space(ams_schema, ray))
+    assert ray_space == ({parent: True, **fields} if enabled else values)
 
 
 @pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf"), True])

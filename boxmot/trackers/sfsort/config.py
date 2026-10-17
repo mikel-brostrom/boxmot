@@ -23,6 +23,8 @@ class SFSORTConfig(TrackerConfig):
         low_th: Minimum confidence for second-pass detections.
         match_th_second: Maximum geometric cost for the second association
             pass.
+        fuse_detection_score: Weight high-confidence association similarity by
+            detection confidence before applying mask and centroid gates.
         dynamic_tuning: Adjust thresholds using the current detection count.
         cth: Confidence cutoff for detections counted by dynamic tuning.
         high_th_m: Scale for decreasing ``high_th`` during dynamic tuning.
@@ -47,6 +49,7 @@ class SFSORTConfig(TrackerConfig):
     new_track_th: float | None = field(default=0.7, metadata={"ge": 0.0, "le": 1.0, "none_uses_default": True})
     low_th: float | None = field(default=0.1, metadata={"ge": 0.0, "le": 1.0, "none_uses_default": True})
     match_th_second: float | None = field(default=0.3, metadata={"none_uses_default": True})
+    fuse_detection_score: bool = False
     dynamic_tuning: bool = False
     cth: float | None = field(default=0.5, metadata={"ge": 0.0, "le": 1.0, "none_uses_default": True})
     high_th_m: float | None = field(default=0.0, metadata={"ge": 0, "none_uses_default": True})

@@ -143,3 +143,22 @@ def test_existing_profile_is_not_overwritten_even_without_resume_flag(tmp_path: 
         record_search_profile(tmp_path, _args(geometry="obb"), _schema(), {})
 
     assert path.read_bytes() == original
+
+
+def test_boolean_fusion_cases_remain_stable_on_resume(tmp_path: Path) -> None:
+    """Boolean dependency keys serialize consistently without weakening resume checks."""
+    schema = {
+        "use_embeddings": {"type": "choice", "default": True, "options": [False, True]},
+        "fuse_iou": {
+            "type": "choice", "default": False, "options": [False, True],
+            "depends_on": "use_embeddings", "cases": {False: {"default": False}},
+        },
+    }
+    record_search_profile(tmp_path, _args(), schema, {})
+    path = tmp_path / "search-space.json"
+    original = path.read_bytes()
+    record_search_profile(tmp_path, _args(resume_tune=str(tmp_path)), deepcopy(schema), {})
+    assert path.read_bytes() == original
+    schema["fuse_iou"]["cases"] = {True: {"default": False}}
+    with pytest.raises(ValueError, match="does not match"):
+        record_search_profile(tmp_path, _args(resume_tune=str(tmp_path)), schema, {})

@@ -501,9 +501,10 @@ def test_state_rejects_malformed_persisted_records(tmp_path, corruption) -> None
         MaterializationStateStore(plan.state_path).initialize(plan)
 
 
-def test_local_executors_preserve_input_order() -> None:
+@pytest.mark.parametrize("kind", ["thread", "process"])
+def test_local_executors_preserve_input_order(kind: str) -> None:
     assert InlineExecutor().map(lambda value: value * 2, [3, 1, 2]) == [6, 2, 4]
-    executor = create_executor(ExecutorSpec(kind="thread", max_workers=2))
+    executor = create_executor(ExecutorSpec(kind=kind, max_workers=2))
     try:
         assert executor.map(str, [3, 1, 2]) == ["3", "1", "2"]
     finally:

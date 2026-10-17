@@ -232,20 +232,26 @@ jobs:
           test -n "$BUILD_MANIFEST"
           BUILD_PATH=$(dirname "$BUILD_MANIFEST")
 
+          BENCHMARK_PROJECT="$RUNNER_TEMP/boxmot-benchmark/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          BENCHMARK_NAME="${TRACKER}-${TRACKER_BACKEND}"
+          METRICS_FILE="$BENCHMARK_PROJECT/mot17/$BENCHMARK_NAME/metrics.json"
+          rm -f -- "$METRICS_FILE"
           boxmot eval \
             --experiment mot17/ablation-yolox-lmbn.yaml \
             --build "$BUILD_PATH" \
             --data-root "$BOXMOT_BENCHMARK_DATA_ROOT" \
             --tracker "$TRACKER" \
             --tracker-backend "$TRACKER_BACKEND" \
-            --ci \
+            --project "$BENCHMARK_PROJECT" \
+            --name "$BENCHMARK_NAME" \
+            --exist-ok \
             --verbose
 
           python .github/scripts/tracker_benchmark_results.py record \
             --benchmark mot17-aabb \
             --tracker "$TRACKER" \
             --backend "$TRACKER_BACKEND" \
-            --metrics-file "${TRACKER}_output.json" \
+            --metrics-file "$METRICS_FILE" \
             --output "results/mot17-aabb_${TRACKER}_${TRACKER_BACKEND}.json"
 
       - name: Upload result

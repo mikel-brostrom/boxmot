@@ -125,7 +125,7 @@ def test_occluboost_joint_profile_binds_estimator_on_resume_and_eval(monkeypatch
     """Changing the camera estimator also changes the evidence used to fit noise."""
     args, bank = _joint_bank(monkeypatch, tmp_path, tracker="occluboost")
     profile = bank.profiles["xyah"]
-    assert profile["calibration.cmc_sof_target_width"] is None
+    assert profile["calibration.cmc_sof_target_width"] == 192
     assert profile["calibration.cmc_sof_ransac_reproj_threshold"] == 3.0
     with pytest.raises(ValueError, match="Cannot change KF calibration inputs.*sof_"):
         load_calibration_bank(args, tmp_path, overrides=overrides)
@@ -183,6 +183,7 @@ def test_exported_camera_rule_does_not_require_training_sequence_artifacts(monke
     [
         ("cmc_min_conf", 0.9, "mask threshold differs"),
         ("cmc_method", "ecc", "CMC method differs"),
+        ("calibration.cmc_rule", "sof-motion-v3", "supported automatic/off decision rule"),
         ("calibration.cmc_rule", "different-rule", "supported automatic/off decision rule"),
     ],
 )

@@ -265,10 +265,14 @@ automatic SOF before tuning tracker parameters. See
 [Kalman calibration](docs/guides/kalman-calibration.md) for examples and saved
 profile reuse.
 
-Centroid association uses `centroid_max_distance` as its single geometric
-distance limit. Search profiles declare applicable metrics with `association`;
-centroid tuning searches that radius. See
+Centroid association uses `centroid_max_distance` as its distance limit.
+Search profiles declare applicable metrics with `association`; centroid tuning
+searches that radius. Optional Kalman fusion adds a first-pass uncertainty gate. See
 [association settings](docs/config/trackers.md#association-function).
+
+Python tracker tuning also searches applicable motion, confidence, and ReID–IoU
+fusion controls while preserving current runtime defaults. ByteTrack requires
+no ReID features. See [association fusion](docs/config/trackers.md#association-fusion).
 
 For saved KITTI predictions, choose the inputs your tracker needs:
 

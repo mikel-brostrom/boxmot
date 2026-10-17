@@ -88,15 +88,18 @@ def _geometry_candidates(
     ranking_similarity: np.ndarray,
     threshold: float,
     gate_before_assignment: bool = False,
+    cost_conditioner: Callable[[np.ndarray], np.ndarray] | None = None,
 ) -> np.ndarray:
     if min(similarity.shape, default=0) == 0:
         return np.empty((0, 2), dtype=int)
 
     admissible = similarity >= threshold if gate_before_assignment else similarity > threshold
-    if admissible.sum(axis=1).max() == 1 and admissible.sum(axis=0).max() == 1:
+    if cost_conditioner is None and admissible.sum(axis=1).max() == 1 and admissible.sum(axis=0).max() == 1:
         return np.argwhere(admissible)
     costs = -ranking_similarity
-    if gate_before_assignment or not np.isfinite(similarity).all():
+    if cost_conditioner is not None:
+        costs = cost_conditioner(costs)
+    if cost_conditioner is not None or gate_before_assignment or not np.isfinite(similarity).all():
         costs = np.where(similarity >= threshold, costs, np.inf)
     return solve_assignment(costs)
 
@@ -144,8 +147,9 @@ def associate_hybrid(
     *,
     geometry_conditioner: Callable[[np.ndarray], np.ndarray] | None = None,
     gate_before_assignment: bool = False,
+    cost_conditioner: Callable[[np.ndarray], np.ndarray] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Associate HybridSORT detections using geometry, motion, and confidence consistency."""
+    """Associate geometry, motion and confidence, optionally conditioning the final cost."""
     if len(tracks) == 0:
         return (
             np.empty((0, 2), dtype=int),
@@ -166,7 +170,9 @@ def associate_hybrid(
         )
         - confidence_difference(detections, tracks, track_confidence_column=4)
     )
-    candidates = _geometry_candidates(similarity, ranking_similarity, similarity_threshold, gate_before_assignment)
+    candidates = _geometry_candidates(
+        similarity, ranking_similarity, similarity_threshold, gate_before_assignment, cost_conditioner
+    )
     return _partition_matches(
         candidates,
         lambda detection_index, track_index: similarity[detection_index, track_index] >= similarity_threshold,
@@ -193,8 +199,14 @@ def associate_hybrid_with_reid(
     appearance_threshold: float = 0.0,
     geometry_conditioner: Callable[[np.ndarray], np.ndarray] | None = None,
     gate_before_assignment: bool = False,
+    cost_conditioner: Callable[[np.ndarray], np.ndarray] | None = None,
+    ranking_embedding_cost: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Associate HybridSORT detections with geometry, motion, and appearance."""
+    """Associate geometry, motion and appearance while preserving acceptance gates.
+
+    ``ranking_embedding_cost`` changes appearance ranking independently of the
+    original appearance-distance gate. ``cost_conditioner`` runs after all cues.
+    """
     if len(tracks) == 0:
         return (
             np.empty((0, 2), dtype=int),
@@ -210,7 +222,7 @@ def associate_hybrid_with_reid(
         velocity_weight,
     ) - confidence_difference(detections, tracks, track_confidence_column=4)
     assignment_cost = geometry_weight * -(similarity + motion_and_confidence)
-    assignment_cost += embedding_weight * embedding_cost
+    assignment_cost += embedding_weight * (embedding_cost if ranking_embedding_cost is None else ranking_embedding_cost)
     if longterm_embedding_cost is not None:
         assignment_cost += longterm_embedding_weight * longterm_embedding_cost
     if geometry_conditioner is not None:
@@ -222,12 +234,14 @@ def associate_hybrid_with_reid(
     threshold_similarity = similarity if gate_before_assignment else similarity - confidence_difference(
         detections, tracks, track_confidence_column=4
     )
-    if gate_before_assignment or not np.isfinite(similarity).all():
+    if cost_conditioner is not None or gate_before_assignment or not np.isfinite(similarity).all():
         allowed = threshold_similarity >= similarity_threshold
         if correct_with_appearance:
             allowed |= embedding_cost <= appearance_threshold
         allowed &= np.isfinite(similarity)
         assignment_cost = np.where(allowed, assignment_cost, np.inf)
+    if cost_conditioner is not None:
+        assignment_cost = cost_conditioner(assignment_cost)
     candidates = solve_assignment(assignment_cost)
 
     def accepted(detection_index: int, track_index: int) -> bool:

@@ -22,6 +22,20 @@ from boxmot.trackers.common.motion.kalman_filters.noise import DEFAULT_REFERENCE
 from boxmot.trackers.common.registry import TRACKER_DEFINITIONS
 
 
+@pytest.mark.parametrize("configured", [None, "false", "true"])
+def test_ray_environment_defaults_to_process_group_cleanup(monkeypatch, configured) -> None:
+    """Enable descendant cleanup without replacing an explicit runtime choice."""
+    key = "RAY_process_group_cleanup_enabled"
+    if configured is None:
+        monkeypatch.delenv(key, raising=False)
+    else:
+        monkeypatch.setenv(key, configured)
+
+    tuner_module._configure_ray_environment()
+
+    assert os.environ[key] == ("true" if configured is None else configured)
+
+
 def test_ray_setup_under_uv_uses_driver_environment_without_packaging(monkeypatch) -> None:
     """Preimported Ray must not upload cwd or launch workers through uv."""
     ray = pytest.importorskip("ray")
@@ -42,6 +56,7 @@ def test_ray_setup_under_uv_uses_driver_environment_without_packaging(monkeypatc
 
     def initialize(**kwargs):
         assert "runtime_env" not in kwargs
+        assert "_system_config" not in kwargs
         modified = _maybe_modify_runtime_env(kwargs.get("runtime_env"), _skip_env_hook=False)
         captured.update(RuntimeEnv(**(modified or {})))
 
@@ -62,6 +77,7 @@ def test_ray_setup_restores_uv_setting_after_initialization(monkeypatch, uv_enab
 
     def initialize(**kwargs):
         assert constants.RAY_ENABLE_UV_RUN_RUNTIME_ENV is False
+        assert "_system_config" not in kwargs
         if init_fails:
             raise failure
 
@@ -231,6 +247,7 @@ def test_built_in_tracker_yaml_combines_runtime_defaults_and_tuning_metadata():
         "min_conf": 0.1,
         "fuse_first_associate": True,
         "fuse_unconfirmed_associate": True,
+        "motion_fusion": "off",
         "duplicate_distance_thresh": 0.15,
         "track_thresh": 0.6,
         "max_lost_frames": 30,
@@ -291,7 +308,8 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path, v
     captured = {}
     workflow_state = {"stopped": False}
     detail_updates: list[tuple[str | None, object]] = []
-    (tmp_path / "runs" / "ray" / "mot17-mini" / "strongsort_1").mkdir(parents=True)
+    tracker_name = "bytetrack" if backend == "cpp" else "strongsort"
+    (tmp_path / "runs" / "ray" / "mot17-mini" / f"{tracker_name}_1").mkdir(parents=True)
 
     def fake_require_extra(extra: str, *, purpose: str) -> None:
         captured["extra"] = extra
@@ -459,7 +477,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path, v
     args = SimpleNamespace(
         detector=[tmp_path / "yolov8n.pt"],
         reid=[tmp_path / "osnet_x0_25_msmt17.pt"],
-        tracker="strongsort",
+        tracker=tracker_name,
         variable_dt=variable_dt,
         tracker_backend=backend,
         experiment="mot17-mini",
@@ -487,7 +505,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path, v
     assert "restore_path" not in captured
     assert Path(captured["storage_path"]).is_absolute()
     assert Path(captured["storage_path"]) == (tmp_path / "runs" / "ray" / "mot17-mini").resolve()
-    assert captured["run_name"] == "strongsort_2"
+    assert captured["run_name"] == f"{tracker_name}_2"
     assert captured["verbose"] == 0
     assert len(captured["callbacks"]) == 1
     assert captured["ray_init_kwargs"]["include_dashboard"] is False
@@ -1434,4 +1452,4 @@ def test_generate_summary_handles_categorical_choice_params(tmp_path) -> None:
     assert "- **Dataset:** mot17" in rendered
     assert f"- **Build:** {tmp_path / 'builds' / 'abc123'}" in rendered
     assert "**Detector:**" not in rendered
-    assert "| cmc_method | ['sof', 'ecc'] | ecc: 2, sof: 1 | — | categorical |" in rendered
+    assert "| cmc_method | all | ['sof', 'ecc'] | 3/3 | 3/3; ecc: 2, sof: 1 | 1/1; ecc: 1 | 1 observed category |" in rendered

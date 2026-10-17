@@ -7,6 +7,11 @@ high_th:
   default: 0.6
   range: [0.4, 0.9]
 
+fuse_detection_score:
+  type: choice
+  default: false
+  options: [false, true]
+
 match_th_first:
   type: uniform
   default: 0.67

@@ -17,7 +17,9 @@ from boxmot.trackers.common.specs import TrackerSpec
 
 # Version both the sequence gate and the binding to the tracker's resolved SOF
 # settings: fitted noise depends on the estimator's full-resolution warps.
-CMC_ANALYSIS_RULE = "sof-motion-v3"
+# Bounded preprocessing and feature budgets change the camera warps used to fit
+# motion noise. Profiles fitted with earlier SOF defaults must be recalibrated.
+CMC_ANALYSIS_RULE = "sof-motion-v4"
 
 
 class _PolicyLoader(yaml.SafeLoader):

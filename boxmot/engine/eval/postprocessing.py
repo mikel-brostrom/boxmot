@@ -12,6 +12,7 @@ import tempfile
 import time
 from collections.abc import Callable
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+from concurrent.futures.process import BrokenProcessPool
 from contextlib import closing
 from dataclasses import dataclass
 from multiprocessing import get_context
@@ -23,7 +24,9 @@ import numpy as np
 from boxmot.datasets import CachedVisionDataset, DatasetManifest
 from boxmot.engine.config.postprocessing import normalize_postprocessing
 from boxmot.engine.config.runtime import resolve_sequence_workers
+from boxmot.engine.eval.workers import shutdown_sequence_pool
 from boxmot.engine.materialization.builds import validate_build_compatibility
+from boxmot.utils.processes import guard_parent_lifetime
 
 if TYPE_CHECKING:
     from boxmot.engine.eval.replay import ReplayResult
@@ -54,6 +57,7 @@ PostprocessingProgressCallback = Callable[[PostprocessingProgressEvent], None]
 def _initialize_postprocessing_worker(progress_queue: Any | None) -> None:
     """Keep rendering in the parent and avoid waiting for observational events."""
     global _WORKER_PROGRESS_QUEUE
+    guard_parent_lifetime()
     _WORKER_PROGRESS_QUEUE = progress_queue
     if progress_queue is not None:
         progress_queue.cancel_join_thread()
@@ -311,6 +315,7 @@ def _process_parallel(
     futures = {}
     results = []
     failures = []
+    interrupted = True
     try:
         executor = ProcessPoolExecutor(
             max_workers=workers,
@@ -322,6 +327,12 @@ def _process_parallel(
         pending = set(futures)
         while pending:
             done, pending = wait(pending, timeout=0.1, return_when=FIRST_COMPLETED)
+            for future in done:
+                error = future.exception()
+                if isinstance(error, BrokenProcessPool):
+                    # A dead writer can corrupt the queue, including a
+                    # partially written message that blocks get_nowait().
+                    raise error
             _drain_progress(progress_queue, callback, latest)
             for future in done:
                 task = futures[future]
@@ -332,15 +343,22 @@ def _process_parallel(
                     _publish_progress(_terminal_progress(task, latest, exc), callback, latest)
                 else:
                     _publish_progress(_terminal_progress(task, latest), callback, latest)
+        interrupted = False
     finally:
         for future in futures:
             future.cancel()
-        if executor is not None:
-            executor.shutdown(wait=True, cancel_futures=True)
-        _drain_progress(progress_queue, callback, latest)
-        if progress_queue is not None:
-            progress_queue.close()
-            progress_queue.join_thread()
+        try:
+            if executor is not None:
+                shutdown_sequence_pool(executor, interrupted=interrupted)
+        finally:
+            try:
+                # A terminated writer may leave a partial message or queue lock.
+                if not interrupted:
+                    _drain_progress(progress_queue, callback, latest)
+            finally:
+                if progress_queue is not None:
+                    progress_queue.close()
+                    progress_queue.join_thread()
     if failures:
         failures.sort(key=lambda item: item[0].ordinal)
         names = ", ".join(task.source.stem for task, _error in failures)

@@ -148,6 +148,7 @@ def linear_assignment(
     gate_before_assignment: bool = False,
     appearance_thresh: float = 0.75,
     appearance_iou_fraction: float = 0.5,
+    force_assignment: bool = False,
 ):
     """Assign pairs, allowing appearance rescue through its configured geometry gate."""
     if similarity_matrix is None and cost_matrix is None:
@@ -156,14 +157,18 @@ def linear_assignment(
         similarity_matrix = deepcopy(cost_matrix)
     if cost_matrix is None:
         cost_matrix = deepcopy(similarity_matrix)
-    if gate_before_assignment or not np.isfinite(similarity_matrix).all():
+    if force_assignment or gate_before_assignment or not np.isfinite(similarity_matrix).all():
         allowed = similarity_matrix >= threshold
         if emb_cost is not None:
             allowed |= (similarity_matrix >= threshold * appearance_iou_fraction) & (emb_cost >= appearance_thresh)
         cost_matrix = np.where(allowed, cost_matrix, -np.inf)
     # Centroid fusion ranks every radius-eligible pair, including pairs whose
     # appearance contribution makes the combined similarity nonpositive.
-    matched_indices = solve_assignment(-cost_matrix) if gate_before_assignment else match(cost_matrix, threshold)
+    matched_indices = (
+        solve_assignment(-cost_matrix)
+        if gate_before_assignment or force_assignment
+        else match(cost_matrix, threshold)
+    )
     unmatched_detections = []
     for d, _det in enumerate(detections):
         if d not in matched_indices[:, 0]:
@@ -215,6 +220,7 @@ def associate(
     gate_before_assignment: bool = False,
     appearance_thresh: float = 0.75,
     appearance_iou_fraction: float = 0.5,
+    cost_conditioner: Callable[[np.ndarray], np.ndarray] | None = None,
 ):
     """Combine geometry, motion, shape, and weighted appearance before gated matching."""
     if len(trackers) == 0:
@@ -262,6 +268,12 @@ def associate(
         cost_matrix += guided_geometry - geometry_matrix
         geometry_matrix = guided_geometry
 
+    if cost_conditioner is not None:
+        costs = cost_conditioner(1.0 - cost_matrix)
+        cost_matrix = 1.0 - costs
+        # Appearance rescue cannot reopen a forbidden motion edge.
+        geometry_matrix = np.where(np.isfinite(costs), geometry_matrix, -np.inf)
+
     return linear_assignment(
         detections,
         trackers,
@@ -272,4 +284,5 @@ def associate(
         gate_before_assignment=gate_before_assignment,
         appearance_thresh=appearance_thresh,
         appearance_iou_fraction=appearance_iou_fraction,
+        force_assignment=cost_conditioner is not None,
     )

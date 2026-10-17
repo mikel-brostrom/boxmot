@@ -1,3 +1,41 @@
+# Optional first-pass association fusion. Defaults preserve the tracker algorithm.
+motion_fusion:
+  type: choice
+  default: "off"
+  options: ["off", gate, blend]
+
+motion_fusion_lambda:
+  default: 0.98
+  depends_on: motion_fusion
+  cases:
+    blend:
+      type: uniform
+      range: [0.0, 1.0]
+
+motion_fusion_only_position:
+  default: false
+  depends_on: motion_fusion
+  cases:
+    gate:
+      type: choice
+      options: [false, true]
+    blend:
+      type: choice
+      options: [false, true]
+
+fuse_detection_score:
+  type: choice
+  default: false
+  options: [false, true]
+
+fuse_iou:
+  default: false
+  depends_on: use_embeddings
+  cases:
+    true:
+      type: choice
+      options: [false, true]
+
 det_thresh:
   type: uniform
   default: 0.5
@@ -33,7 +71,7 @@ asso_func:
   options: [iou, giou, diou, ciou, hmiou, centroid]
 
 # Maximum centroid displacement as a fraction of the frame diagonal.
-# The sole geometric cutoff for centroid; other geometric thresholds are inactive.
+# Centroid ignores overlap thresholds; optional motion fusion adds its own gate.
 centroid_max_distance:
   association: [centroid]
   type: uniform

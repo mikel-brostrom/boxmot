@@ -1,10 +1,15 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
+from collections.abc import Sequence
+from typing import Any, Literal
+
 import lap
 import numpy as np
 from scipy.spatial.distance import cdist
 
 from boxmot.trackers.common.association.iou import AssociationFunction
+from boxmot.trackers.common.geometry.obb import align_obb_measurements, normalize_angle
+from boxmot.trackers.common.motion.kalman_filters.base import BaseKalmanFilter
 
 """
 Table for the 0.95 quantile of the chi-square distribution with N degrees of
@@ -119,12 +124,160 @@ def embedding_distance(tracks, detections, metric="cosine"):
     return feature_distance(track_features, det_features, metric)
 
 
-def fuse_score(cost_matrix, detections):
-    if cost_matrix.size == 0:
+def fuse_score(cost_matrix: np.ndarray, detections: Sequence[Any] | np.ndarray) -> np.ndarray:
+    """Multiply similarity by detection confidence, preserving forbidden edges.
+
+    ``detections`` is a sequence of objects exposing ``conf`` or a one-dimensional
+    NumPy array of confidences in cost-column order. Inputs are never modified.
+    """
+    costs = np.asarray(cost_matrix)
+    if not costs.size:
+        return costs.copy()
+    confidences = (
+        np.asarray(detections, dtype=float)
+        if isinstance(detections, np.ndarray)
+        else np.asarray([detection.conf for detection in detections], dtype=float)
+    )
+    if confidences.shape != (costs.shape[1],):
+        raise ValueError("Expected one detection confidence per cost-matrix column.")
+    result = np.full(costs.shape, np.inf, dtype=np.result_type(costs.dtype, confidences.dtype))
+    rows, columns = np.nonzero(np.isfinite(costs))
+    result[rows, columns] = 1.0 - (1.0 - costs[rows, columns]) * confidences[columns]
+    return result
+
+
+def fuse_iou(
+    cost_matrix: np.ndarray,
+    tracks: Sequence[Any] | np.ndarray,
+    detections: Sequence[Any] | np.ndarray,
+    *,
+    is_obb: bool = False,
+) -> np.ndarray:
+    """Combine appearance similarity with IoU without changing input costs.
+
+    The cost matrix must contain appearance distances in track-by-detection
+    order. Each collection independently accepts track/detection objects or
+    canonical box rows. Object ``is_obb`` flags also select oriented geometry.
+    """
+    costs = np.asarray(cost_matrix)
+    if not costs.size:
+        return costs.copy()
+    is_obb = is_obb or any(getattr(item, "is_obb", False) for items in (tracks, detections) for item in items)
+    geometry_attr = "xywha" if is_obb else "xyxy"
+    track_boxes = np.asarray([getattr(track, geometry_attr, track) for track in tracks])
+    detection_boxes = np.asarray([getattr(detection, geometry_attr, detection) for detection in detections])
+    geometry_cost = iou_distance(track_boxes, detection_boxes, is_obb=is_obb)
+    if geometry_cost.shape != costs.shape:
+        raise ValueError("Box collections must match the appearance cost-matrix dimensions.")
+    result = np.full(costs.shape, np.inf, dtype=np.result_type(costs.dtype, geometry_cost.dtype))
+    finite = np.isfinite(costs)
+    result[finite] = 1.0 - (1.0 - costs[finite]) * (1.0 - geometry_cost[finite] / 2.0)
+    return result
+
+
+def motion_gating_threshold(track: Any, *, only_position: bool = False) -> float:
+    """Return the 95% chi-square gate for the selected geometric coordinates."""
+    dimensions = 2 if only_position else len(track.motion_model.geometry_measurement_indices)
+    return chi2inv95[dimensions]
+
+
+def motion_gating_distance(
+    track: Any, detection_boxes: np.ndarray, *, only_position: bool = False
+) -> np.ndarray:
+    """Return squared Mahalanobis distances using a track's selected filter.
+
+    Boxes are canonical ``xyxy`` or ``xywha`` rows, without metadata. The
+    projection uses track-local covariance and measurement noise. Detector
+    confidence is excluded from the geometric gate for XYSCR, and equivalent
+    oriented rectangles are aligned before calculating angular residuals.
+    """
+    model = track.motion_model
+    boxes = np.asarray(detection_boxes, dtype=float)
+    dimensions = 5 if model.is_obb else 4
+    if boxes.ndim != 2 or boxes.shape[1] != dimensions:
+        raise ValueError(f"Expected detection boxes with shape (N, {dimensions}).")
+    if not len(boxes):
+        return np.empty(0, dtype=float)
+    kalman = getattr(track, "kalman_filter", None)
+    if kalman is None:
+        kalman = track.kf
+    mean = getattr(track, "mean", None)
+    covariance = getattr(track, "covariance", None)
+    if mean is None or covariance is None:
+        mean, covariance = kalman.x, kalman.P
+    mean = np.asarray(mean).reshape(-1)
+    if model.is_obb:
+        references = np.broadcast_to(model.to_box(mean)[0, :5], boxes.shape)
+        boxes = align_obb_measurements(boxes, references)
+    measurements = model.to_measurements(boxes)
+    projected, uncertainty = model.project(kalman, mean, covariance)
+    residuals = measurements - np.asarray(projected).reshape(-1)
+    if model.is_obb:
+        angle_index = model.angle_measurement_index
+        residuals[:, angle_index] = normalize_angle(residuals[:, angle_index])
+    indices = [0, 1] if only_position else list(model.geometry_measurement_indices)
+    return BaseKalmanFilter._gating_from_residuals(
+        residuals[:, indices], uncertainty[np.ix_(indices, indices)], "maha"
+    )
+
+
+def fuse_motion(
+    cost_matrix: np.ndarray,
+    tracks: Sequence[Any],
+    detection_boxes: np.ndarray,
+    *,
+    only_position: bool = False,
+    lambda_: float = 0.98,
+) -> np.ndarray:
+    """Gate pairs and blend costs with raw squared Mahalanobis distance.
+
+    ``lambda_`` weights the original cost; one performs gating only, and zero
+    uses motion distance alone. Forbidden input edges remain forbidden at both
+    endpoints. The 95% chi-square threshold is applied before blending.
+    """
+    if not np.isfinite(lambda_) or not 0.0 <= lambda_ <= 1.0:
+        raise ValueError("Motion fusion lambda_ must be a finite value in [0, 1].")
+    costs = np.asarray(cost_matrix)
+    boxes = np.asarray(detection_boxes)
+    if costs.ndim != 2 or costs.shape != (len(tracks), len(boxes)):
+        raise ValueError("Tracks and detection boxes must match the cost-matrix dimensions.")
+    result = np.array(costs, dtype=np.result_type(costs.dtype, float), copy=True)
+    if not result.size:
+        return result
+    for row, track in enumerate(tracks):
+        distances = motion_gating_distance(track, boxes, only_position=only_position)
+        eligible = np.isfinite(costs[row]) & np.isfinite(distances)
+        eligible &= distances <= motion_gating_threshold(track, only_position=only_position)
+        result[row, ~eligible] = np.inf
+        result[row, eligible] = lambda_ * costs[row, eligible] + (1.0 - lambda_) * distances[eligible]
+    return result
+
+
+def gate_cost_matrix(
+    cost_matrix: np.ndarray,
+    tracks: Sequence[Any],
+    detection_boxes: np.ndarray,
+    *,
+    only_position: bool = False,
+) -> np.ndarray:
+    """Remove geometrically implausible pairs without rescaling eligible costs."""
+    return fuse_motion(cost_matrix, tracks, detection_boxes, only_position=only_position, lambda_=1.0)
+
+
+def apply_motion_fusion(
+    cost_matrix: np.ndarray,
+    tracks: Sequence[Any],
+    detection_boxes: np.ndarray,
+    *,
+    mode: Literal["off", "gate", "blend"],
+    only_position: bool = False,
+    lambda_: float = 0.98,
+) -> np.ndarray:
+    """Apply the configured association motion policy without changing inputs."""
+    if mode == "off":
         return cost_matrix
-    geometry_similarity = 1 - cost_matrix
-    det_confs = np.array([det.conf for det in detections])
-    det_confs = np.expand_dims(det_confs, axis=0).repeat(cost_matrix.shape[0], axis=0)
-    fuse_sim = geometry_similarity * det_confs
-    fuse_cost = 1 - fuse_sim
-    return fuse_cost
+    if mode == "gate":
+        return gate_cost_matrix(cost_matrix, tracks, detection_boxes, only_position=only_position)
+    if mode == "blend":
+        return fuse_motion(cost_matrix, tracks, detection_boxes, only_position=only_position, lambda_=lambda_)
+    raise ValueError(f"Unknown motion fusion mode: {mode!r}.")

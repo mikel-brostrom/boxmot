@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import re
 import sys
 from pathlib import Path
@@ -45,6 +46,70 @@ def _published_readme(helper, *, native_delta: float = 0.1) -> str:
         (REPO_ROOT / "README.md").read_text(),
         _complete_records(helper, native_delta=native_delta),
     )
+
+
+def test_mot17_extracts_pedestrian_metrics(benchmark_helper):
+    metrics = {"HOTA": 65.0, "MOTA": 77.0, "IDF1": 80.0}
+    payload = {
+        "pedestrian": metrics,
+        "cls_comb_cls_av": {metric: 99.0 for metric in metrics},
+        **{metric: 1.0 for metric in metrics},
+    }
+
+    assert benchmark_helper.extract_metrics(payload, "mot17-aabb") == metrics
+
+
+@pytest.mark.parametrize("payload", [{}, {"HOTA": 65.0, "MOTA": 77.0, "IDF1": 80.0}, {"pedestrian": None}])
+def test_mot17_requires_pedestrian_section(benchmark_helper, payload):
+    with pytest.raises(benchmark_helper.BenchmarkError, match="pedestrian"):
+        benchmark_helper.extract_metrics(payload, "mot17-aabb")
+
+
+@pytest.mark.parametrize("benchmark, section", [("mot17-aabb", "pedestrian"), ("mmot-obb", "cls_comb_cls_av")])
+@pytest.mark.parametrize("missing", ["HOTA", "MOTA", "IDF1"])
+def test_extraction_rejects_missing_metrics(benchmark_helper, benchmark, section, missing):
+    metrics = {metric: 50.0 for metric in benchmark_helper.METRICS if metric != missing}
+
+    with pytest.raises(benchmark_helper.BenchmarkError, match=f"missing metric '{missing}'"):
+        benchmark_helper.extract_metrics({section: metrics}, benchmark)
+
+
+@pytest.mark.parametrize("benchmark, section", [("mot17-aabb", "pedestrian"), ("mmot-obb", "cls_comb_cls_av")])
+@pytest.mark.parametrize("value", [None, True, "65.0", float("nan"), float("inf"), float("-inf")])
+def test_extraction_rejects_invalid_numeric_metrics(benchmark_helper, benchmark, section, value):
+    metrics = {"HOTA": value, "MOTA": 77.0, "IDF1": 80.0}
+
+    with pytest.raises(benchmark_helper.BenchmarkError, match="metric HOTA must be"):
+        benchmark_helper.extract_metrics({section: metrics}, benchmark)
+
+
+@pytest.mark.parametrize("benchmark, section", [("mot17-aabb", "pedestrian"), ("mmot-obb", "cls_comb_cls_av")])
+def test_record_reads_canonical_class_metrics(benchmark_helper, tmp_path, benchmark, section):
+    metrics = {"HOTA": 65.0, "MOTA": 77.0, "IDF1": 80.0}
+    metrics_path = tmp_path / "metrics.json"
+    metrics_path.write_text(json.dumps({section: metrics}))
+    output_path = tmp_path / "results" / "record.json"
+
+    benchmark_helper.write_record(
+        benchmark=benchmark, tracker="bytetrack", backend="python", metrics_path=metrics_path, output_path=output_path
+    )
+
+    assert benchmark_helper.load_records(output_path.parent) == {(benchmark, "bytetrack", "python"): metrics}
+
+
+def test_record_fails_when_evaluator_did_not_write_metrics(benchmark_helper, tmp_path):
+    output_path = tmp_path / "record.json"
+
+    with pytest.raises(benchmark_helper.BenchmarkError, match="evaluator did not create.*metrics.json"):
+        benchmark_helper.write_record(
+            benchmark="mot17-aabb",
+            tracker="bytetrack",
+            backend="python",
+            metrics_path=tmp_path / "metrics.json",
+            output_path=output_path,
+        )
+
+    assert not output_path.exists()
 
 
 def test_mmot_extracts_class_average_cls(benchmark_helper):
@@ -205,3 +270,22 @@ def test_workflow_has_download_free_published_readme_gate():
     step_texts = [f"{step.get('uses', '')}\n{step.get('run', '')}" for step in job["steps"]]
     assert any("tracker_benchmark_results.py verify-readme" in step_text for step_text in step_texts)
     assert all("download" not in step_text.lower() for step_text in step_texts)
+
+
+def test_workflow_records_canonical_evaluation_metrics():
+    workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/benchmark.yml").read_text())
+    steps = workflow["jobs"]["mot-metrics-benchmark"]["steps"]
+    evaluate = next(step["run"] for step in steps if step.get("name") == "Evaluate tracker metrics")
+    dataset = yaml.safe_load((REPO_ROOT / "boxmot/configs/datasets/mot17.yaml").read_text())
+
+    assert dataset["id"] == "mot17"
+    assert 'BENCHMARK_PROJECT="$RUNNER_TEMP/boxmot-benchmark/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"' in evaluate
+    assert 'BENCHMARK_NAME="${TRACKER}-${TRACKER_BACKEND}"' in evaluate
+    assert 'METRICS_FILE="$BENCHMARK_PROJECT/mot17/$BENCHMARK_NAME/metrics.json"' in evaluate
+    assert evaluate.index('rm -f -- "$METRICS_FILE"') < evaluate.index("boxmot eval")
+    assert '--project "$BENCHMARK_PROJECT"' in evaluate
+    assert '--name "$BENCHMARK_NAME"' in evaluate
+    assert "--exist-ok" in evaluate
+    assert '--metrics-file "$METRICS_FILE"' in evaluate
+    assert "--ci" not in evaluate
+    assert "_output.json" not in evaluate

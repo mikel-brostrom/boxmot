@@ -67,12 +67,15 @@ def associate(
     is_obb=False,
     similarity_conditioner: Callable[[np.ndarray], np.ndarray] | None = None,
     gate_before_assignment: bool = False,
+    cost_conditioner: Callable[[np.ndarray], np.ndarray] | None = None,
 ):
     """Match geometry and motion, optionally conditioning geometric similarity.
 
     Conditioning precedes the unique-match fast path and affects both ranking
     and final geometric acceptance. Appearance gating still uses the original
     geometry so guidance does not change how motion or embeddings are weighted.
+    A final cost conditioner receives detection-by-track negative similarities
+    after all ranking cues and disables the unique-pair shortcut.
     """
     if len(trackers) == 0:
         return AssociationResult(
@@ -118,7 +121,7 @@ def associate(
             else similarity_matrix > similarity_threshold
         )
         a = admissible.astype(np.int32)
-        if a.sum(1).max() == 1 and a.sum(0).max() == 1:
+        if cost_conditioner is None and a.sum(1).max() == 1 and a.sum(0).max() == 1:
             matched_indices = np.stack(np.where(a), axis=1)
         else:
             if emb_cost is None:
@@ -131,7 +134,9 @@ def associate(
                     emb_cost *= w_assoc_emb
 
             final_cost = -(similarity_matrix + angle_diff_cost + emb_cost)
-            if gate_before_assignment or not np.isfinite(similarity_matrix).all():
+            if cost_conditioner is not None:
+                final_cost = cost_conditioner(final_cost)
+            if cost_conditioner is not None or gate_before_assignment or not np.isfinite(similarity_matrix).all():
                 final_cost = np.where(similarity_matrix >= similarity_threshold, final_cost, np.inf)
             matched_indices = solve_assignment(final_cost)
             if matched_indices.size == 0:

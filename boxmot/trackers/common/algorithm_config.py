@@ -45,9 +45,9 @@ class TrackerConfig:
         iou_threshold: Association threshold for overlap similarities. Ignored
             by centroid association, which uses its full configured radius.
         asso_func: Canonical geometry similarity used during association.
-        centroid_max_distance: Sole geometric cutoff for centroid association,
-            as a fraction of the image diagonal. Other geometric stage
-            thresholds are inactive in this mode.
+        centroid_max_distance: Centroid distance limit as a fraction of the
+            image diagonal. Overlap thresholds are inactive in this mode;
+            optional Kalman fusion adds an independent uncertainty gate.
 
     Each concrete schema owns its defaults. YAML presets and serialized specs
     supply overrides through ``from_mapping`` rather than defining defaults.

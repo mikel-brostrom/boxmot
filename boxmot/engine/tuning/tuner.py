@@ -31,12 +31,16 @@ def _configure_ray_environment() -> None:
     os.environ.setdefault("RAY_CHDIR_TO_TRIAL_DIR", "0")
     os.environ.setdefault("RAY_DEDUP_LOGS", "1")
     os.environ.setdefault("RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO", "0")
+    # OOM termination bypasses actor cleanup. Enable Raylet's descendant
+    # cleanup for new runtimes without reconfiguring caller-owned clusters.
+    os.environ.setdefault("RAY_process_group_cleanup_enabled", "true")
 
 
 from boxmot.engine.config.runtime import resolve_sequence_workers
 from boxmot.engine.config.trackers import edgetam_checkpoint, resolve_tracker_options
 from boxmot.engine.eval.results import SUMMARY_COLUMNS, ValidationResult
 from boxmot.engine.tuning.backends import build_search_backend, resolve_search_backend
+from boxmot.engine.tuning.fusion import condition_fusion_schema, validate_fusion_tuning
 from boxmot.engine.tuning.kalman_refinement import (
     condition_kalman_type_schema,
     is_kalman_option,
@@ -228,7 +232,8 @@ class Tuner:
         args.maximize = tuple(self._maximize)
         args.minimize = tuple(self._minimize)
 
-    def _setup_ray(self):
+    def _setup_ray(self) -> None:
+        """Initialize tuning with cleanup for subprocesses owned by Ray actors."""
         _configure_ray_environment()
         import ray
 
@@ -274,6 +279,9 @@ class Tuner:
             args.tracker, getattr(args, "tracker_config", None), baseline_overlay, include_defaults=False
         )
         runtime_config = resolve_tracker_options(args, baseline_overlay, include_defaults=True, stamp_timing=True)
+        validate_fusion_tuning(
+            args.tracker, runtime_config, backend=getattr(args, "tracker_backend", "python") or "python"
+        )
         runtime_config = prepare_mask_guidance_tuning(args, runtime_config, overrides=baseline_overlay)
         if runtime_config.get("per_class"):
             args.per_class = True
@@ -358,6 +366,9 @@ class Tuner:
                 )
                 runtime_config = prepare_mask_guidance_tuning(args, runtime_config, overrides=baseline_overlay)
                 yaml_cfg = condition_mask_guidance_schema(yaml_cfg, args, runtime_config)
+                yaml_cfg = condition_fusion_schema(
+                    yaml_cfg, backend=getattr(args, "tracker_backend", "python") or "python"
+                )
                 if "asso_func" in authored_options and getattr(args, "asso_func", None) is None:
                     yaml_cfg["asso_func"] = {"default": authored_options["asso_func"]}
                 yaml_cfg = condition_tracker_schema(
@@ -734,30 +745,76 @@ class Tuner:
             run_config=RunConfig(**run_config_kwargs),
         )
 
-    def _inject_callback_into_restored(self, tuner, tune_callback, pipeline, tune_dir):
-        completed = 0
+    def _inject_callback_into_restored(
+        self, tuner: Any, tune_callback: TuneWorkflowCallback, pipeline: Any, tune_dir: Path
+    ) -> None:
+        """Restore trial identities and completed metrics before resuming the live display."""
         try:
-            from ray.tune import ExperimentAnalysis
-
-            df = ExperimentAnalysis(str(tune_dir)).dataframe()
-            completed = len(df)
-        except Exception:
-            pass
-        if completed == 0:
+            result_grid = tuner.get_results()
+            results = list(result_grid)
+        except Exception as exc:
+            LOGGER.debug(f"Could not restore tuning progress metrics: {exc}")
+            results = []
+        completed = 0
+        if results:
+            successful = []
+            analysis = getattr(result_grid, "_experiment_analysis", None)
+            saved_trials = {str(trial.trial_id): trial for trial in getattr(analysis, "trials", ())}
+            # Ray checkpoint order is arbitrary. Its generated experiment
+            # tags retain submission counters, including for pending trials.
+            # BasicVariantGenerator starts at zero; SearchGenerator at one.
+            index_offset = int(resolve_search_backend(self.args) == "random")
+            for result in results:
+                metrics = result.metrics or {}
+                trial_id = str(metrics.get("trial_id") or Path(result.path).name.removeprefix("trial_"))
+                saved_trial = saved_trials.get(trial_id)
+                tag = getattr(saved_trial, "experiment_tag", metrics.get("experiment_tag", ""))
+                counter = str(tag).partition("_")[0]
+                index = int(counter) + index_offset if counter.isdecimal() else None
+                if index is not None and index > 0:
+                    tune_callback.trial_indices[trial_id] = index
+                # Restored errors are retried; interrupted evaluations also
+                # restart from frame zero and have no completed observation.
+                if not result.error and metrics.get("done") is True:
+                    completed += 1
+                    if index is not None and index > 0:
+                        finished_at = getattr(
+                            getattr(saved_trial, "run_metadata", None),
+                            "last_result_time",
+                            metrics.get("timestamp", 0) or 0,
+                        )
+                        successful.append((finished_at, index, metrics))
+            for _finished_at, index, metrics in sorted(successful, key=lambda item: item[0]):
+                tune_callback.record_result(metrics, trial_index=index)
+            # Reserve unknown stored trials too, without misidentifying a
+            # later result as the original first-trial baseline.
+            highest_index = max(tune_callback.trial_indices.values(), default=0)
+            tune_callback._trial_index_offset = max(len(results), highest_index) - len(tune_callback.trial_indices)
+        else:
             try:
-                completed = sum(
-                    1
-                    for d in tune_dir.iterdir()
-                    if d.is_dir() and d.name.startswith("trial_") and (d / "result.json").exists()
-                )
+                from ray.tune import ExperimentAnalysis
+
+                completed = len(ExperimentAnalysis(str(tune_dir)).dataframe())
             except Exception:
                 pass
+            if completed == 0:
+                try:
+                    completed = sum(
+                        1
+                        for d in tune_dir.iterdir()
+                        if d.is_dir() and d.name.startswith("trial_") and (d / "result.json").exists()
+                    )
+                except Exception:
+                    pass
+            tune_callback._trial_index_offset = completed
         tune_callback.completed = completed
-        tune_callback._trial_index_offset = completed
         tuner._local_tuner._run_config.callbacks = [tune_callback]
         tuner._local_tuner._run_config.verbose = 0
         tuner._local_tuner._run_config.progress_reporter = TuneSilentReporter()
-        tune_callback.set_workflow_detail_renderable(format_tune_progress(completed, int(self.args.n_trials)))
+        if results:
+            tune_callback._set_progress()
+        else:
+            tune_callback.set_workflow_detail_renderable(format_tune_progress(completed, int(self.args.n_trials)))
 
     def _execute_tuner(self, tuner):
         result_grid = None
@@ -1250,7 +1307,12 @@ def _run_eagermot_tuning(args: Any, *, pipeline: Any | None = None) -> TuneResul
                 len(complete) + failed,
                 args.n_trials,
                 complete[-1].summary if complete else None,
+                first_summary=complete[0].summary if complete else None,
                 best_summary=best.summary if best else None,
+                best_trial=best.index if best else None,
+                last_trial=complete[-1].index if complete else None,
+                maximize=["HOTA"],
+                minimize=[],
                 current_trial=current_trial,
                 remaining_seconds=estimate_tune_remaining(durations, args.n_trials - len(complete)),
                 failed=failed,
