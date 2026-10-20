@@ -1,6 +1,8 @@
 """Optuna search backend with conditional define-by-run search space."""
+
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from boxmot.engine.tuning.backends.base import BaseTuneBackend
@@ -84,69 +86,105 @@ class _OptunaDefineSpace:
                 self._suggest_children(trial, param)
 
 
+class _OptunaCase:
+    """Prepare each visited conditional path once, without expanding the whole tree."""
+
+    def __init__(self, schema: dict, controlled: set[str], dependent: set[str]) -> None:
+        self.flat = flatten_yaml_config(schema)
+        self.labels = {
+            name: scoped_parameter_name(name, entry) if name in dependent else name for name, entry in self.flat.items()
+        }
+        self.branch = categorical_branch(schema, controlled)
+        self.controlled = controlled
+        self.dependent = dependent
+        self.children: dict[tuple[type, Any], _OptunaCase] = {}
+        self.space = None
+        self.constants = {}
+        if self.branch is None:
+            parents, children, _ = conditional_yaml_tree(schema)
+            self.space = _OptunaDefineSpace(self.flat, parents, children)
+            self.constants = {
+                name: entry["default"]
+                for name, entry in self.flat.items()
+                if name in controlled and set(entry) == {"default"}
+            }
+
+    def child(self, value: Any) -> _OptunaCase:
+        """Keep boolean and numeric selectors distinct, as in authored cases."""
+        key = (type(value), value)
+        if key not in self.children:
+            parent, cases = self.branch
+            schema = next(case for option, case in cases if type(option) is type(value) and option == value)
+            self.children[key] = _OptunaCase(schema, self.controlled | {parent}, self.dependent)
+        return self.children[key]
+
+
 class _CaseOptunaSpace:
     """Select cases before suggesting their active, independently named distributions."""
 
     def __init__(self, schema: dict) -> None:
         self.schema = schema
-        self.controlled = branch_parameters(schema)
-        self.dependent = {name for name, entry in flatten_yaml_config(schema).items() if "depends_on" in entry}
+        dependent = {name for name, entry in flatten_yaml_config(schema).items() if "depends_on" in entry}
+        self.root = _OptunaCase(schema, branch_parameters(schema), dependent)
+
+    def __getstate__(self) -> dict:
+        """Keep derived case trees out of optimizer checkpoints."""
+        return {"schema": self.schema}
+
+    def __setstate__(self, state: dict) -> None:
+        """Prepare a fresh lazy cache from the checkpoint's authoritative schema."""
+        self.__init__(state["schema"])
+
+    def _select_leaf(self, select: Callable[[str, dict, str], Any]) -> _OptunaCase:
+        """Share the prepared case traversal between baseline and trial sampling."""
+        node = self.root
+        while node.branch is not None:
+            parent, _ = node.branch
+            node = node.child(select(parent, node.flat[parent], node.labels[parent]))
+        return node
 
     def baseline(self, values: dict) -> dict:
         """Translate a baseline into the optimizer labels used by its selected cases."""
-        schema = self.schema
         selectors = {}
-        while (branch := categorical_branch(schema, self.controlled)) is not None:
-            parent, cases = branch
-            entry = flatten_yaml_config(schema)[parent]
-            value = values.get(parent, entry["default"])
-            label = scoped_parameter_name(parent, entry) if parent in self.dependent else parent
-            selectors[label] = value
-            schema = next(case for option, case in cases if type(option) is type(value) and option == value)
-        flat = flatten_yaml_config(schema)
+
+        def select(name: str, entry: dict, label: str) -> Any:
+            selectors[label] = values.get(name, entry["default"])
+            return selectors[label]
+
+        leaf = self._select_leaf(select)
         distributions = {
-            scoped_parameter_name(name, flat[name]) if name in self.dependent else name: value
-            for name, value in values.items() if name in flat and _is_suggestable(flat[name])
+            leaf.labels[name]: value
+            for name, value in values.items()
+            if name in leaf.flat and _is_suggestable(leaf.flat[name])
         }
         return {**selectors, **distributions}
 
     def __call__(self, trial) -> dict:
-        outer = self
+        selectors = {}
+
+        def select(name: str, entry: dict, label: str) -> Any:
+            selectors[name] = _suggest_param(trial, label, entry)
+            return selectors[name]
+
+        leaf = self._select_leaf(select)
 
         class CanonicalTrial:
             """Hide scoped optimizer labels from the recorded tracker configuration."""
 
             def __init__(self) -> None:
-                self.params: dict[str, Any] = {}
-                self.details: dict[str, dict] = {}
+                self.params: dict[str, Any] = selectors
 
             def __getattr__(self, method: str):
                 def suggest(name: str, *args, **kwargs):
-                    label = scoped_parameter_name(name, self.details[name]) if name in outer.dependent else name
-                    value = getattr(trial, method)(label, *args, **kwargs)
+                    value = getattr(trial, method)(leaf.labels[name], *args, **kwargs)
                     self.params[name] = value
                     return value
 
                 return suggest
 
         canonical = CanonicalTrial()
-        schema = self.schema
-        controlled = set(self.controlled)
-        while (branch := categorical_branch(schema, controlled)) is not None:
-            parent, cases = branch
-            controlled.add(parent)
-            canonical.details = flatten_yaml_config(schema)
-            value = _suggest_param(canonical, parent, canonical.details[parent])
-            schema = next(case for option, case in cases if type(option) is type(value) and option == value)
-        flat = flatten_yaml_config(schema)
-        parents, children, _ = conditional_yaml_tree(schema)
-        canonical.details = flat
-        _OptunaDefineSpace(flat, parents, children)(canonical)
-        constants = {
-            name: entry["default"] for name, entry in flat.items()
-            if name in controlled and set(entry) == {"default"}
-        }
-        return {**canonical.params, **constants}
+        leaf.space(canonical)
+        return {**canonical.params, **leaf.constants}
 
 
 def yaml_to_optuna_define_space(config: dict) -> _OptunaDefineSpace | _CaseOptunaSpace:
@@ -177,10 +215,13 @@ class OptunaBackend(BaseTuneBackend):
         if self.seed is not None:
             kwargs["seed"] = self.seed
 
-        baseline = default_tune_config(
-            self.yaml_cfg,
-            defaults=self.baseline_config,
-        ) or None
+        baseline = (
+            default_tune_config(
+                self.yaml_cfg,
+                defaults=self.baseline_config,
+            )
+            or None
+        )
         space = yaml_to_optuna_define_space(self.yaml_cfg)
         if baseline:
             kwargs["points_to_evaluate"] = [

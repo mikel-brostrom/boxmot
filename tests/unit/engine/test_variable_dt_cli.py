@@ -21,6 +21,7 @@ from boxmot.engine.tuning.search_space import (
     yaml_to_tune_space,
 )
 from boxmot.engine.tuning.tuner import Tuner
+from boxmot.trackers import TrackerSpec
 from boxmot.trackers.common.config import load_tracker_defaults
 from boxmot.trackers.common.motion.kalman_filters.noise import DEFAULT_REFERENCE_DT_S, KALMAN_NOISE_OPTIONS
 
@@ -167,9 +168,13 @@ def test_timing_mode_cannot_be_changed_to_a_search_dimension(parameter):
 def test_saved_runtime_config_and_trial_identity_include_timing(tmp_path):
     args = SimpleNamespace(project=tmp_path, dataset_id="dataset", name="eval", variable_dt=False)
     overrides = {"track_thresh": 0.4}
-    fixed_path = _output_directory(args, overrides)
+    fixed_path = _output_directory(
+        args, TrackerSpec("bytetrack", options=_tracker_options(args, overrides)), trial=True
+    )
     args.variable_dt = True
-    timed_path = _output_directory(args, overrides)
+    timed_path = _output_directory(
+        args, TrackerSpec("bytetrack", options=_tracker_options(args, overrides)), trial=True
+    )
     assert timed_path != fixed_path
     output = tmp_path / "best.yaml"
     write_trial_yaml({}, overrides, output, base_config={"kalman.variable_dt": True, "track_thresh": 0.5})

@@ -10,10 +10,180 @@ import pandas as pd
 import pytest
 
 from boxmot.engine.tuning.postprocessing import (
+    best_trial_data,
+    collect_trial_data,
     generate_summary,
     parameter_concentration_markdown,
     update_analysis_summary,
 )
+
+
+@pytest.mark.parametrize(
+    "counters,expected",
+    [
+        ([0, 1, 2], ["a", "b", "c"]),
+        ([1, 2, 3], ["a", "b", "c"]),
+        ([1, None, 3], ["c", "a", "b"]),
+        ([1, 1, 3], ["c", "a", "b"]),
+    ],
+)
+def test_collected_trials_restore_submission_order_when_metadata_is_unambiguous(
+    tmp_path,
+    counters: list[int | None],
+    expected: list[str],
+) -> None:
+    """Resume must retain CSV and first-trial order without guessing missing tags."""
+
+    class ResultGrid(list):
+        pass
+
+    results = ResultGrid(
+        SimpleNamespace(
+            error=None,
+            metrics={"trial_id": trial_id, "HOTA": 70},
+            config={},
+            path=str(tmp_path / f"trial_{trial_id}"),
+        )
+        for trial_id in ("c", "a", "b")
+    )
+    results._experiment_analysis = SimpleNamespace(
+        trials=[
+            SimpleNamespace(trial_id=trial_id, experiment_tag=f"{counter}_sample")
+            for trial_id, counter in zip(("a", "b", "c"), counters)
+        ]
+    )
+
+    collected = collect_trial_data(results)
+
+    assert [trial["trial_id"] for trial in collected] == expected
+    assert best_trial_data(collected, maximize=["HOTA"], minimize=[])["trial_id"] == expected[0]
+
+
+def test_export_resolves_parameter_evidence_once_for_summary_and_plots(tmp_path, monkeypatch) -> None:
+    """All normal result reports share one conditional parameter analysis."""
+    from boxmot.engine.tuning import analysis, analysis_data, postprocessing
+
+    schema = {"threshold": {"type": "uniform", "default": 0.5, "range": [0, 1]}}
+    (tmp_path / "search-space.json").write_text(json.dumps({"schema": schema}))
+    results = [
+        SimpleNamespace(
+            error=None,
+            path=str(tmp_path / "trial_a"),
+            config={"threshold": 0.5},
+            metrics={"trial_id": "a", "HOTA": 70},
+        )
+    ]
+    calls = []
+    analyze = analysis_data.analyze_parameters
+
+    def record_analysis(*args, **kwargs):
+        samples = analyze(*args, **kwargs)
+        calls.append(samples)
+        return samples
+
+    def render_plots(_directory, *, data, **_kwargs):
+        assert data.parameters is calls[0]
+
+    monkeypatch.setattr(analysis_data, "analyze_parameters", record_analysis)
+    monkeypatch.setattr(analysis, "generate_tune_analysis", render_plots)
+
+    saved = postprocessing.save_all_results(
+        tmp_path,
+        results,
+        schema,
+        "bytetrack",
+        ["HOTA"],
+        [],
+        SimpleNamespace(),
+        emit_logs=False,
+    )
+
+    assert saved is not None and saved["summary_path"].exists()
+    assert len(calls) == 1
+    assert "| threshold |" in saved["summary_path"].read_text()
+
+
+@pytest.mark.parametrize("failure", ["csv", "analysis", "plots"])
+def test_optional_report_failures_preserve_best_config_and_summary(tmp_path, monkeypatch, failure: str) -> None:
+    """Best config and textual results survive unavailable CSV or plot analysis."""
+    from boxmot.engine.tuning import analysis, analysis_data, postprocessing
+
+    schema = {"threshold": {"type": "uniform", "default": 0.5, "range": [0, 1]}}
+    results = [
+        SimpleNamespace(
+            error=None,
+            path=str(tmp_path / "trial_a"),
+            config={"threshold": 0.5},
+            metrics={"trial_id": "a", "HOTA": 70},
+        )
+    ]
+
+    def unavailable(*_args, **_kwargs):
+        if failure == "analysis":
+            assert (tmp_path / "best.yaml").is_file()
+        raise OSError("Unavailable report artifact")
+
+    target, name = {
+        "csv": (postprocessing, "save_results_csv"),
+        "analysis": (analysis_data, "load_tune_analysis"),
+        "plots": (analysis, "generate_tune_analysis"),
+    }[failure]
+    monkeypatch.setattr(target, name, unavailable)
+    saved = postprocessing.save_all_results(
+        tmp_path,
+        results,
+        schema,
+        "bytetrack",
+        ["HOTA"],
+        [],
+        SimpleNamespace(),
+        emit_logs=False,
+    )
+
+    assert saved is not None
+    assert saved["best_yaml_path"].exists()
+    assert "## Best Trial: `a`" in saved["summary_path"].read_text()
+    assert "| threshold |" in saved["summary_path"].read_text()
+
+
+@pytest.mark.parametrize(
+    "maximize,minimize,expected",
+    [
+        (["HOTA"], [], "first"),
+        (["HOTA", "IDF1"], [], "second"),
+        (["HOTA"], ["IDSW"], "second"),
+        ([], ["IDSW"], "third"),
+    ],
+)
+def test_summary_uses_the_exported_winner_for_all_objectives(
+    tmp_path,
+    maximize: list[str],
+    minimize: list[str],
+    expected: str,
+) -> None:
+    """Summary ranking must agree with the saved config, including tied HOTA."""
+    trials = [
+        {"trial_id": "first", "metrics": {"HOTA": 70, "IDF1": 60, "IDSW": 5}, "config": {}},
+        {"trial_id": "second", "metrics": {"HOTA": 70, "IDF1": 80, "IDSW": 4}, "config": {}},
+        {"trial_id": "third", "metrics": {"HOTA": 60, "IDF1": 70, "IDSW": 1}, "config": {}},
+    ]
+
+    path = generate_summary(
+        tmp_path,
+        trials,
+        {},
+        "bytetrack",
+        maximize,
+        minimize,
+        SimpleNamespace(),
+        emit_logs=False,
+    )
+
+    assert best_trial_data(trials, maximize=maximize, minimize=minimize)["trial_id"] == expected
+    assert f"## Best Trial: `{expected}`" in path.read_text()
+    if not maximize:
+        assert "- **Optimize:** minimize IDSW" in path.read_text()
+        assert "## Pareto Front (minimize IDSW)" in path.read_text()
 
 
 def test_summary_excludes_inactive_defaults_from_best_trial_ranges() -> None:
@@ -21,19 +191,24 @@ def test_summary_excludes_inactive_defaults_from_best_trial_ranges() -> None:
     schema = {
         "motion_fusion": {"type": "choice", "default": "off", "options": ["off", "blend"]},
         "motion_fusion_lambda": {
-            "type": "uniform", "default": 0.98, "range": [0, 1],
-            "depends_on": "motion_fusion", "cases": {"off": {"default": 0.98}},
+            "type": "uniform",
+            "default": 0.98,
+            "range": [0, 1],
+            "depends_on": "motion_fusion",
+            "cases": {"off": {"default": 0.98}},
         },
         "fixed": {"default": 7},
     }
-    frame = pd.DataFrame([
-        {"trial_id": str(i), "HOTA": 70 - i / 100, "motion_fusion": "off",
-         "motion_fusion_lambda": 0.98, "fixed": 7}
-        for i in range(12)
-    ] + [
-        {"trial_id": "blend_a", "HOTA": 65, "motion_fusion": "blend", "motion_fusion_lambda": 0.2},
-        {"trial_id": "blend_b", "HOTA": 64, "motion_fusion": "blend", "motion_fusion_lambda": 0.8},
-    ])
+    frame = pd.DataFrame(
+        [
+            {"trial_id": str(i), "HOTA": 70 - i / 100, "motion_fusion": "off", "motion_fusion_lambda": 0.98, "fixed": 7}
+            for i in range(12)
+        ]
+        + [
+            {"trial_id": "blend_a", "HOTA": 65, "motion_fusion": "blend", "motion_fusion_lambda": 0.2},
+            {"trial_id": "blend_b", "HOTA": 64, "motion_fusion": "blend", "motion_fusion_lambda": 0.8},
+        ]
+    )
 
     rendered = parameter_concentration_markdown(frame, schema)
 
@@ -51,16 +226,20 @@ def test_summary_reports_separate_conditional_search_domains() -> None:
     schema = {
         "asso_func": {"type": "choice", "default": "iou", "options": ["iou", "diou", "centroid"]},
         "match_thresh": {
-            "type": "uniform", "default": 0.9, "range": [0.7, 0.9],
+            "type": "uniform",
+            "default": 0.9,
+            "range": [0.7, 0.9],
             "depends_on": "asso_func",
             "cases": {"diou": {"range": [0.4, 0.85]}, "centroid": {"default": 0.9}},
         },
     }
-    frame = pd.DataFrame([
-        {"trial_id": "a", "HOTA": 70, "asso_func": "iou", "match_thresh": 0.8},
-        {"trial_id": "b", "HOTA": 69.9, "asso_func": "diou", "match_thresh": 0.45},
-        {"trial_id": "c", "HOTA": 69.8, "asso_func": "centroid", "match_thresh": 0.9},
-    ])
+    frame = pd.DataFrame(
+        [
+            {"trial_id": "a", "HOTA": 70, "asso_func": "iou", "match_thresh": 0.8},
+            {"trial_id": "b", "HOTA": 69.9, "asso_func": "diou", "match_thresh": 0.45},
+            {"trial_id": "c", "HOTA": 69.8, "asso_func": "centroid", "match_thresh": 0.9},
+        ]
+    )
 
     rendered = parameter_concentration_markdown(frame, schema)
 
@@ -77,13 +256,20 @@ def test_summary_reports_only_options_from_each_active_branch() -> None:
     schema = {
         "mode": {"type": "choice", "default": "off", "options": ["off", "a", "b"]},
         "policy": {
-            "type": "choice", "default": "fast", "options": ["fast", "slow"],
-            "depends_on": "mode", "cases": {"off": {"default": "fast"}, "b": {"options": ["near", "far"]}},
+            "type": "choice",
+            "default": "fast",
+            "options": ["fast", "slow"],
+            "depends_on": "mode",
+            "cases": {"off": {"default": "fast"}, "b": {"options": ["near", "far"]}},
         },
     }
-    frame = pd.DataFrame({
-        "HOTA": [70, 69.9, 69.8], "mode": ["off", "a", "b"], "policy": ["fast", "slow", "near"],
-    })
+    frame = pd.DataFrame(
+        {
+            "HOTA": [70, 69.9, 69.8],
+            "mode": ["off", "a", "b"],
+            "policy": ["fast", "slow", "near"],
+        }
+    )
     rendered = parameter_concentration_markdown(frame, schema)
     rows = [line for line in rendered.splitlines() if line.startswith("| policy |")]
     assert len(rows) == 2
@@ -98,12 +284,14 @@ def test_summary_handles_missing_values_observed_constants_and_sparse_categories
         "threshold": {"type": "uniform", "default": 0.5, "range": [0, 1]},
         "enabled": {"type": "choice", "default": False, "options": [False, True]},
     }
-    frame = pd.DataFrame([
-        {"trial_id": "a", "HOTA": 70, "threshold": 0.05, "enabled": True},
-        {"trial_id": "b", "HOTA": 70, "threshold": 0.05, "enabled": False},
-        {"trial_id": "c", "HOTA": 70, "threshold": np.nan, "enabled": None},
-        {"trial_id": "d", "HOTA": np.nan, "threshold": 0.9, "enabled": False},
-    ])
+    frame = pd.DataFrame(
+        [
+            {"trial_id": "a", "HOTA": 70, "threshold": 0.05, "enabled": True},
+            {"trial_id": "b", "HOTA": 70, "threshold": 0.05, "enabled": False},
+            {"trial_id": "c", "HOTA": 70, "threshold": np.nan, "enabled": None},
+            {"trial_id": "d", "HOTA": np.nan, "threshold": 0.9, "enabled": False},
+        ]
+    )
 
     rendered = parameter_concentration_markdown(frame, schema)
 
@@ -122,7 +310,12 @@ def test_fresh_summary_prefers_recorded_schema(tmp_path) -> None:
     path = generate_summary(
         tmp_path,
         [{"trial_id": "a", "metrics": {"HOTA": 70}, "config": {"threshold": 0.8}}],
-        current_schema, "bytetrack", ["HOTA"], [], SimpleNamespace(), emit_logs=False,
+        current_schema,
+        "bytetrack",
+        ["HOTA"],
+        [],
+        SimpleNamespace(),
+        emit_logs=False,
     )
 
     rendered = path.read_text()
@@ -137,7 +330,11 @@ def test_invalid_recorded_schema_does_not_fall_back_to_current_yaml(tmp_path) ->
         tmp_path,
         [{"trial_id": "a", "metrics": {"HOTA": 70}, "config": {"threshold": 0.8}}],
         {"threshold": {"type": "uniform", "default": 0.8, "range": [0, 1]}},
-        "bytetrack", ["HOTA"], [], SimpleNamespace(), emit_logs=False,
+        "bytetrack",
+        ["HOTA"],
+        [],
+        SimpleNamespace(),
+        emit_logs=False,
     )
 
     assert "Omitted: the recorded search schema is unavailable." in path.read_text()
@@ -148,7 +345,8 @@ def test_regenerated_summary_preserves_provenance_and_other_sections(tmp_path) -
     schema = {"threshold": {"type": "uniform", "default": 0.8, "range": [0.7, 0.9]}}
     (tmp_path / "search-space.json").write_text(json.dumps({"schema": schema}))
     pd.DataFrame([{"trial_id": "a", "HOTA": 70, "threshold": 0.8}]).to_csv(
-        tmp_path / "results.csv", index=False,
+        tmp_path / "results.csv",
+        index=False,
     )
     prefix = "# Original run\n\n- **Date:** 2024-01-01\n- **Build:** immutable\n\n---\n\n"
     suffix = "---\n\n## HOTA Distribution\n\nOriginal statistics.\n"
@@ -183,7 +381,8 @@ def test_summary_handles_absent_hota_scores() -> None:
     """Unavailable scores should produce an omission instead of fake ranges."""
     assert "Omitted: HOTA scores are unavailable." in parameter_concentration_markdown(pd.DataFrame(), {})
     assert "Omitted: no finite HOTA scores" in parameter_concentration_markdown(
-        pd.DataFrame({"HOTA": [np.nan, np.inf]}), {},
+        pd.DataFrame({"HOTA": [np.nan, np.inf]}),
+        {},
     )
 
 
@@ -200,8 +399,11 @@ def test_summary_explains_unresolvable_conditional_schema() -> None:
     """Broken branch metadata should omit diagnostics without crashing export."""
     schema = {
         "threshold": {
-            "type": "uniform", "default": 0.5, "range": [0, 1],
-            "depends_on": "missing_parent", "cases": {"off": {"default": 0.5}},
+            "type": "uniform",
+            "default": 0.5,
+            "range": [0, 1],
+            "depends_on": "missing_parent",
+            "cases": {"off": {"default": 0.5}},
         },
     }
     rendered = parameter_concentration_markdown(pd.DataFrame({"HOTA": [70], "threshold": [0.5]}), schema)
@@ -218,14 +420,19 @@ def test_summary_explains_omitted_incompatible_branch_distributions(searchable_p
     schema = {
         "mode": selector,
         "threshold": {
-            "type": "uniform", "default": 0.5, "range": [0, 1],
-            "depends_on": "mode", "cases": {"log": {"type": "loguniform", "range": [1, 100]}},
+            "type": "uniform",
+            "default": 0.5,
+            "range": [0, 1],
+            "depends_on": "mode",
+            "cases": {"log": {"type": "loguniform", "range": [1, 100]}},
         },
     }
-    frame = pd.DataFrame([
-        {"trial_id": "a", "HOTA": 70, "mode": "linear", "threshold": 0.1},
-        {"trial_id": "b", "HOTA": 69.9, "mode": "log", "threshold": 10},
-    ])
+    frame = pd.DataFrame(
+        [
+            {"trial_id": "a", "HOTA": 70, "mode": "linear", "threshold": 0.1},
+            {"trial_id": "b", "HOTA": 69.9, "mode": "log", "threshold": 10},
+        ]
+    )
 
     rendered = parameter_concentration_markdown(frame, schema)
 

@@ -420,7 +420,15 @@ def test_eval_main_calibrates_then_evaluates_once_with_display(monkeypatch, tmp_
     calls = _fake_replay(monkeypatch)
     monkeypatch.setattr(evaluator, "eval_setup", lambda *args, **kwargs: None)
     args = _args(
-        tmp_path, calibrate_kf=True, project=tmp_path, name="eval", experiment_id="fixture", show=True, save=True
+        tmp_path,
+        calibrate_kf=True,
+        project=tmp_path,
+        name="eval",
+        experiment_id="fixture",
+        show=True,
+        save=True,
+        tracker_class_ids=(1,),
+        tracker_class_names=((1, "person"),),
     )
     result = evaluator.main(args)
     assert len(calls) == 1
