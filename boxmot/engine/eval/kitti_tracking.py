@@ -21,10 +21,10 @@ from boxmot.datasets.readers.boxes2d import read_kitti_tracking_labels_2d
 from boxmot.engine.eval.motmetrics import (
     MetricBundle,
     SequenceData,
+    _build_sequence_data,
     _combine_bundles,
     _combine_bundles_class_averaged,
     _eval_bundle,
-    _relabel_ids,
     _summary_from_bundle,
 )
 from boxmot.engine.eval.trackeval_reference import normalize_kitti_tracking_row
@@ -126,24 +126,12 @@ def _kitti_sequence_data(
     tracker_frames = _index_kitti_rows(prediction_rows, frame_count)
     results: dict[str, SequenceData] = {}
     for class_name in class_names:
-        gt_ids, tracker_ids, similarities = [], [], []
-        for truth, predictions in zip(gt_frames, tracker_frames):
-            gt, tracked, similarity = _preprocess_kitti_frame(truth, predictions, class_name)
-            gt_ids.append(gt)
-            tracker_ids.append(tracked)
-            similarities.append(similarity)
-        gt_ids, gt_count = _relabel_ids(gt_ids)
-        tracker_ids, tracker_count = _relabel_ids(tracker_ids)
-        results[class_name] = SequenceData(
-            seq=sequence_id,
-            gt_ids=gt_ids,
-            tracker_ids=tracker_ids,
-            similarity_scores=similarities,
-            num_timesteps=frame_count,
-            num_gt_dets=sum(map(len, gt_ids)),
-            num_tracker_dets=sum(map(len, tracker_ids)),
-            num_gt_ids=gt_count,
-            num_tracker_ids=tracker_count,
+        results[class_name] = _build_sequence_data(
+            seq_name=sequence_id,
+            frames=(
+                _preprocess_kitti_frame(truth, predictions, class_name)
+                for truth, predictions in zip(gt_frames, tracker_frames)
+            ),
         )
     return results
 

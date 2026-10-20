@@ -236,6 +236,39 @@ def test_evaluator_applies_postprocessing_before_metrics(timestamped_build, tmp_
     assert result.timings["totals_ms"]["total"] > result.timings["totals_ms"]["track"]
 
 
+@pytest.mark.parametrize("setup,validated", [(True, False), (False, False), (False, True)])
+def test_evaluator_does_not_repeat_fresh_postprocessing_validation(
+    timestamped_build, tmp_path, monkeypatch, setup, validated
+) -> None:
+    """Validate once per invocation, including when a caller reuses setup."""
+    replay = _replay(timestamped_build, tmp_path / "results")
+    validations = []
+    validate = postprocessing.validate_postprocessing_inputs
+
+    def validate_inputs(*args, **kwargs):
+        validations.append(kwargs["manifest"])
+        return validate(*args, **kwargs)
+
+    def prepare(args, pipeline=None):
+        """Model setup's manifest validation without needing a dataset catalog."""
+        postprocessing.validate_postprocessing_inputs(
+            args.postprocessing,
+            geometry=args.geometry,
+            manifest=evaluator.DatasetManifest.load(args.build_path),
+        )
+        args._build_validated = True
+
+    monkeypatch.setattr(evaluator, "eval_setup", prepare)
+    monkeypatch.setattr(postprocessing, "validate_postprocessing_inputs", validate_inputs)
+    monkeypatch.setattr(evaluator, "replay_build", lambda *_args, **_kwargs: replay)
+    monkeypatch.setattr(evaluator, "run_motmetrics", lambda *_args, **_kwargs: {"HOTA": 90.0})
+    monkeypatch.setattr(postprocessing, "postprocess_replay", lambda *_args, **_kwargs: 1.0)
+
+    evaluator.run_eval(_args(timestamped_build, _build_validated=validated), setup=setup, output_dir=replay.output_dir)
+
+    assert len(validations) == 1
+
+
 @pytest.mark.parametrize("method", ["gta", "gsi", "gbrc"])
 def test_evaluator_embeds_live_sequence_bars_in_postprocessing_step(
     timestamped_build, tmp_path, monkeypatch, method

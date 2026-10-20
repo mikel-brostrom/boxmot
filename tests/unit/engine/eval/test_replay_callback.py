@@ -168,6 +168,59 @@ def test_callback_preserves_selected_pixels_timestamps_payloads_and_progress(tim
     assert (events[-1].status, events[-1].completed, events[-1].total) == ("completed", 3, 3)
 
 
+def test_injected_replay_streams_only_selected_sequences(timestamped_build, tmp_path, monkeypatch):
+    """Caller-owned replay must not eagerly load payloads from unselected sequences."""
+    tracker = PayloadTracker()
+    opened, events = [], []
+    original_stream = replay.CachedVisionDataset._stream_sequence
+
+    def stream(build, *, sequence_id, **kwargs):
+        opened.append(sequence_id)
+        return original_stream(build, sequence_id=sequence_id, **kwargs)
+
+    monkeypatch.setattr(replay.CachedVisionDataset, "_stream_sequence", stream)
+    monkeypatch.setattr(
+        replay.CachedVisionDataset,
+        "__init__",
+        lambda *args, **kwargs: pytest.fail("replay must use sequence streaming"),
+    )
+    result = replay.replay_build(
+        timestamped_build,
+        TrackerSpec(name="bytetrack"),
+        tracker=tracker,
+        sequence_ids=("b",),
+        sequence_frame_counts={"a": 3, "b": 1},
+        output_dir=tmp_path / "selected",
+        progress_callback=events.append,
+    )
+
+    assert opened == ["b"]
+    assert result.frames == result.track_rows == 1
+    assert [path.name for path in result.sequence_files] == ["b.txt"]
+    assert tracker.resets == 1
+    assert not tracker.closed
+    assert [event.status for event in events] == ["queued", "running", "running", "completed"]
+    assert all(event.sequence_id == "b" and event.ordinal == 0 and event.total == 1 for event in events)
+
+
+def test_injected_replay_rejects_missing_selection_before_tracking(timestamped_build, tmp_path):
+    tracker = PayloadTracker()
+    output = tmp_path / "selected"
+
+    with pytest.raises(ValueError, match="does not contain requested sequence"):
+        replay.replay_build(
+            timestamped_build,
+            TrackerSpec(name="bytetrack"),
+            tracker=tracker,
+            sequence_ids=("missing",),
+            output_dir=output,
+        )
+
+    assert not tracker.timestamps
+    assert not list(output.iterdir())
+    assert not tracker.closed
+
+
 def test_callback_keeps_real_kalman_results_identical(timestamped_build, tmp_path, monkeypatch):
     spec = TrackerSpec(name="bytetrack", options=(("kalman.variable_dt", True),))
     ordinary = replay.replay_build(

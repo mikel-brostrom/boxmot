@@ -729,12 +729,15 @@ def run_eval(
         raise ValueError("Evaluation never materializes implicitly. Run `boxmot materialize ...` and pass --build.")
     if per_class_configs:
         raise ValueError("Per-class tracker configurations are not supported by the canonical TrackerSpec yet.")
+    fresh_setup = setup or not bool(getattr(args, "_build_validated", False))
     if setup:
         eval_setup(args, pipeline=pipeline)
     else:
         _ensure_setup(args)
     postprocessing = normalize_postprocessing(getattr(args, "postprocessing", None))
-    if postprocessing:
+    # Fresh setup already checks these options against its loaded manifest.
+    # Reused setup must validate again because callers can change the options.
+    if postprocessing and not fresh_setup:
         from boxmot.engine.eval.postprocessing import validate_postprocessing_inputs
 
         validate_postprocessing_inputs(
@@ -871,9 +874,7 @@ def run_eval(
     args.exp_dir = replay.output_dir
     with replay_session.metric_execution() if replay_session is not None else nullcontext():
         raw = run_motmetrics(args, verbose=bool(verbose))
-    (replay.output_dir / "metrics.json").write_text(
-        json.dumps(raw, indent=2, allow_nan=False) + "\n", encoding="utf-8"
-    )
+    (replay.output_dir / "metrics.json").write_text(json.dumps(raw, indent=2, allow_nan=False) + "\n", encoding="utf-8")
     summary_label, summary = _summary(raw)
     timings = {
         "frames": replay.frames,

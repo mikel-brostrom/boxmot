@@ -621,6 +621,10 @@ class _SequenceDatasetStream:
     def _iter_samples(self, resources: ExitStack) -> Iterator[DatasetSample]:
         """Join payloads while registering cleanup before the first frame is read."""
 
+        if not self.load_masks and not self.load_embeddings:
+            yield from self._dataset
+            return
+
         masks = resources.enter_context(IndexedMaskReader(self._dataset)) if self.load_masks else None
         embeddings = None
         if self.load_embeddings:

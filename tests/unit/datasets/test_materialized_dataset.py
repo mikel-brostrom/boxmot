@@ -329,6 +329,46 @@ def test_sequence_stream_defers_optional_payload_reads_until_iteration(
     assert sample.detections.embeddings is not None
 
 
+@pytest.mark.parametrize(
+    ("load_masks", "load_embeddings"), [(False, False), (True, False), (False, True), (True, True)]
+)
+@pytest.mark.parametrize("load_images", [False, True])
+def test_sequence_stream_replaces_samples_only_for_payload_enrichment(
+    materialized_build, monkeypatch, load_masks: bool, load_embeddings: bool, load_images: bool
+) -> None:
+    """Skip redundant samples without changing payload joins or tensor ownership."""
+    originals = []
+    original_iter = CachedVisionDataset.__iter__
+
+    def record_samples(dataset):
+        for sample in original_iter(dataset):
+            originals.append(sample)
+            yield sample
+
+    monkeypatch.setattr(CachedVisionDataset, "__iter__", record_samples)
+    dataset = CachedVisionDataset._stream_sequence(
+        materialized_build["root"],
+        sequence_id="seq-a",
+        load_masks=load_masks,
+        load_embeddings=load_embeddings,
+        load_images=load_images,
+    )
+    first = list(dataset)[0]
+
+    assert (first is originals[0]) == (not load_masks and not load_embeddings)
+    assert (first.detections.masks is not None) == load_masks
+    assert (first.detections.embeddings is not None) == load_embeddings
+    assert (first.frame is not None) == load_images
+    torch.testing.assert_close(first.detections.geometry.values, originals[0].detections.geometry.values)
+    assert first.detections.instance_ids == originals[0].detections.instance_ids
+
+    expected_boxes = first.detections.geometry.values.clone()
+    first.detections.geometry.values.add_(100)
+    second = list(dataset)[0]
+    assert second is not first
+    torch.testing.assert_close(second.detections.geometry.values, expected_boxes)
+
+
 def test_sequence_stream_key_joins_independently_reordered_payloads(materialized_build) -> None:
     import pyarrow as pa
     import pyarrow.parquet as pq

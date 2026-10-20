@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -9,7 +8,6 @@ from typing import TYPE_CHECKING, Any
 
 from boxmot.engine.eval.motmetrics import (
     _benchmark_config,
-    _ordered_benchmark_eval_class_names,
     _resolve_eval_box_type,
     _resolve_obb_eval_class_pairs,
 )
@@ -41,59 +39,6 @@ MOT_REPORT_INTEGER_FIELDS = {
     "GT_Dets",
     "IDs",
     "GT_IDs",
-}
-MOT_REPORT_METRIC_SPECS = {
-    "HOTA": (
-        "HOTA:",
-        "HOTA",
-        (
-            "HOTA",
-            "DetA",
-            "AssA",
-            "DetRe",
-            "DetPr",
-            "AssRe",
-            "AssPr",
-            "LocA",
-            "OWTA",
-            "HOTA(0)",
-            "LocA(0)",
-            "HOTALocA(0)",
-        ),
-    ),
-    "CLEAR": (
-        "CLEAR:",
-        "MOTA",
-        (
-            "MOTA",
-            "MOTP",
-            "MODA",
-            "CLR_Re",
-            "CLR_Pr",
-            "MTR",
-            "PTR",
-            "MLR",
-            "sMOTA",
-            "CLR_TP",
-            "CLR_FN",
-            "CLR_FP",
-            "IDSW",
-            "MT",
-            "PT",
-            "ML",
-            "Frag",
-        ),
-    ),
-    "Identity": (
-        "Identity:",
-        "IDF1",
-        ("IDF1", "IDR", "IDP", "IDTP", "IDFN", "IDFP"),
-    ),
-    "Count": (
-        "Count:",
-        "Dets",
-        ("Dets", "GT_Dets", "IDs", "GT_IDs"),
-    ),
 }
 SUMMARY_AGGREGATE_LABELS = {
     "cls_comb_det_av": "Class Avg (Det)",
@@ -251,124 +196,6 @@ class ValidationResult:
                 payload["reference_raw"] = self.reference_raw
                 payload["reference_name"] = self.reference_name
         return payload
-
-
-def _match_header_class_name(raw_name: str, known_classes: list[str] | None = None) -> str:
-    """Resolve a fixed-width metric header suffix to a class name."""
-    if known_classes:
-        exact_matches = [name for name in known_classes if raw_name.endswith(name)]
-        if exact_matches:
-            return max(exact_matches, key=len)
-
-        normalized = raw_name.lower()
-        folded_matches = [name for name in known_classes if normalized.endswith(name.lower())]
-        if folded_matches:
-            return max(folded_matches, key=len)
-
-    if "-" in raw_name:
-        return raw_name.split("-")[-1]
-    return raw_name or "default"
-
-
-def _extract_metric_header_tracker_class(content: str, header_token: str) -> str:
-    """Return the tracker-class prefix without splitting multi-word class names."""
-    content = content.strip()
-    if not content:
-        return ""
-
-    match = re.search(rf"{re.escape(header_token)}(?=\s|$)", content)
-    if match:
-        tracker_class = content[: match.start()].rstrip()
-        if tracker_class:
-            return tracker_class
-
-    tokens = content.split()
-    if not tokens:
-        return ""
-
-    first_word = tokens[0]
-    if len(tokens) > 1 and tokens[1] == header_token:
-        return first_word
-    if first_word.endswith(header_token):
-        return first_word[: -len(header_token)]
-    return first_word
-
-
-def parse_mot_results(results: str, seq_names=None, known_classes: list[str] | None = None) -> dict:
-    """Extract COMBINED and per-sequence fixed-width MOT summary metrics."""
-    parsed_results: dict = {}
-    sorted_names = sorted(seq_names, key=len, reverse=True) if seq_names else None
-    current_class = None
-    current_metric_type = None
-
-    for line in results.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-
-        is_header = False
-        for metric_name, (prefix, header_token, _) in MOT_REPORT_METRIC_SPECS.items():
-            if line.startswith(prefix):
-                is_header = True
-                current_metric_type = metric_name
-                content = line[len(prefix) :].strip()
-                tracker_class = _extract_metric_header_tracker_class(content, header_token)
-                if tracker_class:
-                    current_class = _match_header_class_name(tracker_class, known_classes)
-                    parsed_results.setdefault(current_class, {"per_sequence": {}})
-                break
-
-        if is_header:
-            continue
-        if not current_class or not current_metric_type:
-            continue
-
-        _, _, fields = MOT_REPORT_METRIC_SPECS[current_metric_type]
-        col_name = 35
-        col_val = 10
-
-        def _parse_values(rest: str, name_len: int) -> list[str]:
-            pad = max(0, col_name - name_len)
-            value_part = rest[pad:]
-            chunks = [value_part[i : i + col_val].strip() for i in range(0, len(value_part), col_val)]
-            return [chunk for chunk in chunks if chunk]
-
-        if line.startswith("COMBINED"):
-            row_name = "COMBINED"
-            values = _parse_values(line[len("COMBINED") :], len("COMBINED"))
-        elif sorted_names is not None:
-            row_name = None
-            values = []
-            for name in sorted_names:
-                if line.startswith(name):
-                    row_name = name
-                    values = _parse_values(line[len(name) :], len(name))
-                    break
-            if row_name is None:
-                continue
-        else:
-            if len(line) <= col_name:
-                continue
-            row_name = line[:col_name].strip()
-            if not row_name:
-                continue
-            values = _parse_values(line[col_name:], col_name)
-
-        if not values:
-            continue
-
-        target = (
-            parsed_results[current_class]
-            if row_name == "COMBINED"
-            else parsed_results[current_class]["per_sequence"].setdefault(row_name, {})
-        )
-        for idx, key in enumerate(fields):
-            if idx >= len(values):
-                continue
-            val = values[idx]
-            target[key] = max(0, int(val) if key in MOT_REPORT_INTEGER_FIELDS else float(val))
-
-    return parsed_results
 
 
 def _extract_numeric_metrics(metrics: dict) -> dict:
@@ -618,25 +445,6 @@ def _summary_sort_keys(parsed_results: dict, args: argparse.Namespace, cfg: dict
     return primary_keys, aggregate_keys
 
 
-def _known_mot_class_names(args: argparse.Namespace, cfg: dict) -> list[str]:
-    known: list[str] = []
-    if getattr(args, "remapped_class_names", None):
-        known.extend([str(name) for name in args.remapped_class_names])
-
-    bench_cfg = _benchmark_config(cfg)
-    known.extend(_ordered_benchmark_eval_class_names(bench_cfg))
-    known.extend(["cls_comb_cls_av", "cls_comb_det_av", "HUMAN", "VEHICLE", "BIKE", "all"])
-
-    deduped: list[str] = []
-    seen: set[str] = set()
-    for name in known:
-        if name in seen:
-            continue
-        seen.add(name)
-        deduped.append(name)
-    return deduped
-
-
 def _render_summary_table(
     title: str,
     name_header: str,
@@ -828,19 +636,16 @@ def render_mot_report(
 __all__ = [
     "CORE_SUMMARY_COLUMNS",
     "MOT_REPORT_INTEGER_FIELDS",
-    "MOT_REPORT_METRIC_SPECS",
     "SUMMARY_COLUMNS",
     "SUMMARY_INT_COLUMNS",
     "ValidationResult",
     "_combined_summary_metrics",
     "_display_summary_name",
-    "_known_mot_class_names",
     "_load_report_cfg_from_args",
     "_select_plot_metrics_data",
     "_summary_sort_keys",
     "build_mot_feedback",
     "filter_obb_mot_results",
     "normalize_report_results",
-    "parse_mot_results",
     "render_mot_report",
 ]
