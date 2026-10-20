@@ -66,18 +66,14 @@ class KalmanFilterXYWH(BaseKalmanFilter):
         return std_noise
 
     def _get_multi_process_noise_std(self, mean: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        std_pos = [
-            self._std_weight_position * mean[:, 2],
-            self._std_weight_position * mean[:, 3],
-            self._std_weight_position * mean[:, 2],
-            self._std_weight_position * mean[:, 3],
-        ]
-        std_vel = [
-            self._std_weight_velocity * mean[:, 2],
-            self._std_weight_velocity * mean[:, 3],
-            self._std_weight_velocity * mean[:, 2],
-            self._std_weight_velocity * mean[:, 3],
-        ]
+        """Reuse width/height deviations for position and size coordinates."""
+        width, height = mean[:, 2], mean[:, 3]
+        position_width = self._std_weight_position * width
+        position_height = self._std_weight_position * height
+        velocity_width = self._std_weight_velocity * width
+        velocity_height = self._std_weight_velocity * height
+        std_pos = [position_width, position_height, position_width, position_height]
+        std_vel = [velocity_width, velocity_height, velocity_width, velocity_height]
         if self._is_obb:
             std_pos.append(1e-2 * np.ones_like(mean[:, 2]))
             std_vel.append(1e-5 * np.ones_like(mean[:, 2]))

@@ -61,7 +61,8 @@ def solve_assignment(cost_matrix: np.ndarray, cost_limit: float | None = None) -
     return matches[eligible[matches[:, 0], matches[:, 1]]]
 
 
-def linear_assignment(cost_matrix, thresh):
+def linear_assignment(cost_matrix: np.ndarray, thresh: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Solve matches and return the remaining indices in their original order."""
     if cost_matrix.size == 0:
         return (
             np.empty((0, 2), dtype=int),
@@ -69,9 +70,11 @@ def linear_assignment(cost_matrix, thresh):
             np.arange(cost_matrix.shape[1], dtype=int),
         )
     matches = solve_assignment(cost_matrix, cost_limit=thresh)
-    unmatched_a = np.setdiff1d(np.arange(cost_matrix.shape[0]), matches[:, 0])
-    unmatched_b = np.setdiff1d(np.arange(cost_matrix.shape[1]), matches[:, 1])
-    return matches, unmatched_a, unmatched_b
+    unmatched_a = np.ones(cost_matrix.shape[0], dtype=bool)
+    unmatched_b = np.ones(cost_matrix.shape[1], dtype=bool)
+    unmatched_a[matches[:, 0]] = False
+    unmatched_b[matches[:, 1]] = False
+    return matches, np.flatnonzero(unmatched_a), np.flatnonzero(unmatched_b)
 
 
 def iou_distance(atracks, btracks, is_obb: bool = False):

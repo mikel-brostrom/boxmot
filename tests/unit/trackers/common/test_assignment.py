@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 
+from boxmot.trackers.common.association import matching
 from boxmot.trackers.common.association.matching import linear_assignment, solve_assignment
 
 
@@ -63,3 +64,13 @@ def test_forbidden_edges_cannot_steal_an_eligible_column(threshold: float | None
 
     np.testing.assert_array_equal(solve_assignment(costs, cost_limit=threshold), [[1, 0]])
     np.testing.assert_array_equal(costs, original)
+
+
+def test_unmatched_indices_keep_input_order(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unmatched indices do not depend on the solver's ordering of pairs."""
+    pairs = np.asarray([[3, 1], [0, 3]])
+    monkeypatch.setattr(matching, "solve_assignment", lambda *args, **kwargs: pairs)
+    matches, rows, columns = linear_assignment(np.zeros((5, 6)), 1.0)
+    np.testing.assert_array_equal(matches, pairs)
+    np.testing.assert_array_equal(rows, [1, 2, 4])
+    np.testing.assert_array_equal(columns, [0, 2, 4, 5])

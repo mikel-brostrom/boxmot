@@ -112,10 +112,7 @@ class TrackDisplayMixin:
 
     @staticmethod
     def _resolve_track_box_attr(track, attr_name):
-        if not hasattr(track, attr_name):
-            return None
-
-        value = getattr(track, attr_name)
+        value = getattr(track, attr_name, None)
         if callable(value):
             value = value()
         if isinstance(value, np.ndarray) and value.ndim == 2 and value.shape[0] == 1:
