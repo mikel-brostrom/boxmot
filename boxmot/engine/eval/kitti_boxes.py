@@ -25,11 +25,11 @@ from boxmot.engine.eval.motmetrics import (
     SequenceData,
     _aabb_iou_matrix,
     _append_aggregate_results,
+    _build_sequence_data,
     _combine_bundles,
     _eval_bundle,
     _format_results,
     _load_eval_cfg,
-    _relabel_ids,
     _sequence_names_from_paths,
 )
 from boxmot.engine.eval.mots import GroundTruthFrame, _load_gt_labels, _resolve_class_pairs, _validated_gt_frames
@@ -157,8 +157,8 @@ def _build_kitti_box_sequence_data(
     gt_ids_by_class = {name: [np.empty(0, dtype=int) for _ in range(num_timesteps)] for name, _ in class_pairs}
     tracker_ids_by_class = {name: [np.empty(0, dtype=int) for _ in range(num_timesteps)] for name, _ in class_pairs}
     similarities = {name: [np.empty((0, 0), dtype=float) for _ in range(num_timesteps)] for name, _ in class_pairs}
+    options = {"cache_inputs": True, "cache_root": cache_root} if cache_inputs else {}
     for frame_index, path, height, width in gt_frames:
-        options = {"cache_inputs": True, "cache_root": cache_root} if cache_inputs else {}
         gt_ids, gt_boxes, ignore_mask = _read_gt_boxes(path, height, width, **options)
         rows = tracker_frames.pop(frame_index, np.empty((0, 9), dtype=float))
         for name, class_id in class_pairs:
@@ -171,22 +171,13 @@ def _build_kitti_box_sequence_data(
             tracker_ids_by_class[name][frame_index] = frame_tracker_ids
             similarities[name][frame_index] = similarity
 
-    data: dict[str, SequenceData] = {}
-    for name, _ in class_pairs:
-        sequence_gt_ids, num_gt_ids = _relabel_ids(gt_ids_by_class[name])
-        sequence_tracker_ids, num_tracker_ids = _relabel_ids(tracker_ids_by_class[name])
-        data[name] = SequenceData(
-            seq=seq_name,
-            gt_ids=sequence_gt_ids,
-            tracker_ids=sequence_tracker_ids,
-            similarity_scores=similarities[name],
-            num_timesteps=num_timesteps,
-            num_gt_dets=sum(map(len, sequence_gt_ids)),
-            num_tracker_dets=sum(map(len, sequence_tracker_ids)),
-            num_gt_ids=num_gt_ids,
-            num_tracker_ids=num_tracker_ids,
+    return {
+        name: _build_sequence_data(
+            seq_name=seq_name,
+            frames=zip(gt_ids_by_class[name], tracker_ids_by_class[name], similarities[name]),
         )
-    return data
+        for name, _ in class_pairs
+    }
 
 
 def run_kitti_box_metrics(

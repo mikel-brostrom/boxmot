@@ -248,8 +248,7 @@ def _categorical_panels(data: TrialAnalysis, directory: Path) -> None:
         association, fusion = (data.parameters[name] for name in ("asso_func", "motion_fusion"))
         common = association.samples.index.intersection(fusion.samples.index)
         interaction = len(common) > 0 and (
-            association.samples.loc[common, "value"].nunique() > 1
-            or fusion.samples.loc[common, "value"].nunique() > 1
+            association.samples.loc[common, "value"].nunique() > 1 or fusion.samples.loc[common, "value"].nunique() > 1
         )
         if not interaction:
             LOGGER.info("Joint category comparison skipped: no jointly observed varying choices.")
@@ -427,11 +426,18 @@ def _omit(path: Path, reason: str) -> None:
     LOGGER.info("Skipping %s: %s.", path.name, reason)
 
 
-def generate_tune_analysis(tune_dir: Path, tracker_name: str = "", n_trials: int | None = None) -> Path | None:
+def generate_tune_analysis(
+    tune_dir: Path,
+    tracker_name: str = "",
+    n_trials: int | None = None,
+    *,
+    data: TrialAnalysis | None = None,
+) -> Path | None:
     """Generate PNG reports from saved CSV, search metadata, and trial JSON.
 
     The saved schema defines parameter activity and bounds. Missing metadata
     omits the corresponding diagnostics, while score-only reports remain useful.
+    ``data`` shares an already loaded snapshot with other report writers.
     Returns the overview path, or None when no valid scored trials are available.
     """
     # Plotting dependencies are optional for installations without tuning reports.
@@ -444,7 +450,8 @@ def generate_tune_analysis(tune_dir: Path, tracker_name: str = "", n_trials: int
         LOGGER.warning("Cannot generate tuning plots (missing optional dependency: %s)", exc)
         return None
     directory = Path(tune_dir)
-    data = load_tune_analysis(directory)
+    if data is None:
+        data = load_tune_analysis(directory)
     if data is None or data.trials.empty:
         LOGGER.warning("No valid scored trials available in %s.", directory)
         return None
@@ -483,7 +490,10 @@ if __name__ == "__main__":
     parser.add_argument("tune_dir", type=Path, help="Directory containing results.csv and saved tuning metadata")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
-    result = generate_tune_analysis(args.tune_dir, tracker_name=args.tune_dir.name)
+    data = load_tune_analysis(args.tune_dir)
+    if data is None:
+        raise SystemExit(1)
+    result = generate_tune_analysis(args.tune_dir, tracker_name=args.tune_dir.name, data=data)
     if result is None:
         raise SystemExit(1)
-    update_analysis_summary(args.tune_dir)
+    update_analysis_summary(args.tune_dir, analysis=data)

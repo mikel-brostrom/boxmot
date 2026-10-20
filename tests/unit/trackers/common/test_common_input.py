@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from boxmot.trackers.common.input import pack_numpy_track_rows
+from boxmot.trackers.common.input import pack_numpy_track_rows, parse_numpy_detection_rows
 
 
 def _pack(**overrides) -> np.ndarray:
@@ -55,3 +55,32 @@ def test_pack_numpy_track_rows_returns_contiguous_float64_aabb8() -> None:
 def test_pack_numpy_track_rows_rejects_invalid_metadata(overrides: dict, message: str) -> None:
     with pytest.raises(ValueError, match=message):
         _pack(**overrides)
+
+
+@pytest.mark.parametrize("field", ["track_ids", "class_ids", "detection_indices"])
+@pytest.mark.parametrize(
+    ("values", "message"),
+    [
+        (np.array([np.nan]), "non-finite"),
+        (np.array([0.5]), "non-integer"),
+        (np.array([np.iinfo(np.uint64).max], dtype=np.uint64), "int64 range"),
+    ],
+)
+def test_output_metadata_other_dtypes_are_still_validated(field: str, values: np.ndarray, message: str) -> None:
+    """Skipping impossible int64 checks must retain checks for floating and unsigned values."""
+    with pytest.raises(ValueError, match=message):
+        _pack(**{field: values})
+
+
+def test_int64_metadata_keeps_packed_precision_limit() -> None:
+    """Native integer arrays still require exact float64 representation."""
+    with pytest.raises(ValueError, match="exact float64 integer range"):
+        _pack(class_ids=np.array([np.iinfo(np.int64).max], dtype=np.int64))
+
+
+@pytest.mark.parametrize("class_id", [-1, 0.5, float(2**63)])
+def test_detection_class_ids_keep_integer_range_checks(class_id: float) -> None:
+    """A cached integer limit must preserve validation before class conversion."""
+    detections = np.array([[1, 2, 11, 22, 0.9, class_id]])
+    with pytest.raises(ValueError, match="non-negative integers"):
+        parse_numpy_detection_rows(detections, is_obb=False)

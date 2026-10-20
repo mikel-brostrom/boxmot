@@ -448,22 +448,39 @@ def _tracker_spec(args: argparse.Namespace, overrides: Mapping[str, Any] | None 
     )
 
 
-def _output_directory(args: argparse.Namespace, overrides: Mapping[str, Any] | None) -> Path:
-    base = Path(getattr(args, "project", "runs")) / str(args.dataset_id) / str(getattr(args, "name", "exp"))
+def _resolve_mask_guidance_weights(args: argparse.Namespace, spec: TrackerSpec) -> Path | None:
+    """Validate guidance once and retain its resolved artifact for this evaluation."""
     checkpoint = edgetam_checkpoint(args)
-    if checkpoint is not None:
-        from boxmot.engine.eval.provenance import mask_guidance_output_path
-        from boxmot.segmentors.propagation.weights import resolve_edgetam_artifact
+    if checkpoint is None:
+        return None
+    from boxmot.engine.eval.mask_guidance import validate_mask_guidance_tracker
+    from boxmot.segmentors.propagation.weights import resolve_edgetam_artifact
 
-        checkpoint = args.mask_guidance_weights = resolve_edgetam_artifact(checkpoint)
+    validate_mask_guidance_tracker(spec, output_format="mots" if getattr(args, "eval_masks", False) else "mot")
+    args.mask_guidance_weights = resolve_edgetam_artifact(checkpoint)
+    return args.mask_guidance_weights
+
+
+def _output_directory(
+    args: argparse.Namespace,
+    spec: TrackerSpec,
+    *,
+    trial: bool = False,
+    mask_guidance_weights: Path | None = None,
+) -> Path:
+    """Build output identity from the exact resolved settings used by replay."""
+    base = Path(getattr(args, "project", "runs")) / str(args.dataset_id) / str(getattr(args, "name", "exp"))
+    if mask_guidance_weights is not None:
+        from boxmot.engine.eval.provenance import mask_guidance_output_path
+
         base = mask_guidance_output_path(
             base,
-            checkpoint=checkpoint,
+            checkpoint=mask_guidance_weights,
             device=str(getattr(args, "device", "cpu")),
-            tracker_spec=_tracker_spec(args, overrides),
+            tracker_spec=spec,
         )
-    if overrides:
-        base = base / "trials" / fingerprint(dict(_tracker_options(args, overrides)))[:16]
+    if trial:
+        base = base / "trials" / fingerprint(dict(spec.options))[:16]
         base.mkdir(parents=True, exist_ok=True)
         return base
     return increment_path(base, exist_ok=bool(getattr(args, "exist_ok", False)), mkdir=True)
@@ -729,12 +746,15 @@ def run_eval(
         raise ValueError("Evaluation never materializes implicitly. Run `boxmot materialize ...` and pass --build.")
     if per_class_configs:
         raise ValueError("Per-class tracker configurations are not supported by the canonical TrackerSpec yet.")
+    fresh_setup = setup or not bool(getattr(args, "_build_validated", False))
     if setup:
         eval_setup(args, pipeline=pipeline)
     else:
         _ensure_setup(args)
     postprocessing = normalize_postprocessing(getattr(args, "postprocessing", None))
-    if postprocessing:
+    # Fresh setup already checks these options against its loaded manifest.
+    # Reused setup must validate again because callers can change the options.
+    if postprocessing and not fresh_setup:
         from boxmot.engine.eval.postprocessing import validate_postprocessing_inputs
 
         validate_postprocessing_inputs(
@@ -747,15 +767,12 @@ def run_eval(
         _refresh_eval_pipeline_intro(getattr(pipeline, "workflow", None), args)
     spec = _tracker_spec(args, evolve_config)
 
-    mask_guidance_weights = edgetam_checkpoint(args)
-    if mask_guidance_weights is not None:
-        from boxmot.engine.eval.mask_guidance import validate_mask_guidance_tracker
-        from boxmot.segmentors.propagation.weights import resolve_edgetam_artifact
-
-        validate_mask_guidance_tracker(spec, output_format="mots" if getattr(args, "eval_masks", False) else "mot")
-        mask_guidance_weights = args.mask_guidance_weights = resolve_edgetam_artifact(mask_guidance_weights)
-
-    output_dir = _output_directory(args, evolve_config) if output_dir is None else Path(output_dir)
+    mask_guidance_weights = _resolve_mask_guidance_weights(args, spec)
+    output_dir = (
+        _output_directory(args, spec, trial=bool(evolve_config), mask_guidance_weights=mask_guidance_weights)
+        if output_dir is None
+        else Path(output_dir)
+    )
     cmc_policy = prepare_eval_cmc(
         args,
         spec,
@@ -871,9 +888,7 @@ def run_eval(
     args.exp_dir = replay.output_dir
     with replay_session.metric_execution() if replay_session is not None else nullcontext():
         raw = run_motmetrics(args, verbose=bool(verbose))
-    (replay.output_dir / "metrics.json").write_text(
-        json.dumps(raw, indent=2, allow_nan=False) + "\n", encoding="utf-8"
-    )
+    (replay.output_dir / "metrics.json").write_text(json.dumps(raw, indent=2, allow_nan=False) + "\n", encoding="utf-8")
     summary_label, summary = _summary(raw)
     timings = {
         "frames": replay.frames,
@@ -931,7 +946,10 @@ def main(args: argparse.Namespace) -> ValidationResult:
                 from boxmot.engine.calibration.kalman import calibrate_kalman
 
                 eval_setup(args, pipeline=pipeline)
-                output_dir = _output_directory(args, None)
+                spec = _tracker_spec(args)
+                output_dir = _output_directory(
+                    args, spec, mask_guidance_weights=_resolve_mask_guidance_weights(args, spec)
+                )
                 calibration = calibrate_kalman(args, output_dir=output_dir, progress=pipeline.update)
                 args.tracker_config = str(calibration.config_path)
                 result = run_eval(args, setup=False, verbose=False, pipeline=pipeline, output_dir=output_dir)

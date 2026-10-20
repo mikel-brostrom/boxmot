@@ -68,21 +68,17 @@ class KalmanFilterXYAH(BaseKalmanFilter):
         return std_noise
 
     def _get_multi_process_noise_std(self, mean: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        std_pos = [
-            self._std_weight_position * mean[:, 3],
-            self._std_weight_position * mean[:, 3],
-            1e-2 * np.ones_like(mean[:, 3]),
-            self._std_weight_position * mean[:, 3],
-        ]
-        std_vel = [
-            self._std_weight_velocity * mean[:, 3],
-            self._std_weight_velocity * mean[:, 3],
-            1e-5 * np.ones_like(mean[:, 3]),
-            self._std_weight_velocity * mean[:, 3],
-        ]
+        """Reuse the same height and constant deviations within this batch."""
+        height = mean[:, 3]
+        position = self._std_weight_position * height
+        velocity = self._std_weight_velocity * height
+        constant_position = 1e-2 * np.ones_like(height)
+        constant_velocity = 1e-5 * np.ones_like(height)
+        std_pos = [position, position, constant_position, position]
+        std_vel = [velocity, velocity, constant_velocity, velocity]
         if self._is_obb:
-            std_pos.append(1e-2 * np.ones_like(mean[:, 3]))
-            std_vel.append(1e-5 * np.ones_like(mean[:, 3]))
+            std_pos.append(constant_position)
+            std_vel.append(constant_velocity)
         return std_pos, std_vel
 
     def _get_multi_measurement_noise_std(self, mean: np.ndarray) -> np.ndarray:

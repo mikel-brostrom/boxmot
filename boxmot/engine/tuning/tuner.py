@@ -7,13 +7,13 @@ Hyperparameter tuning orchestration for multi-object trackers.
 Uses Ray Tune for perception builds and serial Optuna trials for saved sensor datasets.
 """
 
-import inspect
 import json
 import logging
 import math
 import os
 import time
 import warnings
+from collections.abc import Callable
 from copy import deepcopy
 from difflib import get_close_matches
 from pathlib import Path
@@ -210,7 +210,7 @@ class Tuner:
             from boxmot.engine.calibration.kalman import validate_kf_calibration
 
             validate_kf_calibration(self.args.tracker, getattr(self.args, "tracker_backend", "python"))
-            if getattr(self.args, "calibrate_kf", False) and getattr(self.args, "resume_tune", None):
+            if getattr(self.args, "resume_tune", None):
                 raise ValueError("--calibrate-kf cannot be combined with --resume-tune; resume the saved calibration.")
         return self._run()
 
@@ -308,8 +308,6 @@ class Tuner:
                 with suppress_boxmot_logs(enabled=not bool(getattr(args, "verbose", False)), level="ERROR"):
                     eval_setup(args, pipeline=pipeline)
                 if getattr(args, "seq_info", None) is not None:
-                    from boxmot.engine.config.runtime import resolve_sequence_workers
-
                     args.sequence_workers = resolve_sequence_workers(
                         len(args.seq_info), getattr(args, "sequence_workers", None)
                     )
@@ -372,7 +370,9 @@ class Tuner:
                 if "asso_func" in authored_options and getattr(args, "asso_func", None) is None:
                     yaml_cfg["asso_func"] = {"default": authored_options["asso_func"]}
                 yaml_cfg = condition_tracker_schema(
-                    yaml_cfg, runtime_config, geometry=getattr(args, "geometry", "aabb") or "aabb",
+                    yaml_cfg,
+                    runtime_config,
+                    geometry=getattr(args, "geometry", "aabb") or "aabb",
                 )
                 record_mask_guidance_tuning(tune_dir, args, runtime_config, yaml_cfg)
                 self._yaml_cfg = yaml_cfg
@@ -433,7 +433,6 @@ class Tuner:
                     tune,
                     RunConfig,
                     tune_callback,
-                    pipeline,
                     param_space,
                     search_alg,
                     tune_dir,
@@ -685,7 +684,6 @@ class Tuner:
         tune,
         RunConfig,
         tune_callback,
-        pipeline,
         param_space,
         search_alg,
         tune_dir,
@@ -700,24 +698,26 @@ class Tuner:
         if resume_tune is not None and tune.Tuner.can_restore(restore_path_str):
             try:
                 tuner = tune.Tuner.restore(restore_path_str, trainable=trainable, resume_errored=True)
-                self._inject_callback_into_restored(tuner, tune_callback, pipeline, tune_dir)
             except Exception as exc:
                 LOGGER.warning(f"Failed to restore tuner: {exc}. Starting fresh.")
             else:
-                self._validate_resumed_timing(tuner.get_results())
+                # Ray reconstructs the result grid from saved trial histories.
+                # Share that snapshot between validation and progress restore.
+                result_grid = tuner.get_results()
+                self._validate_resumed_timing(result_grid)
+                self._inject_callback_into_restored(tuner, tune_callback, result_grid, tune_dir)
                 return tuner
 
         # Fresh tuner
         from ray.tune import CheckpointConfig, FailureConfig
 
-        run_config_kwargs: dict[str, Any] = {"storage_path": results_dir_str, "name": tune_name}
-        sig = inspect.signature(RunConfig)
-        if "callbacks" in sig.parameters:
-            run_config_kwargs["callbacks"] = [tune_callback]
-        if "verbose" in sig.parameters:
-            run_config_kwargs["verbose"] = 0
-        if "progress_reporter" in sig.parameters:
-            run_config_kwargs["progress_reporter"] = TuneSilentReporter()
+        run_config_kwargs: dict[str, Any] = {
+            "storage_path": results_dir_str,
+            "name": tune_name,
+            "callbacks": [tune_callback],
+            "verbose": 0,
+            "progress_reporter": TuneSilentReporter(),
+        }
         # A failed full-sequence evaluation is not a metric observation. Move
         # on to the next trial without repeating deterministic invalid inputs.
         run_config_kwargs["failure_config"] = FailureConfig(max_failures=0, fail_fast=False)
@@ -728,12 +728,15 @@ class Tuner:
 
         tune_config_kwargs: dict[str, Any] = {
             "num_samples": args.n_trials,
-            "max_concurrent_trials": max_concurrent,
             "trial_dirname_creator": lambda trial: f"trial_{trial.trial_id}",
             "reuse_actors": True,
         }
         if search_alg is not None:
+            # Explicit backends own their limiter. Ray ignores a second limit
+            # for these objects, including the seeded random generator.
             tune_config_kwargs["search_alg"] = search_alg
+        else:
+            tune_config_kwargs["max_concurrent_trials"] = max_concurrent
         time_budget = getattr(args, "time_budget_s", None)
         if time_budget is not None:
             tune_config_kwargs["time_budget_s"] = float(time_budget)
@@ -746,15 +749,10 @@ class Tuner:
         )
 
     def _inject_callback_into_restored(
-        self, tuner: Any, tune_callback: TuneWorkflowCallback, pipeline: Any, tune_dir: Path
+        self, tuner: Any, tune_callback: TuneWorkflowCallback, result_grid: Any, tune_dir: Path
     ) -> None:
         """Restore trial identities and completed metrics before resuming the live display."""
-        try:
-            result_grid = tuner.get_results()
-            results = list(result_grid)
-        except Exception as exc:
-            LOGGER.debug(f"Could not restore tuning progress metrics: {exc}")
-            results = []
+        results = list(result_grid)
         completed = 0
         if results:
             successful = []
@@ -824,11 +822,6 @@ class Tuner:
         except KeyboardInterrupt:
             interrupted = True
             LOGGER.info("Tuning interrupted by user. Saving partial results...")
-            try:
-                if hasattr(tuner, "get_results"):
-                    result_grid = tuner.get_results()
-            except Exception:
-                pass
         if result_grid is None and hasattr(tuner, "get_results"):
             try:
                 result_grid = tuner.get_results()
@@ -963,14 +956,8 @@ class Tuner:
         return slug.strip("._-") or fallback
 
     def _make_safe_namespace(self) -> SimpleNamespace:
-        safe: dict[str, Any] = {}
-        for key, value in vars(self.args).items():
-            try:
-                _ray_pickle_dumps(value)
-                safe[key] = value
-            except Exception:
-                pass
-        return SimpleNamespace(**safe)
+        """Keep serializable workflow options without copying driver resources."""
+        return SimpleNamespace(**{key: value for key, value in vars(self.args).items() if _is_ray_pickle_safe(value)})
 
     @staticmethod
     def _configure_warning_filters():
@@ -1167,29 +1154,48 @@ def _active_sensor_schema(
     }
 
 
-def _sample_sensor_profiles(
-    trial: optuna.Trial,
-    schema: dict[str, Any],
+def _prepare_sensor_search(
+    class_schemas: dict[int, dict[str, Any]],
+    base_profiles: dict[int, dict[str, Any]],
     *,
-    base_profiles: dict[int, dict[str, Any]] | None = None,
     fixed_parameters: frozenset[str] = frozenset(),
-    tune_kf: tuple[str, ...] = (),
-) -> dict[int, dict[str, Any]]:
-    """Sample independent class parameters using the shared YAML distributions."""
-    from boxmot.engine.eval.eagermot_kitti import KITTI_CLASSES, load_kitti_profiles
+) -> tuple[Callable[[optuna.Trial], dict[int, dict[str, Any]]], dict[str, Any]]:
+    """Prepare class/method samplers and their baseline once for a sensor study."""
+    from boxmot.engine.eval.eagermot_kitti import KITTI_CLASSES
     from boxmot.engine.tuning.backends.optuna_backend import yaml_to_optuna_define_space
 
-    profiles = load_kitti_profiles() if base_profiles is None else deepcopy(base_profiles)
+    prepared = {}
+    baseline = {}
     for class_id, name in KITTI_CLASSES.items():
-        class_schema = refine_kalman_schema(schema, profiles[class_id], tune_kf)
+        class_schema = class_schemas[class_id]
         method_key = f"{name}.first_matching_method"
-        yaml_to_optuna_define_space({method_key: class_schema["first_matching_method"]})(trial)
-        active = _active_sensor_schema(class_schema, trial.params[method_key], fixed_parameters=fixed_parameters)
-        yaml_to_optuna_define_space(
-            {f"{name}.{key}": details for key, details in active.items() if key != "first_matching_method"}
-        )(trial)
-        profiles[class_id].update({key: trial.params[f"{name}.{key}"] for key in active})
-    return profiles
+        method_entry = class_schema["first_matching_method"]
+        selector = yaml_to_optuna_define_space({method_key: method_entry})
+        methods = {}
+        for method in method_entry.get("options") or method_entry["values"]:
+            active = _active_sensor_schema(class_schema, method, fixed_parameters=fixed_parameters)
+            sampler = yaml_to_optuna_define_space(
+                {f"{name}.{key}": details for key, details in active.items() if key != "first_matching_method"}
+            )
+            methods[method] = sampler, tuple((key, f"{name}.{key}") for key in active)
+            if method == base_profiles[class_id]["first_matching_method"]:
+                baseline.update(
+                    (f"{name}.{key}", value)
+                    for key, value in default_tune_config(active, defaults=base_profiles[class_id]).items()
+                )
+        prepared[class_id] = method_key, selector, methods
+
+    def sample(trial: optuna.Trial) -> dict[int, dict[str, Any]]:
+        """Copy class state while reusing the study's immutable search metadata."""
+        profiles = deepcopy(base_profiles)
+        for class_id, (method_key, selector, methods) in prepared.items():
+            selector(trial)
+            sampler, parameters = methods[trial.params[method_key]]
+            sampler(trial)
+            profiles[class_id].update((key, trial.params[label]) for key, label in parameters)
+        return profiles
+
+    return sample, baseline
 
 
 def _run_eagermot_tuning(args: Any, *, pipeline: Any | None = None) -> TuneResult:
@@ -1266,6 +1272,9 @@ def _run_eagermot_tuning(args: Any, *, pipeline: Any | None = None) -> TuneResul
         class_schemas = {
             class_id: refine_kalman_schema(schema, profile, tune_kf) for class_id, profile in baseline_profiles.items()
         }
+        sample_profiles, baseline = _prepare_sensor_search(
+            class_schemas, baseline_profiles, fixed_parameters=fixed_parameters
+        )
         manifest = {
             **inputs.manifest,
             "status": "running",
@@ -1328,9 +1337,7 @@ def _run_eagermot_tuning(args: Any, *, pipeline: Any | None = None) -> TuneResul
             """Replay the trial and select the native class-average aggregate once."""
             started = time.perf_counter()
             trial_progress = publish_progress(current_trial=trial.number + 1)
-            profiles = _sample_sensor_profiles(
-                trial, schema, base_profiles=baseline_profiles, fixed_parameters=fixed_parameters, tune_kf=tune_kf
-            )
+            profiles = sample_profiles(trial)
             trial_output = output / "trials" / f"{trial.number:04d}"
             trial.set_user_attr("profiles", {name: profiles[class_id] for class_id, name in KITTI_CLASSES.items()})
             trial.set_user_attr("output", str(trial_output))
@@ -1428,16 +1435,6 @@ def _run_eagermot_tuning(args: Any, *, pipeline: Any | None = None) -> TuneResul
                 # A SQLite file URI preserves URL/template characters in directory names.
                 storage=f"sqlite:///{(output / 'study.sqlite3').as_uri()}?uri=true",
             )
-            baseline = {
-                f"{KITTI_CLASSES[class_id]}.{name}": value
-                for class_id, profile in baseline_profiles.items()
-                for name, value in default_tune_config(
-                    _active_sensor_schema(
-                        class_schemas[class_id], profile["first_matching_method"], fixed_parameters=fixed_parameters
-                    ),
-                    defaults=profile,
-                ).items()
-            }
             study.enqueue_trial(baseline)
             if pipeline is not None:
                 pipeline.advance()

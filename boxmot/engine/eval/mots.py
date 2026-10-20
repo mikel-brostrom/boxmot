@@ -23,11 +23,11 @@ from boxmot.engine.eval.motmetrics import (
     SequenceData,
     _append_aggregate_results,
     _benchmark_config,
+    _build_sequence_data,
     _combine_bundles,
     _eval_bundle,
     _format_results,
     _load_eval_cfg,
-    _relabel_ids,
     _sequence_names_from_paths,
 )
 
@@ -216,11 +216,11 @@ def _build_mots_sequence_data(
     gt_ids_by_class = {name: [np.empty(0, dtype=int) for _ in range(num_timesteps)] for name, _ in class_pairs}
     tracker_ids_by_class = {name: [np.empty(0, dtype=int) for _ in range(num_timesteps)] for name, _ in class_pairs}
     similarities = {name: [np.empty((0, 0), dtype=float) for _ in range(num_timesteps)] for name, _ in class_pairs}
+    options = dict(ground_truth_options or {})
+    if cache_inputs:
+        options.update(cache_inputs=True, cache_root=cache_root)
     for frame_index, path, height, width in gt_frames:
         if ground_truth is None:
-            options = dict(ground_truth_options or {})
-            if cache_inputs:
-                options.update(cache_inputs=True, cache_root=cache_root)
             annotation = _read_gt_frame(path, height, width, **options)
         else:
             annotation = ground_truth(frame_index)
@@ -243,22 +243,13 @@ def _build_mots_sequence_data(
             tracker_ids_by_class[name][frame_index] = frame_tracker_ids
             similarities[name][frame_index] = similarity
 
-    data: dict[str, SequenceData] = {}
-    for name, _ in class_pairs:
-        sequence_gt_ids, num_gt_ids = _relabel_ids(gt_ids_by_class[name])
-        sequence_tracker_ids, num_tracker_ids = _relabel_ids(tracker_ids_by_class[name])
-        data[name] = SequenceData(
-            seq=seq_name,
-            gt_ids=sequence_gt_ids,
-            tracker_ids=sequence_tracker_ids,
-            similarity_scores=similarities[name],
-            num_timesteps=num_timesteps,
-            num_gt_dets=sum(map(len, sequence_gt_ids)),
-            num_tracker_dets=sum(map(len, sequence_tracker_ids)),
-            num_gt_ids=num_gt_ids,
-            num_tracker_ids=num_tracker_ids,
+    return {
+        name: _build_sequence_data(
+            seq_name=seq_name,
+            frames=zip(gt_ids_by_class[name], tracker_ids_by_class[name], similarities[name]),
         )
-    return data
+        for name, _ in class_pairs
+    }
 
 
 def run_mots_metrics(

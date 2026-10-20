@@ -95,6 +95,100 @@ def test_run_motmetrics_aabb_perfect_sequence(tmp_path):
     assert results["person"]["IDs"] == 1
 
 
+def test_sequence_preparation_preserves_large_ids_and_empty_timesteps() -> None:
+    """Compacting native identities must not pass them through floating point."""
+    large_id = 2**53
+    frames = [
+        (np.array([large_id + 1, large_id]), np.array([large_id + 5]), np.array([[0.7], [0.2]])),
+        (np.empty(0, dtype=int), np.empty(0, dtype=int), np.empty((0, 0))),
+        (np.array([large_id]), np.array([large_id + 6, large_id + 5]), np.array([[0.3, 0.8]])),
+    ]
+
+    data = motmetrics_module._build_sequence_data(seq_name="native-ids", frames=iter(frames))
+
+    assert data.num_timesteps == 3
+    assert data.num_gt_dets == data.num_tracker_dets == 3
+    assert data.num_gt_ids == data.num_tracker_ids == 2
+    assert [ids.tolist() for ids in data.gt_ids] == [[1, 0], [], [0]]
+    assert [ids.tolist() for ids in data.tracker_ids] == [[0], [], [1, 0]]
+    for actual, (_, _, expected) in zip(data.similarity_scores, frames):
+        np.testing.assert_array_equal(actual, expected)
+
+
+@pytest.mark.parametrize("distractor_ids", [set(), {8}])
+@pytest.mark.parametrize("min_confidence", [None, 1.0])
+def test_aabb_skips_ignore_assignment_without_frame_distractors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, distractor_ids: set[int], min_confidence: float | None
+) -> None:
+    """Other classes and zero-confidence GT need no overlap or ignore assignment."""
+    gt = np.array(
+        [
+            [1, 10, 0, 0, 10, 10, 1, 1, 1],
+            [1, 20, 20, 0, 10, 10, 0, 1, 1],
+            [1, 30, 40, 0, 10, 10, 1, 2, 1],
+        ],
+        dtype=float,
+    )
+    tracked = np.array([[1, 100, 0, 0, 10, 10, 0.9, 1, -1]], dtype=float)
+    overlap_sizes = []
+    original_iou = motmetrics_module._aabb_iou_matrix
+
+    def overlap(first: np.ndarray, second: np.ndarray) -> np.ndarray:
+        overlap_sizes.append((len(first), len(second)))
+        return original_iou(first, second)
+
+    def unexpected_assignment(*args, **kwargs):
+        pytest.fail("A frame without distractors should not run ignore assignment")
+
+    monkeypatch.setattr(motmetrics_module, "_aabb_iou_matrix", overlap)
+    monkeypatch.setattr(motmetrics_module, "linear_sum_assignment", unexpected_assignment)
+    data = motmetrics_module._build_aabb_sequence_data(
+        seq_name="seq",
+        gt_path=tmp_path / "unused-gt.txt",
+        tracker_path=tmp_path / "unused-tracker.txt",
+        class_id=1,
+        distractor_ids=distractor_ids,
+        seq_info={"seq": 1},
+        gt_min_confidence=min_confidence,
+        indexed_rows=motmetrics_module.IndexedSequenceRows(gt=[gt], tracker=[tracked], num_timesteps=1),
+    )
+
+    assert overlap_sizes == [(1, 1)]
+    assert data.num_gt_dets == data.num_tracker_dets == 1
+    np.testing.assert_array_equal(data.similarity_scores[0], [[1.0]])
+
+
+@pytest.mark.parametrize(("tracker_left", "remaining"), [(0, 1), (2, 0)])
+def test_aabb_ignore_matching_retains_valid_distractor_competition(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tracker_left: int, remaining: int
+) -> None:
+    """An overlapping distractor removes a prediction only if it wins assignment."""
+    gt = np.array([[1, 10, 0, 0, 10, 10, 1, 1, 1], [1, 20, 2, 0, 10, 10, 1, 8, 1]], dtype=float)
+    tracked = np.array([[1, 100, tracker_left, 0, 10, 10, 0.9, 1, -1]], dtype=float)
+    assignment_shapes = []
+    original_assignment = motmetrics_module.linear_sum_assignment
+
+    def assign(cost: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        assignment_shapes.append(cost.shape)
+        return original_assignment(cost)
+
+    monkeypatch.setattr(motmetrics_module, "linear_sum_assignment", assign)
+    data = motmetrics_module._build_aabb_sequence_data(
+        seq_name="seq",
+        gt_path=tmp_path / "unused-gt.txt",
+        tracker_path=tmp_path / "unused-tracker.txt",
+        class_id=1,
+        distractor_ids={8},
+        seq_info={"seq": 1},
+        indexed_rows=motmetrics_module.IndexedSequenceRows(gt=[gt], tracker=[tracked], num_timesteps=1),
+    )
+
+    assert assignment_shapes == [(2, 1)]
+    assert data.num_gt_dets == 1
+    assert data.num_tracker_dets == remaining
+    np.testing.assert_array_equal(data.similarity_scores[0], np.ones((1, remaining)))
+
+
 def test_run_motmetrics_preserves_negative_clear_accuracy_percentages(tmp_path):
     source = tmp_path / "source"
     exp_dir = tmp_path / "runs" / "exp"

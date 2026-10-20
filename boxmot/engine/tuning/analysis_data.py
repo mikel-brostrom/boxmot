@@ -52,6 +52,7 @@ class TrialAnalysis:
     notes: list[str]
     chronological: bool
     schema: dict = field(default_factory=dict)
+    parameter_notes: list[str] = field(default_factory=list)
 
 
 def _present(value: Any) -> bool:
@@ -81,8 +82,8 @@ def _number(value: Any) -> float:
 
 def _is_boolean(entry: dict) -> bool:
     options = entry.get("options", entry.get("values", ()))
-    return bool(options) and all(isinstance(option, bool) for option in options) or isinstance(
-        entry.get("default"), bool
+    return (
+        bool(options) and all(isinstance(option, bool) for option in options) or isinstance(entry.get("default"), bool)
     )
 
 
@@ -152,10 +153,7 @@ class _SchemaResolver:
                     active = False
                 # JSON object keys stringify Boolean/integer categorical cases.
                 options = _selector_options(parent_entry)
-                cases = {
-                    _recorded_case_key(key, options): value
-                    for key, value in entry.get("cases", {}).items()
-                }
+                cases = {_recorded_case_key(key, options): value for key, value in entry.get("cases", {}).items()}
                 entry = resolve_entry({**entry, "cases": cases}, parent_value)
             value = entry.get("default") if row is None else row.get(name)
             if not _present(value) and "type" not in entry:
@@ -170,8 +168,10 @@ class _SchemaResolver:
             if options and not isinstance(value, bool) and np.isfinite(_number(value)):
                 value = next(
                     (
-                        option for option in options
-                        if isinstance(option, (int, float)) and not isinstance(option, bool)
+                        option
+                        for option in options
+                        if isinstance(option, (int, float))
+                        and not isinstance(option, bool)
                         and option == _number(value)
                     ),
                     value,
@@ -201,11 +201,11 @@ def analyze_parameters(
     indices: dict[str, list] = {}
     parameters: dict[str, ParameterSamples] = {}
     representations: dict[str, set[tuple[str, str]]] = {}
-    for index, row in frame.iterrows():
+    for index, row in zip(frame.index, frame.to_dict(orient="records")):
         score = pd.to_numeric(row["HOTA"], errors="coerce")
         if not np.isfinite(score):
             continue
-        for name, (entry, active, branch, value) in resolver.resolve(row.to_dict()).items():
+        for name, (entry, active, branch, value) in resolver.resolve(row).items():
             distribution = entry.get("type")
             if not active or not distribution or not _present(value):
                 continue
@@ -219,10 +219,10 @@ def analyze_parameters(
             kind = "categorical" if categorical else "numeric"
             scale = "log" if not categorical and "log" in distribution else "linear"
             representations.setdefault(name, set()).add((kind, scale))
-            parameter = parameters.setdefault(
-                name,
-                ParameterSamples(name, kind, pd.DataFrame(), scale=scale),
-            )
+            parameter = parameters.get(name)
+            if parameter is None:
+                parameter = ParameterSamples(name, kind, pd.DataFrame(), scale=scale)
+                parameters[name] = parameter
             options = entry.get("options", entry.get("values", ()))
             parameter.options = tuple(dict.fromkeys((*parameter.options, *options)))
             if categorical:
@@ -260,22 +260,30 @@ def _read_result(path: Path) -> dict:
         content = path.read_text()
     except OSError:
         return {}
-    try:
-        candidates = [json.loads(content)]
-    except json.JSONDecodeError:
-        candidates = []
-        for line in content.splitlines():
-            try:
-                candidates.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-    for result in reversed(candidates):
-        if (
+
+    def scored(result: Any) -> bool:
+        """Accept only complete, successful results with a finite score."""
+        return (
             isinstance(result, dict)
             and result.get("done") is not False
             and not result.get("error")
             and np.isfinite(_number(result.get("HOTA")))
-        ):
+        )
+
+    try:
+        result = json.loads(content)
+    except json.JSONDecodeError:
+        # Ray JSONL can contain many progress updates. Decode from the tail and
+        # stop at the final score instead of constructing every earlier result.
+        for line in reversed(content.splitlines()):
+            try:
+                result = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if scored(result):
+                return result
+    else:
+        if scored(result):
             return result
     return {}
 
@@ -329,8 +337,8 @@ def _find_baseline(frame: pd.DataFrame, schema: dict, fixed: dict) -> int | None
     return None
 
 
-def load_tune_analysis(tune_dir: Path) -> TrialAnalysis | None:
-    """Combine saved CSV, search schema and optional final-trial JSON metadata."""
+def load_tune_analysis(tune_dir: Path, *, fallback_schema: dict | None = None) -> TrialAnalysis | None:
+    """Combine saved evidence, using a caller's schema only when none was saved."""
     tune_dir = Path(tune_dir)
     try:
         trials = pd.read_csv(tune_dir / "results.csv", dtype={"trial_id": str})
@@ -359,6 +367,11 @@ def load_tune_analysis(tune_dir: Path) -> TrialAnalysis | None:
         fixed = metadata.get("fixed_options", {})
         if not isinstance(fixed, dict):
             fixed = {}
+    except FileNotFoundError as error:
+        if fallback_schema is not None:
+            schema = fallback_schema
+        else:
+            notes.append(f"Search schema unavailable; parameter diagnostics skipped ({error}).")
     except (OSError, ValueError) as error:
         notes.append(f"Search schema unavailable; parameter diagnostics skipped ({error}).")
 
@@ -409,12 +422,14 @@ def load_tune_analysis(tune_dir: Path) -> TrialAnalysis | None:
         )
     elif sequence_hota.isna().any(axis=1).any():
         notes.append("Per-sequence HOTA is incomplete; unavailable comparisons are omitted.")
+    parameter_notes: list[str] = []
     try:
-        parameters = analyze_parameters(trials, schema, notes=notes)
+        parameters = analyze_parameters(trials, schema, notes=parameter_notes)
         baseline = _find_baseline(trials, schema, fixed)
     except (AttributeError, KeyError, TypeError, ValueError) as error:
         parameters, baseline = {}, None
-        notes.append(f"Recorded schema could not be resolved; parameter diagnostics skipped ({error}).")
+        parameter_notes.append(f"Recorded schema could not be resolved; parameter diagnostics skipped ({error}).")
+    notes.extend(parameter_notes)
     label = "Verified default baseline"
     if baseline is None:
         baseline = 0
@@ -432,4 +447,5 @@ def load_tune_analysis(tune_dir: Path) -> TrialAnalysis | None:
         notes=notes,
         chronological=chronological,
         schema=schema,
+        parameter_notes=parameter_notes,
     )

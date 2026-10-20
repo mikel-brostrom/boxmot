@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 from rich.console import Group
@@ -45,6 +46,7 @@ def _restore(
     completion_times: dict[str, float] | None = None,
 ) -> SimpleNamespace:
     """Install a new driver callback using stored experiment results."""
+
     class StoredResults(list):
         """Retain trial metadata alongside the public ResultGrid iteration."""
 
@@ -57,7 +59,8 @@ def _restore(
                     trial_id=trial_id,
                     experiment_tag=f"{index}_sampled=value",
                     run_metadata=SimpleNamespace(last_result_time=completion_times[trial_id])
-                    if completion_times is not None else None,
+                    if completion_times is not None
+                    else None,
                 )
                 for index, trial_id in enumerate(order, start=0 if search_alg == "random" else 1)
             ]
@@ -67,7 +70,7 @@ def _restore(
         _local_tuner=SimpleNamespace(_run_config=SimpleNamespace()),
     )
     Tuner(SimpleNamespace(n_trials=8, search_alg=search_alg))._inject_callback_into_restored(
-        tuner, callback, None, tmp_path
+        tuner, callback, grid, tmp_path
     )
     return tuner
 
@@ -200,3 +203,46 @@ def test_resume_without_submission_metadata_does_not_invent_a_baseline(
     assert callback.last_summary is None
     assert callback.trial_indices == {}
     assert callback._trial_index_offset == 1
+
+
+@pytest.mark.parametrize("valid", [False, True])
+def test_resume_reads_results_once_and_validates_before_publishing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, valid: bool
+) -> None:
+    """Use the same restored trials for timing checks and the live display."""
+    grid = [object()]
+    restored = SimpleNamespace(get_results=Mock(return_value=grid))
+    ray_tuner = SimpleNamespace(can_restore=lambda path: True, restore=Mock(return_value=restored))
+    driver = Tuner(SimpleNamespace(resume_tune=str(tmp_path), project=tmp_path))
+    events = []
+
+    def validate(results: object) -> None:
+        assert results is grid
+        events.append("validate")
+        if not valid:
+            raise ValueError("Saved timing differs")
+
+    def publish(tuner: object, callback: object, results: object, directory: Path) -> None:
+        assert tuner is restored and results is grid and directory == tmp_path
+        events.append("publish")
+
+    monkeypatch.setattr(driver, "_validate_resumed_timing", validate)
+    monkeypatch.setattr(driver, "_inject_callback_into_restored", publish)
+    kwargs = dict(
+        trainable=object(),
+        tune=SimpleNamespace(Tuner=ray_tuner),
+        RunConfig=None,
+        tune_callback=object(),
+        param_space={},
+        search_alg=None,
+        tune_dir=tmp_path,
+        tune_name=tmp_path.name,
+        max_concurrent=1,
+    )
+    if valid:
+        assert driver._build_or_restore_tuner(**kwargs) is restored
+    else:
+        with pytest.raises(ValueError, match="Saved timing differs"):
+            driver._build_or_restore_tuner(**kwargs)
+    assert events == (["validate", "publish"] if valid else ["validate"])
+    restored.get_results.assert_called_once_with()

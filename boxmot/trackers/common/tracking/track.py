@@ -7,6 +7,8 @@ from typing import ClassVar, Literal
 
 import numpy as np
 
+_MISSING_ATTRIBUTE = object()
+
 
 class TrackState(Enum):
     """Canonical lifecycle states shared by box-tracker infrastructure."""
@@ -113,11 +115,14 @@ class TrackLifecycleMixin:
         self._set_lifecycle_state("removed_state", TrackState.REMOVED)
 
 
-def _track_meta_id(track) -> int:
-    if hasattr(track, "id"):
-        return int(getattr(track, "id"))
-    if hasattr(track, "track_id"):
-        return int(getattr(track, "track_id"))
+def _track_meta_id(track: object) -> int:
+    """Read the primary identity or its fallback without repeated property evaluation."""
+    value = getattr(track, "id", _MISSING_ATTRIBUTE)
+    if value is not _MISSING_ATTRIBUTE:
+        return int(value)
+    value = getattr(track, "track_id", _MISSING_ATTRIBUTE)
+    if value is not _MISSING_ATTRIBUTE:
+        return int(value)
     raise AttributeError(f"{track.__class__.__name__} does not expose an id")
 
 
@@ -145,7 +150,8 @@ def sync_track_meta(track, state: TrackState | None = None) -> TrackMeta:
         "is_activated",
         "lost_region",
     ):
-        if hasattr(track, attr_name):
-            setattr(meta, attr_name, getattr(track, attr_name))
+        value = getattr(track, attr_name, _MISSING_ATTRIBUTE)
+        if value is not _MISSING_ATTRIBUTE:
+            setattr(meta, attr_name, value)
 
     return meta

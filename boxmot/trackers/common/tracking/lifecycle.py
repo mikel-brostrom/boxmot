@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import numpy as np
 
@@ -10,11 +10,13 @@ from boxmot.trackers.common.association.matching import iou_distance
 TrackT = TypeVar("TrackT")
 
 
-def track_id(track) -> int:
+def track_id(track: Any) -> int:
     """Return a tracker object's canonical integer ID."""
-    if hasattr(track, "id"):
-        return int(getattr(track, "id"))
-    return int(getattr(track, "track_id"))
+    try:
+        value = track.id
+    except AttributeError:
+        value = track.track_id
+    return int(value)
 
 
 def joint_stracks(tlista: Sequence[TrackT], tlistb: Sequence[TrackT]) -> list[TrackT]:

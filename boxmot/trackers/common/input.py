@@ -68,12 +68,13 @@ def parse_numpy_detection_rows(detections: np.ndarray, *, is_obb: bool) -> NumPy
         raise ValueError("Detection scores must be in the inclusive range [0, 1].")
 
     max_exact_float64_integer = 2**53
+    max_int64 = np.iinfo(np.int64).max
     parsed_class_ids: list[int] = []
     for value in detections[:, -1].tolist():
         if isinstance(value, (bool, np.bool_)):
             raise ValueError("Detection class IDs must be non-negative integers.")
         class_id = int(value)
-        if class_id != value or class_id < 0 or class_id > np.iinfo(np.int64).max:
+        if class_id != value or class_id < 0 or class_id > max_int64:
             raise ValueError("Detection class IDs must be non-negative integers.")
         if class_id > max_exact_float64_integer:
             raise ValueError(
@@ -157,12 +158,13 @@ def pack_numpy_track_rows(
             raise ValueError(f"{owner} returned {name} with shape {array.shape}; expected [M].")
         if len(array) != count:
             raise ValueError(f"{owner} returned {len(array)} {name} for {count} track rows.")
-        if array.size and not np.isfinite(array).all():
-            raise ValueError(f"{owner} returned non-finite {name}.")
-        if array.size and not np.equal(array, np.floor(array)).all():
-            raise ValueError(f"{owner} returned non-integer {name}.")
-        if array.size and (np.any(array < np.iinfo(np.int64).min) or np.any(array > np.iinfo(np.int64).max)):
-            raise ValueError(f"{owner} returned {name} outside the int64 range.")
+        if array.dtype != np.dtype(np.int64):
+            if array.size and not np.isfinite(array).all():
+                raise ValueError(f"{owner} returned non-finite {name}.")
+            if array.size and not np.equal(array, np.floor(array)).all():
+                raise ValueError(f"{owner} returned non-integer {name}.")
+            if array.size and (np.any(array < np.iinfo(np.int64).min) or np.any(array > np.iinfo(np.int64).max)):
+                raise ValueError(f"{owner} returned {name} outside the int64 range.")
         integer_columns[name] = np.ascontiguousarray(array, dtype=np.int64)
 
     track_id_values = integer_columns["track IDs"]

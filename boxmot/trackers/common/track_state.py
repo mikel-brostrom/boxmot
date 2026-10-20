@@ -113,7 +113,9 @@ class BoxTrack(TrackLifecycleMixin):
         for track in stracks:
             groups.setdefault(track.kalman_filter, []).append(track)
         for kalman, tracks in groups.items():
-            multi_mean = np.asarray([track.mean.copy() for track in tracks])
+            # Stacking already owns its data; inactive-state edits must only
+            # change this batch, without copying each source row first.
+            multi_mean = np.asarray([track.mean for track in tracks])
             multi_covariance = np.asarray([track.covariance for track in tracks])
             for index, track in enumerate(tracks):
                 if track.state != cls._local_tracked_state():
@@ -213,8 +215,8 @@ class BoxTrack(TrackLifecycleMixin):
 
     def _append_current_history(self) -> None:
         """Store the post-transition geometry used by trajectory rendering."""
-        geometry = self._state_obb_for_plot() if self.is_obb else self.xyxy.copy()
-        self.history_observations.append(np.asarray(geometry, dtype=np.float32).copy())
+        geometry = self._state_obb_for_plot() if self.is_obb else self.xyxy
+        self.history_observations.append(np.array(geometry, dtype=np.float32, copy=True))
 
     def _state_obb_for_plot(self) -> np.ndarray:
         """Return post-update OBB state as corners with state-only angle smoothing."""

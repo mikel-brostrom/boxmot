@@ -526,7 +526,7 @@ def test_restored_tuner_publishes_saved_trial_count_before_any_new_trial_starts(
     restored = SimpleNamespace(_local_tuner=SimpleNamespace(_run_config=SimpleNamespace()))
     set_tune_progress_workflow(workflow)
     try:
-        Tuner(SimpleNamespace(n_trials=10))._inject_callback_into_restored(restored, callback, MagicMock(), tmp_path)
+        Tuner(SimpleNamespace(n_trials=10))._inject_callback_into_restored(restored, callback, [], tmp_path)
 
         assert len(publications) == 1
         title, renderable = publications[0]

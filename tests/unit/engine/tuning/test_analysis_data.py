@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from boxmot.engine.tuning.analysis_data import analyze_parameters, load_tune_analysis
+from boxmot.engine.tuning.analysis_data import _read_result, analyze_parameters, load_tune_analysis
 
 
 def _write_run(tmp_path: Path, frame: pd.DataFrame, schema: dict | None = None, fixed: dict | None = None) -> None:
@@ -26,22 +26,68 @@ def _write_result(tmp_path: Path, trial_id: str, result: dict) -> Path:
     return path
 
 
+def test_result_reader_skips_old_progress_and_ignores_incomplete_tail(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Long progress histories need only the final valid scored metadata."""
+    result = {"HOTA": 70, "timestamp": 50, "done": True}
+    path = tmp_path / "result.json"
+    progress = [json.dumps({"done": False, "iteration": index}) for index in range(100)]
+    tail = [
+        json.dumps(result),
+        json.dumps({"HOTA": 90, "done": False}),
+        json.dumps({"HOTA": 90, "error": "failed"}),
+        '{"incomplete":',
+    ]
+    path.write_text("\n".join(progress + tail))
+    decoded: list[str] = []
+    loads = json.loads
+
+    def recording_loads(text: str) -> object:
+        decoded.append(text)
+        return loads(text)
+
+    monkeypatch.setattr(json, "loads", recording_loads)
+
+    assert _read_result(path) == result
+    assert len(decoded) == 1 + len(tail)
+
+
+def test_result_reader_preserves_pretty_printed_documents(tmp_path: Path) -> None:
+    """A JSON document remains valid even when it spans multiple lines."""
+    result = {"HOTA": 70, "timestamp": 50, "config": {"match_thresh": 0.8}}
+    path = tmp_path / "result.json"
+    path.write_text(json.dumps(result, indent=2))
+
+    assert _read_result(path) == result
+
+
 def test_active_cases_exclude_runtime_defaults_and_keep_branch_bounds() -> None:
     schema = {
         "mode": {"type": "choice", "options": ["off", "narrow", "wide"], "default": "off"},
         "weight": {
-            "type": "uniform", "range": [0, 1], "default": 0.9, "depends_on": "mode",
+            "type": "uniform",
+            "range": [0, 1],
+            "default": 0.9,
+            "depends_on": "mode",
             "cases": {"off": {"default": 0.9}, "narrow": {"range": [0.2, 0.4]}},
         },
         "fixed": {"default": 10},
         "constant": {"type": "randint", "range": [1, 10], "default": 3},
     }
-    frame = pd.DataFrame({
-        "trial_id": ["a", "b", "c", "d", "e"], "HOTA": [60, 61, 62, 63, 64],
-        "mode": ["off", "narrow", "wide", "wide", "wide"],
-        "weight": [0.9, 0.3, 0.6, np.inf, np.nan], "fixed": 10, "constant": 3,
-        "arbitrary_metadata": [1, 2, 3, 4, 5],
-    }, index=[10, 20, 30, 40, 50])
+    frame = pd.DataFrame(
+        {
+            "trial_id": ["a", "b", "c", "d", "e"],
+            "HOTA": [60, 61, 62, 63, 64],
+            "mode": ["off", "narrow", "wide", "wide", "wide"],
+            "weight": [0.9, 0.3, 0.6, np.inf, np.nan],
+            "fixed": 10,
+            "constant": 3,
+            "arbitrary_metadata": [1, 2, 3, 4, 5],
+        },
+        index=[10, 20, 30, 40, 50],
+    )
     parameters = analyze_parameters(frame, schema)
     assert set(parameters) == {"mode", "weight", "constant"}
     weight = parameters["weight"]
@@ -57,10 +103,14 @@ def test_nested_activation_preserves_missing_booleans(flags: tuple[object, objec
     false, true = flags
     schema = {
         "enabled": {
-            "type": "choice", "options": [False, True], "default": False,
+            "type": "choice",
+            "options": [False, True],
+            "default": False,
             "activates": {
                 "child": {
-                    "type": "choice", "options": [False, True], "default": True,
+                    "type": "choice",
+                    "options": [False, True],
+                    "default": True,
                     "activates": {"value": {"type": "loguniform", "range": [0.01, 1], "default": 0.1}},
                 }
             },
@@ -68,11 +118,16 @@ def test_nested_activation_preserves_missing_booleans(flags: tuple[object, objec
         "missing": {"type": "choice", "options": [False, True], "default": False},
         "numeric_choice": {"type": "choice", "options": [0, 1], "default": 0},
     }
-    frame = pd.DataFrame({
-        "HOTA": [0, 20, 30, 40, np.inf], "enabled": [false, true, true, None, true],
-        "child": [true, false, true, true, true], "value": [0.1, 0.1, 0.2, 0.4, 0.5],
-        "missing": None, "numeric_choice": [0, 1, 0, 1, 0],
-    })
+    frame = pd.DataFrame(
+        {
+            "HOTA": [0, 20, 30, 40, np.inf],
+            "enabled": [false, true, true, None, true],
+            "child": [true, false, true, true, true],
+            "value": [0.1, 0.1, 0.2, 0.4, 0.5],
+            "missing": None,
+            "numeric_choice": [0, 1, 0, 1, 0],
+        }
+    )
     parameters = analyze_parameters(frame, schema)
     assert "missing" not in parameters
     assert parameters["enabled"].samples["value"].tolist() == [False, True, True]
@@ -86,20 +141,31 @@ def test_association_inactive_children_and_json_boolean_cases() -> None:
     schema = {
         "asso_func": {"type": "choice", "options": ["iou", "centroid"], "default": "iou"},
         "feature": {
-            "type": "choice", "options": [False, True], "default": True, "association": ["iou"],
+            "type": "choice",
+            "options": [False, True],
+            "default": True,
+            "association": ["iou"],
             "activates": {"weight": {"type": "uniform", "range": [0, 1], "default": 0.5}},
         },
         "flag": {"type": "choice", "options": [False, True], "default": False},
         "conditional": {
-            "type": "uniform", "range": [0, 1], "default": 0.1, "depends_on": "flag",
+            "type": "uniform",
+            "range": [0, 1],
+            "default": 0.1,
+            "depends_on": "flag",
             "cases": {"false": {"default": 0.1}},
         },
     }
-    frame = pd.DataFrame({
-        "HOTA": [10, 20, 30], "asso_func": ["centroid", "iou", "iou"],
-        "feature": [True, False, True], "weight": [0.5, 0.5, 0.9],
-        "flag": [False, True, True], "conditional": [0.1, 0.3, 0.6],
-    })
+    frame = pd.DataFrame(
+        {
+            "HOTA": [10, 20, 30],
+            "asso_func": ["centroid", "iou", "iou"],
+            "feature": [True, False, True],
+            "weight": [0.5, 0.5, 0.9],
+            "flag": [False, True, True],
+            "conditional": [0.1, 0.3, 0.6],
+        }
+    )
     parameters = analyze_parameters(frame, schema)
     assert parameters["feature"].samples.index.tolist() == [1, 2]
     assert parameters["weight"].samples.index.tolist() == [2]
@@ -110,22 +176,43 @@ def test_loader_uses_completion_order_recorded_defaults_and_selected_class(tmp_p
     schema = {
         "mode": {"type": "choice", "options": ["a", "b"], "default": "b"},
         "weight": {
-            "type": "uniform", "range": [0, 1], "default": 0.5, "depends_on": "mode",
+            "type": "uniform",
+            "range": [0, 1],
+            "default": 0.5,
+            "depends_on": "mode",
             "cases": {"b": {"default": 0.7, "range": [0.5, 1]}},
         },
     }
-    _write_run(tmp_path, pd.DataFrame({
-        "trial_id": ["001", "002", "003", "bad"], "HOTA": [70, 69.85, 0, np.inf],
-        "mode": ["a", "b", "a", "a"], "weight": [0.2, 0.7, 0.1, 0.1],
-    }), schema, {"fixed": 5})
+    _write_run(
+        tmp_path,
+        pd.DataFrame(
+            {
+                "trial_id": ["001", "002", "003", "bad"],
+                "HOTA": [70, 69.85, 0, np.inf],
+                "mode": ["a", "b", "a", "a"],
+                "weight": [0.2, 0.7, 0.1, 0.1],
+            }
+        ),
+        schema,
+        {"fixed": 5},
+    )
     for trial_id, score, timestamp in [("001", 70, 30), ("002", 69.85, 10), ("003", 0, 20)]:
-        _write_result(tmp_path, trial_id, {
-            "HOTA": score, "timestamp": timestamp, "config": {"fixed": 5},
-            "_validation": {"summary_label": "second", "raw": {
-                "first": {"DetA": 1, "per_sequence": {"sequence": {"HOTA": 1}}},
-                "second": {"DetA": 60, "per_sequence": {"sequence": {"HOTA": score}}},
-            }},
-        })
+        _write_result(
+            tmp_path,
+            trial_id,
+            {
+                "HOTA": score,
+                "timestamp": timestamp,
+                "config": {"fixed": 5},
+                "_validation": {
+                    "summary_label": "second",
+                    "raw": {
+                        "first": {"DetA": 1, "per_sequence": {"sequence": {"HOTA": 1}}},
+                        "second": {"DetA": 60, "per_sequence": {"sequence": {"HOTA": score}}},
+                    },
+                },
+            },
+        )
     analysis = load_tune_analysis(tmp_path)
     assert analysis is not None
     assert analysis.trials["trial_id"].tolist() == ["002", "003", "001"]
@@ -157,12 +244,16 @@ def test_loader_reads_last_valid_jsonl_and_does_not_average_class_hota(tmp_path:
     _write_run(tmp_path, pd.DataFrame({"trial_id": ["a"], "HOTA": [70]}), {})
     path = _write_result(tmp_path, "a", {"HOTA": 60, "timestamp": 1})
     result = {
-        "HOTA": 70, "timestamp": 2,
-        "_validation": {"summary_label": "cls_comb_det_av", "raw": {
-            "person": {"DetA": 30, "per_sequence": {"sequence": {"HOTA": 10}}},
-            "car": {"DetA": 80, "per_sequence": {"sequence": {"HOTA": 90}}},
-            "cls_comb_det_av": {"DetA": 65, "per_sequence": {}},
-        }},
+        "HOTA": 70,
+        "timestamp": 2,
+        "_validation": {
+            "summary_label": "cls_comb_det_av",
+            "raw": {
+                "person": {"DetA": 30, "per_sequence": {"sequence": {"HOTA": 10}}},
+                "car": {"DetA": 80, "per_sequence": {"sequence": {"HOTA": 90}}},
+                "cls_comb_det_av": {"DetA": 65, "per_sequence": {}},
+            },
+        },
     }
     with path.open("a") as stream:
         stream.write("\n" + json.dumps(result) + '\n{"incomplete":')
@@ -175,9 +266,19 @@ def test_loader_reads_last_valid_jsonl_and_does_not_average_class_hota(tmp_path:
 
 
 def test_baseline_requires_fixed_options_match(tmp_path: Path) -> None:
-    _write_run(tmp_path, pd.DataFrame({
-        "HOTA": [60, 61], "value": [0.5, 0.5], "fixed": [False, True], "timestamp": [1, 2],
-    }), {"value": {"type": "uniform", "range": [0, 1], "default": 0.5}}, {"fixed": True})
+    _write_run(
+        tmp_path,
+        pd.DataFrame(
+            {
+                "HOTA": [60, 61],
+                "value": [0.5, 0.5],
+                "fixed": [False, True],
+                "timestamp": [1, 2],
+            }
+        ),
+        {"value": {"type": "uniform", "range": [0, 1], "default": 0.5}},
+        {"fixed": True},
+    )
     analysis = load_tune_analysis(tmp_path)
     assert analysis is not None
     assert analysis.baseline_index == 1
@@ -188,28 +289,52 @@ def test_integer_case_keys_round_trip_from_json() -> None:
     schema = {
         "mode": {"type": "choice", "options": [0, 1], "default": 0},
         "weight": {
-            "type": "uniform", "range": [0, 1], "default": 0.2,
-            "depends_on": "mode", "cases": {"0": {"default": 0.2}},
+            "type": "uniform",
+            "range": [0, 1],
+            "default": 0.2,
+            "depends_on": "mode",
+            "cases": {"0": {"default": 0.2}},
         },
     }
-    parameters = analyze_parameters(pd.DataFrame({
-        "mode": [0, 1], "weight": [0.2, 0.7], "HOTA": [60, 61],
-    }), schema)
+    parameters = analyze_parameters(
+        pd.DataFrame(
+            {
+                "mode": [0, 1],
+                "weight": [0.2, 0.7],
+                "HOTA": [60, 61],
+            }
+        ),
+        schema,
+    )
     assert parameters["weight"].samples.index.tolist() == [1]
 
 
 @pytest.mark.parametrize("default", [False, 0, 1.5])
 def test_fixed_selector_case_keys_round_trip_from_json(default: object) -> None:
-    schema = json.loads(json.dumps({
-        "mode": {"default": default},
-        "weight": {
-            "type": "uniform", "range": [0, 1], "default": 0.2,
-            "depends_on": "mode", "cases": {default: {"default": 0.2}},
-        },
-    }))
-    parameters = analyze_parameters(pd.DataFrame({
-        "mode": [default], "weight": [0.2], "HOTA": [60],
-    }), schema)
+    schema = json.loads(
+        json.dumps(
+            {
+                "mode": {"default": default},
+                "weight": {
+                    "type": "uniform",
+                    "range": [0, 1],
+                    "default": 0.2,
+                    "depends_on": "mode",
+                    "cases": {default: {"default": 0.2}},
+                },
+            }
+        )
+    )
+    parameters = analyze_parameters(
+        pd.DataFrame(
+            {
+                "mode": [default],
+                "weight": [0.2],
+                "HOTA": [60],
+            }
+        ),
+        schema,
+    )
     assert "weight" not in parameters
 
 
@@ -217,18 +342,31 @@ def test_serialized_case_keys_use_resolved_selector_options() -> None:
     schema = {
         "variant": {"type": "choice", "options": ["text", "flag"], "default": "text"},
         "mode": {
-            "type": "choice", "options": ["off", "on"], "default": "off",
+            "type": "choice",
+            "options": ["off", "on"],
+            "default": "off",
             "depends_on": "variant",
             "cases": {"flag": {"options": [False, True], "default": False}},
         },
         "weight": {
-            "type": "uniform", "range": [0, 1], "default": 0.2,
-            "depends_on": "mode", "cases": {"false": {"default": 0.2}},
+            "type": "uniform",
+            "range": [0, 1],
+            "default": 0.2,
+            "depends_on": "mode",
+            "cases": {"false": {"default": 0.2}},
         },
     }
-    parameters = analyze_parameters(pd.DataFrame({
-        "variant": ["flag", "flag"], "mode": [False, True], "weight": [0.2, 0.7], "HOTA": [60, 61],
-    }), schema)
+    parameters = analyze_parameters(
+        pd.DataFrame(
+            {
+                "variant": ["flag", "flag"],
+                "mode": [False, True],
+                "weight": [0.2, 0.7],
+                "HOTA": [60, 61],
+            }
+        ),
+        schema,
+    )
     assert parameters["weight"].samples.index.tolist() == [1]
 
 
@@ -236,13 +374,23 @@ def test_string_case_keys_preserve_case_sensitive_selector_values() -> None:
     schema = {
         "mode": {"type": "choice", "options": ["LOW", "low"], "default": "LOW"},
         "weight": {
-            "type": "uniform", "range": [0, 1], "default": 0.2,
-            "depends_on": "mode", "cases": {"low": {"default": 0.2}},
+            "type": "uniform",
+            "range": [0, 1],
+            "default": 0.2,
+            "depends_on": "mode",
+            "cases": {"low": {"default": 0.2}},
         },
     }
-    parameters = analyze_parameters(pd.DataFrame({
-        "mode": ["LOW", "low"], "weight": [0.7, 0.2], "HOTA": [60, 61],
-    }), schema)
+    parameters = analyze_parameters(
+        pd.DataFrame(
+            {
+                "mode": ["LOW", "low"],
+                "weight": [0.7, 0.2],
+                "HOTA": [60, 61],
+            }
+        ),
+        schema,
+    )
     assert parameters["weight"].samples.index.tolist() == [0]
 
 
@@ -250,14 +398,23 @@ def test_categorical_options_are_recorded_per_resolved_branch() -> None:
     schema = {
         "mode": {"type": "choice", "options": ["a", "b"], "default": "a"},
         "option": {
-            "type": "choice", "options": ["first", "second"], "default": "first",
+            "type": "choice",
+            "options": ["first", "second"],
+            "default": "first",
             "depends_on": "mode",
             "cases": {"b": {"options": ["third", "fourth"], "default": "third"}},
         },
     }
-    parameter = analyze_parameters(pd.DataFrame({
-        "mode": ["a", "b"], "option": ["first", "third"], "HOTA": [60, 61],
-    }), schema)["option"]
+    parameter = analyze_parameters(
+        pd.DataFrame(
+            {
+                "mode": ["a", "b"],
+                "option": ["first", "third"],
+                "HOTA": [60, 61],
+            }
+        ),
+        schema,
+    )["option"]
     assert parameter.options == ("first", "second", "third", "fourth")
     assert parameter.branch_options == {"mode=a": ("first", "second"), "mode=b": ("third", "fourth")}
 
@@ -267,21 +424,29 @@ def test_saved_200_trial_fusion_activity_uses_branches_not_default_value(tmp_pat
     schema = {
         "motion_fusion": {"type": "choice", "options": ["off", "gate", "blend"], "default": "off"},
         "motion_fusion_lambda": {
-            "type": "uniform", "range": [0, 1], "default": 0.98, "depends_on": "motion_fusion",
+            "type": "uniform",
+            "range": [0, 1],
+            "default": 0.98,
+            "depends_on": "motion_fusion",
             "cases": {"off": {"default": 0.98}, "gate": {"default": 0.98}},
         },
         "motion_fusion_only_position": {
-            "type": "choice", "options": [False, True], "default": False, "depends_on": "motion_fusion",
+            "type": "choice",
+            "options": [False, True],
+            "default": False,
+            "depends_on": "motion_fusion",
             "cases": {"off": {"default": False}},
         },
     }
-    frame = pd.DataFrame({
-        "trial_id": [f"trial-{index}" for index in range(200)],
-        "HOTA": np.linspace(60, 70, 200),
-        "motion_fusion": ["off"] * 107 + ["gate"] * 80 + ["blend"] * 13,
-        "motion_fusion_lambda": [0.98] * 187 + np.linspace(0, 0.9, 12).tolist() + [0.98],
-        "motion_fusion_only_position": [False] * 200,
-    })
+    frame = pd.DataFrame(
+        {
+            "trial_id": [f"trial-{index}" for index in range(200)],
+            "HOTA": np.linspace(60, 70, 200),
+            "motion_fusion": ["off"] * 107 + ["gate"] * 80 + ["blend"] * 13,
+            "motion_fusion_lambda": [0.98] * 187 + np.linspace(0, 0.9, 12).tolist() + [0.98],
+            "motion_fusion_only_position": [False] * 200,
+        }
+    )
     _write_run(tmp_path, frame, schema)
     analysis = load_tune_analysis(tmp_path)
     assert analysis is not None
@@ -296,16 +461,22 @@ def test_saved_200_trial_fusion_activity_uses_branches_not_default_value(tmp_pat
     assert position["value"].eq(False).all()
 
 
-@pytest.mark.parametrize("alternate", [
-    {"type": "loguniform", "range": [1, 100]},
-    {"type": "choice", "options": [1, 100]},
-])
+@pytest.mark.parametrize(
+    "alternate",
+    [
+        {"type": "loguniform", "range": [1, 100]},
+        {"type": "choice", "options": [1, 100]},
+    ],
+)
 def test_incompatible_branch_representations_are_omitted_with_reason(alternate: dict) -> None:
     schema = {
         "mode": {"type": "choice", "options": ["a", "b"], "default": "a"},
         "weight": {
-            "type": "uniform", "range": [0, 1], "default": 0,
-            "depends_on": "mode", "cases": {"b": alternate},
+            "type": "uniform",
+            "range": [0, 1],
+            "default": 0,
+            "depends_on": "mode",
+            "cases": {"b": alternate},
         },
     }
     frame = pd.DataFrame({"mode": ["a", "b"], "weight": [0, 100], "HOTA": [60, 61]})
@@ -322,12 +493,25 @@ def test_incompatible_branch_representations_are_omitted_with_reason(alternate: 
 
 def test_malformed_optional_metadata_and_incomplete_results_are_ignored(tmp_path: Path) -> None:
     _write_run(tmp_path, pd.DataFrame({"trial_id": ["a", "b"], "HOTA": [50, 60], "MOTA": [30, 40]}))
-    _write_result(tmp_path, "a", {
-        "HOTA": 50, "done": True, "timestamp": {"bad": 1}, "config": {"HOTA": 1, "MOTA": 2},
-        "_validation": {"summary_label": "all", "raw": {"all": {
-            "DetA": [20], "per_sequence": {"sequence": {"HOTA": {"bad": 20}}},
-        }}},
-    })
+    _write_result(
+        tmp_path,
+        "a",
+        {
+            "HOTA": 50,
+            "done": True,
+            "timestamp": {"bad": 1},
+            "config": {"HOTA": 1, "MOTA": 2},
+            "_validation": {
+                "summary_label": "all",
+                "raw": {
+                    "all": {
+                        "DetA": [20],
+                        "per_sequence": {"sequence": {"HOTA": {"bad": 20}}},
+                    }
+                },
+            },
+        },
+    )
     _write_result(tmp_path, "b", {"HOTA": 60, "done": False, "timestamp": 1})
     analysis = load_tune_analysis(tmp_path)
     assert analysis is not None
