@@ -3,9 +3,15 @@
 from collections.abc import Sequence
 from typing import Any, Literal
 
-import lap
 import numpy as np
 from scipy.spatial.distance import cdist
+
+try:
+    from lap import lapjvr
+except ImportError:
+    # Fallback for lapx < 0.11.0rc1 without lapjvr (use lapjv instead)
+    import lap
+    lapjvr = None
 
 from boxmot.trackers.common.association.iou import AssociationFunction
 from boxmot.trackers.common.geometry.obb import align_obb_measurements, normalize_angle
@@ -48,9 +54,15 @@ def solve_assignment(cost_matrix: np.ndarray, cost_limit: float | None = None) -
         cost_limit = float(values.max() + np.ptp(values) + max(1.0, np.abs(values).max()))
     if cost_limit is not None:
         kwargs["cost_limit"] = cost_limit
-    _, row_to_col, _ = lap.lapjv(cost_matrix, **kwargs)
-    assigned_rows = np.flatnonzero(row_to_col >= 0)
-    matches = np.column_stack((assigned_rows, row_to_col[assigned_rows])).astype(int, copy=False)
+    
+    if lapjvr is not None:
+        # Use faster lapjvr from lapx >= 0.11.0rc1
+        matches = lapjvr(cost_matrix, return_cost=False, output="pairs", **kwargs).astype(int, copy=False)
+    else:
+        # Fallback to lapjv for older lapx versions
+        _, row_to_col, _ = lap.lapjv(cost_matrix, **kwargs)
+        assigned_rows = np.flatnonzero(row_to_col >= 0)
+        matches = np.column_stack((assigned_rows, row_to_col[assigned_rows])).astype(int, copy=False)
     return matches[finite[matches[:, 0], matches[:, 1]]]
 
 
