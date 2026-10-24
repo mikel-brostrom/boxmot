@@ -42,6 +42,7 @@ from boxmot.utils.processes import guard_parent_lifetime
 if TYPE_CHECKING:
     import numpy as np
 
+    from boxmot.engine.eval.cmc_replay import CMCReplaySequence
     from boxmot.engine.eval.session import ReplaySession
     from boxmot.trackers.common.mask_guidance import MaskGuidanceConfig
     from boxmot.trackers.common.protocols import TrackerRequirements
@@ -124,6 +125,7 @@ class _SequenceReplayTask:
     report_progress: bool = True
     mask_guidance_weights: str | None = None
     mask_guidance_device: str = "cpu"
+    cmc_transforms: CMCReplaySequence | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -546,6 +548,14 @@ def _replay_sequence_task(
             tracker = inputs.enter_context(
                 _owned_tracker(task.tracker_spec) if guidance is None else _owned_tracker(task.tracker_spec, guidance)
             )
+            prepared_cmc = None
+            if task.cmc_transforms is not None:
+                if task.cmc_transforms.sequence_id != task.sequence_id:
+                    raise ValueError("Prepared CMC transforms belong to another replay sequence.")
+                task.cmc_transforms.validate_selection(Path(task.build), task.split)
+                task.cmc_transforms.validate_tracker(task.tracker_spec)
+                task.cmc_transforms.validate_sources()
+                prepared_cmc = tracker.set_prepared_cmc(task.cmc_transforms.warps)
             requirements = tracker.requirements
             needs_masks = requirements.masks or task.output_format == "mots"
             needs_images = requirements.frame_pixels or frame_callback is not None
@@ -591,6 +601,16 @@ def _replay_sequence_task(
                         raise RuntimeError(
                             f"Sequence-scoped loader returned {sample.sequence_id!r} for task {task.sequence_id!r}."
                         )
+                    if prepared_cmc is not None:
+                        transforms = task.cmc_transforms
+                        assert transforms is not None
+                        if (
+                            completed >= len(transforms.sample_ids)
+                            or sample.sample_id != transforms.sample_ids[completed]
+                            or sample.frame_index != transforms.frame_indices[completed]
+                        ):
+                            raise ValueError("Prepared CMC transforms do not match the replay frame order.")
+                        prepared_cmc.select_frame(sample.frame_index)
                     frame = _frame_for_sample(sample, placeholder_images)
                     result = pipeline.step_detections(frame, sample.detections)
                     tracks = (
@@ -604,6 +624,9 @@ def _replay_sequence_task(
                     completed += 1
                     track_rows += row_count
                     emit("running", sample.sample_id)
+                if prepared_cmc is not None:
+                    prepared_cmc.validate_complete()
+                    task.cmc_transforms.validate_sources()
                 handle.flush()
                 os.fsync(handle.fileno())
     except Exception as exc:
@@ -1050,9 +1073,12 @@ def _validated_tracker_requirements(
     split: str | None,
     output_format: str,
     require_images: bool,
+    cmc_transforms: CMCReplaySequence | None = None,
 ) -> TrackerRequirements:
     """Probe an effective configuration before scheduling replay workers."""
     with _owned_tracker(spec) as probe:
+        if cmc_transforms is not None:
+            probe.set_prepared_cmc(cmc_transforms.warps)
         requirements = probe.requirements
         validate_build_compatibility(
             manifest,
@@ -1089,6 +1115,7 @@ def replay_build(
     mask_guidance_device: str = "cpu",
     mask_guidance_max_objects: int | None = None,
     cmc_policy: SequenceCMCPolicy | None = None,
+    cmc_transforms: tuple[CMCReplaySequence, ...] = (),
 ) -> ReplayResult:
     """Replay keyed detections, isolating each sequence in a spawned process.
 
@@ -1106,6 +1133,8 @@ def replay_build(
     ``cmc_policy`` applies sequence-specific camera-motion settings to fresh
     trackers while preserving the other options in ``tracker_spec``. Source
     pixels are loaded only where required by the effective tracker or rendering.
+    ``cmc_transforms`` reuses source-bound automatic SOF estimates through the
+    same tracker motion path, without decoding images solely for CMC.
 
     ``mask_guidance_weights`` enables the paper-inspired EdgeTAM association cue
     for Python AABB box trackers. Each sequence streams its decoded sample frames
@@ -1119,6 +1148,18 @@ def replay_build(
     _validate_output_format(output_format)
     if not isinstance(tracker_spec, TrackerSpec):
         raise TypeError("tracker_spec must be a TrackerSpec")
+    prepared_by_sequence: dict[str, CMCReplaySequence] = {}
+    if cmc_transforms:
+        from boxmot.engine.eval.cmc_replay import CMCReplaySequence
+
+        if cmc_policy is None:
+            raise ValueError("Prepared CMC transforms require their sequence CMC policy.")
+        for transforms in cmc_transforms:
+            if not isinstance(transforms, CMCReplaySequence):
+                raise TypeError("cmc_transforms must contain CMCReplaySequence objects.")
+            if transforms.sequence_id in prepared_by_sequence:
+                raise ValueError(f"Duplicate prepared CMC sequence: {transforms.sequence_id!r}.")
+            prepared_by_sequence[transforms.sequence_id] = transforms
     if cmc_policy is not None:
         if not isinstance(cmc_policy, SequenceCMCPolicy):
             raise TypeError("cmc_policy must be a SequenceCMCPolicy or None.")
@@ -1234,13 +1275,13 @@ def replay_build(
 
     manifest = DatasetManifest.load(build_path)
     require_images = mask_guidance_weights is not None or frame_callback is not None
-    probed_specs: list[tuple[TrackerSpec, TrackerRequirements]] = []
+    probed_specs: list[tuple[TrackerSpec, bool, TrackerRequirements]] = []
     if cmc_policy is None:
         # Preserve fail-fast input validation for the ordinary replay path.
         requirements = _validated_tracker_requirements(
             tracker_spec, manifest, split=split, output_format=output_format, require_images=require_images
         )
-        probed_specs.append((tracker_spec, requirements))
+        probed_specs.append((tracker_spec, False, requirements))
     # Evaluation already derived these counts while validating the raw source
     # catalog. Reusing them avoids opening the samples Parquet a second time in
     # the coordinator. Each worker still verifies its sequence count against
@@ -1256,18 +1297,40 @@ def replay_build(
         # Counts supplied by an evaluation workflow may contain only that subset.
         available = tuple(sequence for sequence, _ in _sequence_frame_counts(build_path, manifest, split=None))
         cmc_policy.validate(tracker_spec, available)
+        if prepared_by_sequence.keys() - set(available):
+            raise ValueError("Prepared CMC transforms contain sequences outside the replay build.")
     sequence_specs = {
         sequence: tracker_spec if cmc_policy is None else cmc_policy.apply(tracker_spec, sequence)
         for sequence in selected
     }
+    for sequence, transforms in prepared_by_sequence.items():
+        if sequence not in sequence_specs:
+            continue
+        transforms.validate_selection(build_path, split)
+        transforms.validate_tracker(sequence_specs[sequence])
+        if len(transforms.sample_ids) != frame_counts[sequence]:
+            raise ValueError(f"Prepared CMC frame count differs from replay sequence {sequence!r}.")
     requirements_by_sequence: dict[str | None, TrackerRequirements] = {}
     for sequence, effective_spec in sequence_specs.items() if selected else ((None, tracker_spec),):
-        requirements = next((requirements for spec, requirements in probed_specs if spec == effective_spec), None)
+        transforms = prepared_by_sequence.get(sequence)
+        requirements = next(
+            (
+                requirements
+                for spec, prepared, requirements in probed_specs
+                if spec == effective_spec and prepared == (transforms is not None)
+            ),
+            None,
+        )
         if requirements is None:
             requirements = _validated_tracker_requirements(
-                effective_spec, manifest, split=split, output_format=output_format, require_images=require_images
+                effective_spec,
+                manifest,
+                split=split,
+                output_format=output_format,
+                require_images=require_images,
+                **({"cmc_transforms": transforms} if transforms is not None else {}),
             )
-            probed_specs.append((effective_spec, requirements))
+            probed_specs.append((effective_spec, transforms is not None, requirements))
         requirements_by_sequence[sequence] = requirements
     worker_count = resolve_sequence_workers(len(selected), 1 if frame_callback is not None else workers)
     if session is not None and worker_count != session.workers:
@@ -1317,6 +1380,7 @@ def replay_build(
                 input_cache_path=None if sequence_id not in input_paths else str(input_paths[sequence_id]),
                 mask_guidance_weights=mask_guidance_weights,
                 mask_guidance_device=mask_guidance_device,
+                cmc_transforms=prepared_by_sequence.get(sequence_id),
             )
             for ordinal, sequence_id in enumerate(selected)
         )
@@ -1364,6 +1428,8 @@ def replay_build(
                 },
             }
             policy_path = staging / "cmc-policy.json"
+            if prepared_by_sequence:
+                provenance["prepared_transforms"] = sorted(prepared_by_sequence.keys() & sequence_specs.keys())
             policy_path.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
             os.replace(policy_path, destination / policy_path.name)
 

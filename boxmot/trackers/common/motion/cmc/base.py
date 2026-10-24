@@ -28,6 +28,7 @@ class BaseCMC(ABC):
     scale: Scale = 0.15
     target_width: int | None = None
     resize_before_grayscale: bool = False
+    requires_frame_pixels: bool = True
 
     def configure_preprocessing(self, scale: float | None, target_width: int | None) -> None:
         """Set an explicit scale or a resolution-independent working width."""

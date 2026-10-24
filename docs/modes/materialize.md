@@ -216,6 +216,25 @@ BoxMOT downloads its configured Hugging Face `per_split` resource before
 cataloging; an existing populated split is reused unchanged. Archive-backed
 datasets still require explicit setup.
 
+## Stored camera transforms
+
+Automatic CMC in `eval` or `tune`, including `tune --select-kf --select-cmc`,
+saves derived camera evidence under `<build>/cmc/<analysis-key>/` on first use.
+Each entry contains `analysis.json`, `warps.npz`, and a checksummed `_SUCCESS`
+marker. Preparation happens when
+the tracker is selected because the estimates depend on its detection mask,
+estimator settings, geometry, classes, and selected sequences.
+
+Later compatible runs validate and reuse these transforms without decoding
+images or repeating sparse optical flow. Source images must remain available
+for validation. Changed inputs or settings require new analysis; independent
+sequences are processed up to the `--sequence-workers` limit.
+
+These derived entries leave the canonical manifest, build ID, detections, and
+embeddings unchanged. Adding camera evidence does not rebuild perception and
+does not require `--cache-inputs`. Explicit CMC policy files still estimate
+motion during replay. See [CMC by sequence](eval.md#cmc-by-sequence).
+
 ## Consume the build
 
 `research` requires an explicit build ID or path. `eval` and `tune` accept the

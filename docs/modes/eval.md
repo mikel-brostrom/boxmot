@@ -502,12 +502,28 @@ boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml \
 
 Replace the profile path with the output from
 [`tune --select-kf --select-cmc`](tune.md#joint-cmc-and-kf-selection).
-A saved automatic camera strategy analyzes the current sequences during setup
-and applies SOF only where camera motion is detected. The selected KF and
-tracker thresholds stay fixed. Source images must remain available.
+A saved automatic camera strategy loads compatible camera evidence from the
+build or analyzes the current sequences during setup. Compensation is enabled
+only where camera motion is detected. The selected KF and tracker thresholds
+stay fixed.
 
-For a profile without a saved camera strategy, `--cmc-policy auto` requests
-sequence analysis, `--cmc-policy off` disables CMC, and `--cmc-policy PATH`
+On first use, setup stores `analysis.json` and `warps.npz` under
+`<build>/cmc/<analysis-key>/`. Later independent evaluation and tuning runs
+validate and reuse them without decoding images or repeating sparse optical
+flow. Reuse checks source files, frame identities, tracker masking, estimator
+settings, geometry, and class and sequence selections. Source images must
+remain available for validation. This storage is automatic, including without
+`--cache-inputs`, and leaves the build's manifest and perception outputs unchanged.
+
+When no compatible entry exists, setup analyzes independent sequences in
+parallel, bounded by `--sequence-workers`, while keeping each sequence's frames
+in order. Use `--sequence-workers 1` for serial analysis and replay. Replay
+uses the prepared transforms and loads pixels only when another tracker
+component or visualization needs them. Explicit policy files still estimate
+motion during replay because they contain decisions without transforms.
+
+For a profile without a saved camera strategy, `--cmc-policy auto` prepares or
+reuses automatic camera evidence, `--cmc-policy off` disables CMC, and `--cmc-policy PATH`
 loads explicit SOF decisions:
 
 ```yaml
@@ -698,6 +714,8 @@ sequences on a machine with eight logical CPUs use six workers.
 
 `--sequence-workers N` overrides automatic sizing with a positive integer cap;
 the active worker count never exceeds the number of selected sequences.
+Automatic CMC setup uses the same cap when it needs to generate stored
+transforms before replay starts; compatible stored transforms skip analysis.
 Use `--sequence-workers 1` to process sequences one at a time. The Rich panel
 reports frame progress separately for every sequence while those jobs run.
 

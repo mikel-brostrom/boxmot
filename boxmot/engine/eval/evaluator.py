@@ -773,7 +773,7 @@ def run_eval(
         if output_dir is None
         else Path(output_dir)
     )
-    cmc_policy = prepare_eval_cmc(
+    cmc_setup = prepare_eval_cmc(
         args,
         spec,
         output_dir,
@@ -792,8 +792,10 @@ def run_eval(
     visualization = None
     with ExitStack() as contexts:
         replay_callbacks = {}
-        if cmc_policy is not None:
-            replay_callbacks["cmc_policy"] = cmc_policy
+        if cmc_setup is not None:
+            replay_callbacks["cmc_policy"] = cmc_setup.policy
+            if cmc_setup.replay_sequences:
+                replay_callbacks["cmc_transforms"] = cmc_setup.replay_sequences
         if mask_guidance_weights is not None:
             replay_callbacks["mask_guidance_weights"] = mask_guidance_weights
             replay_callbacks["mask_guidance_device"] = str(getattr(args, "device", "cpu"))

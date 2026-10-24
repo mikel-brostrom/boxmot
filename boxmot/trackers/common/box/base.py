@@ -12,6 +12,7 @@ from boxmot.trackers.common.box.geometry import get_box_geometry_ops
 from boxmot.trackers.common.box.mask_guidance import BoxMaskGuidanceMixin
 from boxmot.trackers.common.detections.layout import DetectionLayout
 from boxmot.trackers.common.mask_guidance import MaskGuidance, MaskGuidanceConfig
+from boxmot.trackers.common.motion.cmc.prepared import PreparedCMC
 from boxmot.trackers.common.specs import TrackerCapabilities, TrackerFamily
 
 
@@ -65,6 +66,23 @@ class BoxTracker(BoxMaskGuidanceMixin, BaseTracker):
         self.validate_geometry_kind(self.geometry_ops.kind)
         super().__init__(*args, is_obb=is_obb, **kwargs)
         self._init_mask_guidance(mask_guidance, edgetam=edgetam)
+        self._frame_requirements_without_cmc = (self._requires_frame, self._requires_frame_dimensions_only)
+
+    def set_prepared_cmc(self, warps: np.ndarray) -> PreparedCMC:
+        """Bind sequence transforms before tracking while preserving other input needs.
+
+        Prepared transforms replace only an enabled CMC estimator. They do not
+        remove frame requirements belonging to association or mask guidance,
+        and supplied/live appearance embeddings retain their existing contract.
+        """
+        if getattr(self, "cmc", None) is None:
+            raise ValueError("Prepared CMC requires an enabled camera-motion estimator.")
+        if self.frame_count or self._has_updated:
+            raise RuntimeError("Prepared CMC must be configured before the first update of a sequence.")
+        prepared = PreparedCMC(warps)
+        self.cmc = prepared
+        self._requires_frame, self._requires_frame_dimensions_only = self._frame_requirements_without_cmc
+        return prepared
 
     def validate_geometry_kind(self, kind: GeometryKind) -> None:
         """Validate a fixed geometry kind before allocating tracker state."""

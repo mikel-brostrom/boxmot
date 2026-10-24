@@ -18,10 +18,12 @@ from boxmot.utils import logger as LOGGER
 class _PrecomputedCMC:
     """Frame-local CMC adapter used by class-separated updates."""
 
+    requires_frame_pixels = False
+
     def __init__(self, warp: np.ndarray | None) -> None:
         self.warp = warp
 
-    def apply(self, img: np.ndarray, dets: np.ndarray | None = None) -> np.ndarray | None:
+    def apply(self, img: np.ndarray | None, dets: np.ndarray | None = None) -> np.ndarray | None:
         return self.warp
 
 
@@ -246,7 +248,7 @@ class PerClassUpdateMixin:
         # Keep camera history current through empty frames before a class appears.
         if cmc is None or class_count == 1 or not callable(getattr(cmc, "apply", None)):
             return None
-        if img is None:
+        if img is None and getattr(cmc, "requires_frame_pixels", True):
             raise ValueError("img is required when camera-motion compensation is enabled")
         warp = cmc.apply(img, self.cmc_detection_boxes(dets))
         return _PrecomputedCMC(warp)

@@ -69,6 +69,20 @@ where compensation was enabled or disabled. The `use_cmc` line is labeled as
 an overridden base value. `summary.md` includes the same effective CMC setup;
 `cmc-policy.yaml` records the decisions as machine-readable data.
 
+Automatic CMC setup supplies its frame transforms to every tuning trial.
+It first checks `<build>/cmc/<analysis-key>/` for compatible stored evidence,
+including evidence from an earlier independent evaluation or tuning run. Reuse
+validates source files, frame identities, tracker masking, estimator settings,
+and class and sequence selections. Source images must remain available.
+
+If analysis is needed, setup processes independent sequences in parallel using
+`--sequence-workers`, keeps frames ordered, and stores the results for later
+runs. This adds derived artifacts without changing the build's manifest or
+rerunning detection or embedding inference. Trials reuse the transforms with
+fresh tracker state and skip image decoding when CMC is the only component
+requiring pixels. Compatible stored evidence also skips decoding and SOF during
+setup; changed inputs or settings require new analysis.
+
 Near-best means within **0.2 absolute HOTA points** of the winner. The summary
 compares top-ten and near-best parameter ranges, active counts, and proximity
 to the recorded search bounds. Inactive conditional defaults are excluded;
@@ -500,10 +514,12 @@ boxmot tune --experiment mot17/ablation-yolox-lmbn.yaml \
   --tracker botsort --select-kf --select-cmc --n-trials 200
 ```
 
-Source images are required for camera analysis. Each candidate is calibrated
-under its camera behavior before held-out scoring. The winning strategy is
-saved in `best.yaml`; evaluation analyzes its own sequences when automatic
-CMC was selected. `--select-cmc` requires `--select-kf`.
+Joint selection uses the same stored camera evidence as automatic evaluation
+and tuning setup. Source images are required for analysis and reuse validation.
+Each candidate is calibrated under its camera behavior before held-out scoring.
+The winning strategy is saved in `best.yaml`; evaluation prepares or reuses
+compatible evidence for its own sequences when automatic CMC was selected.
+`--select-cmc` requires `--select-kf`.
 
 For example, `use_cmc: false` with `calibration.cmc_policy: auto` is a base
 setting overridden by automatic decisions for each sequence. The export's
