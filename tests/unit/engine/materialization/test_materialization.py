@@ -327,7 +327,8 @@ def test_execution_knobs_do_not_change_content_build_id(tmp_path) -> None:
 
     assert first_stage.fingerprint == second_stage.fingerprint
     assert plan_for(first_stage).build_id == plan_for(second_stage).build_id
-    assert plan_for(first_stage).build_id != plan_for(changed_batch).build_id
+    assert first_stage.fingerprint == changed_batch.fingerprint
+    assert plan_for(first_stage).build_id == plan_for(changed_batch).build_id
     with pytest.raises(ValueError, match="execution-only"):
         StagePlan.create("detect", config={"executor": "thread"})
 
@@ -959,7 +960,8 @@ def test_source_mutation_after_plan_creation_prevents_publication(tmp_path) -> N
     assert not plan.output_root.exists()
 
 
-def test_resume_decodes_only_pending_detection_shards(tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize("requested_batch", (1, 4))
+def test_resume_decodes_only_pending_detection_shards(tmp_path, monkeypatch, requested_batch) -> None:
     import boxmot.engine.materialization.source as source_module
 
     detect = StagePlan.create("detect", batch_size=1)
@@ -997,7 +999,10 @@ def test_resume_decodes_only_pending_detection_shards(tmp_path, monkeypatch) -> 
 
     monkeypatch.setattr(source_module, "_decode_source_sample", recording_decode)
     monkeypatch.setattr(source_module, "sha256_file", recording_source_sha256)
-    DatasetMaterializer(plan, [DetectStage(FakeDetector(), samples)]).run()
+    requested = replace(plan, stages=(replace(detect, batch_size=requested_batch),))
+    resumed = DatasetMaterializer(requested, [DetectStage(FakeDetector(), samples)])
+    resumed.run()
+    assert resumed.plan.stages[0].batch_size == 1
 
     assert decoded_ids == ["sample-0"]
     assert hashed_sources == [tmp_path / "source-frames" / "sample-0.png"]
@@ -1946,3 +1951,27 @@ def test_interrupted_finalization_preserves_inference_checkpoints(tmp_path, monk
     assert validate_dataset(output).embeddings == 2
     assert not plan.staging_root.exists()
     assert not (output / ".publishing").exists()
+
+
+def test_exact_published_build_reuses_changed_batching(published_detect_build) -> None:
+    """An existing content ID is reusable without constructing inference runtimes."""
+    detector, materializer, output = published_detect_build
+    requested = replace(
+        materializer.plan, stages=tuple(replace(stage, batch_size=16) for stage in materializer.plan.stages)
+    )
+    calls = detector.calls
+    reused = DatasetMaterializer(requested, list(materializer._stages.values())).run()
+    assert reused == output
+    assert detector.calls == calls
+
+
+def test_execution_device_and_encoder_batch_preserve_build_identity(tmp_path) -> None:
+    def create(device, batch):
+        stage = StagePlan.create("embed", batch_size=batch, component={"spec": {
+            "device": device, "precision": "fp32", "options": (("batch_size", batch), ("embedding_dim", 512)),
+        }})
+        return BuildPlan.create(
+            build_root=tmp_path, dataset_name="execution", box_type="aabb",
+            source_fingerprint=fingerprint("source"), publish=PublishOptions(), stages=(stage,),
+        )
+    assert create("cpu", 2).build_id == create("cuda:0", 16).build_id

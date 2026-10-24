@@ -40,6 +40,7 @@ from boxmot.engine.materialization.catalog import (
     SourceCatalog,
     catalog_mot_dataset,
 )
+from boxmot.engine.materialization.ids import component_content
 from boxmot.engine.materialization.progress import MaterializationProgress, MaterializationProgressReporter
 from boxmot.engine.materialization.resources import ensure_dataset_split_available
 from boxmot.engine.materialization.settings import load_executor_settings
@@ -316,7 +317,7 @@ def materialize(
     native_embedding_dim = None
     if publish.embeddings and capabilities.provides_embeddings:
         native_encoder_fingerprint = fingerprint(
-            {"provider": "detector", "detector": detector_provenance, "image_runtime": image_runtime}
+            {"provider": "detector", "detector": component_content(detector_provenance), "image_runtime": image_runtime}
         )
         candidate_dimension = detector_spec.option_values().get("embedding_dim")
         if candidate_dimension is not None:
@@ -341,7 +342,9 @@ def materialize(
     embedding_metadata = None
     encoder_fingerprint: str | None = None
     if encoder_spec is not None:
-        encoder_fingerprint = fingerprint({"component": encoder_provenance, "image_runtime": image_runtime})
+        encoder_fingerprint = fingerprint(
+            {"component": component_content(encoder_provenance), "image_runtime": image_runtime}
+        )
         embed_dependencies = ("detect",)
         embed_upstream = tuple(stage.fingerprint for stage in stage_plans if stage.name in set(embed_dependencies))
         embed_plan = _stage_plan(

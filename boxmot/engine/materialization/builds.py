@@ -78,7 +78,7 @@ def _plan_stages(plan: BuildPlan) -> tuple[StageProvenance, ...]:
 
 
 def _manifest_matches_content(manifest: DatasetManifest, plan: BuildPlan) -> bool:
-    """Match perception semantics independently of the producing release and device."""
+    """Match perception semantics independently of execution settings and release."""
 
     return (
         manifest.box_type == plan.box_type
@@ -136,8 +136,8 @@ def find_matching_build(
 ) -> Path | None:
     """Reuse a fully validated build with identical source and perception semantics.
 
-    The creation release and device remain part of a build's immutable identity
-    and provenance, but do not invalidate otherwise identical perception outputs.
+    The producing release, device, and batch sizes remain recorded in provenance,
+    but do not invalidate otherwise identical perception outputs.
     The exact requested output, when present, remains authoritative and is
     validated by the materializer rather than replaced by another candidate.
     """

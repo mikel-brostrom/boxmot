@@ -113,7 +113,7 @@ def _experiment_case(tmp_path: Path) -> tuple[Path, Path, dict]:
     ),
 )
 def test_device_override_updates_component_spec_and_fingerprint_provenance(spec) -> None:
-    original_provenance = {"spec": {"backend": "fixture", "device": "cpu"}, "artifact": None}
+    original_provenance = {"spec": asdict(spec), "artifact": None}
 
     updated, provenance = workflow._with_device(spec, original_provenance, "mps")
 
@@ -123,7 +123,7 @@ def test_device_override_updates_component_spec_and_fingerprint_provenance(spec)
     assert original_provenance["spec"]["device"] == "cpu"
     cpu_stage = StagePlan.create("detect", component=original_provenance)
     mps_stage = StagePlan.create("detect", component=provenance)
-    assert cpu_stage.fingerprint != mps_stage.fingerprint
+    assert cpu_stage.fingerprint == mps_stage.fingerprint
 
 
 @pytest.mark.parametrize(
@@ -786,7 +786,7 @@ def test_materialize_workflow_publishes_loadable_build(monkeypatch, tmp_path) ->
     assert dataset[0].detections.instance_ids == (f"{manifest.build_id}:{sample.sample_id}:0",)
 
 
-def test_process_stages_receive_one_effective_device_and_change_build_identity(monkeypatch, tmp_path) -> None:
+def test_process_stages_receive_one_effective_device_and_preserve_build_identity(monkeypatch, tmp_path) -> None:
     sample = SourceSample(
         sample_id="default:sequence:0",
         split="default",
@@ -885,7 +885,7 @@ def test_process_stages_receive_one_effective_device_and_change_build_identity(m
 
     cpu_plan, _cpu_stages = captured[0]
     mps_plan, mps_stages = captured[1]
-    assert cpu_plan.build_id != mps_plan.build_id
+    assert cpu_plan.build_id == mps_plan.build_id
     assert mps_stages[0].detector.device == "mps"
     assert mps_stages[1].segmentor.device == "mps"
     assert mps_stages[2].encoder.device == "mps"

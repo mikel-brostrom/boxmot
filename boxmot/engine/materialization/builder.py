@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 import time
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from pathlib import Path
 
 from filelock import FileLock
@@ -15,6 +16,7 @@ from boxmot.datasets.schema import ARTIFACT_PATHS, MANIFEST_FILENAME, SUCCESS_FI
 from boxmot.datasets.validation import validate_published_build
 
 from .executor import ExecutorSpec, StageExecutor, create_executor
+from .ids import stage_content
 from .plan import BuildPlan, StagePlan
 from .progress import MaterializationProgress, MaterializationProgressReporter
 from .stages.base import MaterializationContext, MaterializationStage, StageOutcome
@@ -79,6 +81,13 @@ class DatasetMaterializer:
             return output
 
         self.state.initialize(self.plan)
+        # Checkpoints address shards by ordinal. Keep their recorded grouping
+        # on resume even if a new request changes inference batching; otherwise
+        # skipping a completed ordinal could skip different source samples.
+        self.plan = replace(self.plan, stages=tuple(
+            replace(stage, batch_size=self.state.state.by_name[stage.name].batch_size)
+            for stage in self.plan.stages
+        ))
         self.plan.staging_root.mkdir(parents=True, exist_ok=True)
         for stage_plan in self.plan.ordered_stages():
             revalidate_shards = stage_plan.name in {"detect", "segment", "embed"}
@@ -242,7 +251,7 @@ class DatasetMaterializer:
             manifest.build_id == self.plan.build_id
             and manifest.box_type == self.plan.box_type
             and manifest.publish == expected_publish
-            and manifest.stages == expected_stages
+            and stage_content(manifest.stages) == stage_content(expected_stages)
             and manifest.metadata.get("dataset_name") == self.plan.dataset_name
             and manifest.metadata.get("source_fingerprint") == self.plan.source_fingerprint
             and manifest.metadata.get("experiment_id") == self.plan.metadata.get("experiment_id")

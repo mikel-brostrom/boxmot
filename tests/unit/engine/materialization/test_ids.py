@@ -5,7 +5,7 @@ from dataclasses import replace
 import pytest
 
 from boxmot.datasets.manifest import StageProvenance
-from boxmot.engine.materialization.ids import component_content, make_stage_fingerprint, stage_content
+from boxmot.engine.materialization.ids import component_content, fingerprint, make_stage_fingerprint, stage_content
 
 
 def _stages(device: str, **detector_spec: str) -> tuple[StageProvenance, ...]:
@@ -38,7 +38,6 @@ def _stages(device: str, **detector_spec: str) -> tuple[StageProvenance, ...]:
                 config={},
                 component=component,
                 upstream=tuple(stages[dependency].fingerprint for dependency in inputs),
-                batch_size=2,
             ),
             component=component,
             inputs=inputs,
@@ -72,7 +71,7 @@ def test_stage_content_normalizes_device_and_downstream_fingerprints(device: str
     assert normalized == stage_content(_stages("cpu"))
     assert stage_content(normalized) == normalized
     assert all(
-        original.fingerprint != content.fingerprint for original, content in zip(stages, normalized, strict=True)
+        original.fingerprint == content.fingerprint for original, content in zip(stages, normalized, strict=True)
     )
     assert all(stage.component["spec"]["device"] == device for stage in stages[:-1])
 
@@ -111,3 +110,28 @@ def test_stage_content_rejects_cycles() -> None:
     detect, segment, *_ = _stages("cpu")
     with pytest.raises(ValueError, match="contains a cycle"):
         stage_content((replace(detect, inputs=("segment",)), segment))
+
+
+def test_recorded_execution_hashes_normalize_to_current_content() -> None:
+    """Already published batch-2/device-specific chains remain reusable."""
+    recorded = {}
+    for stage in _stages("cuda:0"):
+        digest = fingerprint({
+            "name": stage.name, "config": stage.config, "component": stage.component,
+            "upstream": [recorded[name].fingerprint for name in stage.inputs], "batch_size": stage.batch_size,
+        })
+        recorded[stage.name] = replace(stage, fingerprint=digest)
+    assert stage_content(tuple(recorded.values())) == stage_content(_stages("cpu"))
+
+
+@pytest.mark.parametrize(
+    "options", ({"batch_size": 2, "embedding_dim": 512}, (("batch_size", 2), ("embedding_dim", 512)))
+)
+def test_component_batching_is_execution_only(options) -> None:
+    first = {"spec": {"device": "cpu", "options": options}}
+    changed = {"spec": {"device": "cuda:0", "options": (
+        {"batch_size": 16, "embedding_dim": 512} if isinstance(options, dict)
+        else (("batch_size", 16), ("embedding_dim", 512))
+    )}}
+    assert component_content(first) == component_content(changed)
+    assert "embedding_dim" in str(component_content(first))

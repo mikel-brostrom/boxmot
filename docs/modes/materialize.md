@@ -55,6 +55,14 @@ embeddings are enabled by default. Model artifacts are resolved and hashed
 before the build ID is established; materialization never changes that semantic
 identity after work begins.
 
+Inference batch sizes, execution devices, worker counts, retries, and writer
+shard sizes do not change content identity or prevent reuse. For example, a
+request using detector batch size 16 can reuse a build produced with batch
+size 2. Model weights, precision, preprocessing, thresholds, geometry, and
+published payloads still distinguish builds. Execution settings remain recorded
+in provenance. An interrupted build retains its recorded stage batching on
+resume so completed shard checkpoints continue to refer to the same samples.
+
 Use `--device cpu`, `--device mps`, or a CUDA selector such as
 `--device cuda:0` (`--device 0` is equivalent) to override the execution device
 for every perception component in the build. If omitted, each resolved

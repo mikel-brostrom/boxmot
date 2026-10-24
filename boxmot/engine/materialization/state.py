@@ -29,6 +29,7 @@ class StageState:
     name: str
     fingerprint: str
     depends_on: tuple[str, ...] = ()
+    batch_size: int = 1
     status: StageStatus = "pending"
     completed_shards: tuple[str, ...] = ()
     shard_hashes: tuple[tuple[str, str, str], ...] = ()
@@ -49,6 +50,8 @@ class StageState:
             raise StateError(f"Stage {self.name!r} has invalid persisted dependencies.")
         if len(set(self.depends_on)) != len(self.depends_on) or self.name in self.depends_on:
             raise StateError(f"Stage {self.name!r} has duplicate or self-referential dependencies.")
+        if isinstance(self.batch_size, bool) or not isinstance(self.batch_size, int) or self.batch_size <= 0:
+            raise StateError(f"Stage {self.name!r} has an invalid persisted batch size.")
         if self.status not in {"pending", "running", "completed", "failed"}:
             raise StateError(f"Unknown persisted stage status {self.status!r}.")
         if not isinstance(self.completed_shards, tuple) or any(
@@ -88,6 +91,7 @@ class StageState:
             "name": self.name,
             "fingerprint": self.fingerprint,
             "depends_on": list(self.depends_on),
+            "batch_size": self.batch_size,
             "status": self.status,
             "completed_shards": list(self.completed_shards),
             "shard_hashes": [
@@ -118,6 +122,7 @@ class StageState:
             name=value["name"],
             fingerprint=value["fingerprint"],
             depends_on=tuple(value.get("depends_on", ())),
+            batch_size=value["batch_size"],
             status=status,  # type: ignore[arg-type]
             completed_shards=tuple(value.get("completed_shards", ())),
             shard_hashes=tuple(parsed_hashes),  # type: ignore[arg-type]
@@ -223,7 +228,10 @@ class MaterializationStateStore:
                 state = BuildState(
                     build_id=plan.build_id,
                     stages=tuple(
-                        StageState(name=stage.name, fingerprint=stage.fingerprint, depends_on=stage.depends_on)
+                        StageState(
+                            name=stage.name, fingerprint=stage.fingerprint,
+                            depends_on=stage.depends_on, batch_size=stage.batch_size,
+                        )
                         for stage in plan.ordered_stages()
                     ),
                 )

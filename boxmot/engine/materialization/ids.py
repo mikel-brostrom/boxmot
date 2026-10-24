@@ -35,33 +35,37 @@ def make_stage_fingerprint(
     config: Any,
     component: Any = None,
     upstream: tuple[str, ...] = (),
-    batch_size: int = 1,
 ) -> str:
-    """Fingerprint a stage including every upstream content identity."""
+    """Fingerprint stage content, excluding inference batching and device selection."""
 
     return fingerprint(
         {
             "name": name,
             "config": config,
-            "component": component,
+            "component": component_content(component) if isinstance(component, Mapping) else component,
             "upstream": list(upstream),
-            "batch_size": batch_size,
         }
     )
 
 
 def component_content(provenance: Mapping[str, Any]) -> dict[str, Any]:
-    """Return component semantics while retaining execution device in provenance."""
+    """Exclude known inference scheduling controls while retaining their provenance."""
 
     content = dict(provenance)
     spec = content.get("spec")
     if isinstance(spec, Mapping):
-        content["spec"] = {key: value for key, value in spec.items() if key != "device"}
+        spec = {key: value for key, value in spec.items() if key != "device"}
+        options = spec.get("options")
+        if isinstance(options, Mapping):
+            spec["options"] = {key: value for key, value in options.items() if key != "batch_size"}
+        elif isinstance(options, (list, tuple)):
+            spec["options"] = tuple((key, value) for key, value in options if key != "batch_size")
+        content["spec"] = spec
     return content
 
 
 def stage_content(stages: tuple[StageProvenance, ...]) -> tuple[StageProvenance, ...]:
-    """Normalize device-dependent stage identities without hiding fingerprint drift.
+    """Normalize execution-dependent stage identities without hiding fingerprint drift.
 
     Original fingerprints must match their recorded inputs before they can be
     recomputed with normalized components and upstream identities. Opaque or
@@ -83,23 +87,28 @@ def stage_content(stages: tuple[StageProvenance, ...]) -> tuple[StageProvenance,
             raise ValueError("Materialization stage graph contains a cycle.")
         for stage in ready:
             component = component_content(stage.component)
-            original_fingerprint = make_stage_fingerprint(
+            upstream = tuple(original[name].fingerprint for name in stage.inputs)
+            content_fingerprint = make_stage_fingerprint(
                 stage.name,
                 config=stage.config,
                 component=stage.component,
-                upstream=tuple(original[name].fingerprint for name in stage.inputs),
-                batch_size=stage.batch_size,
+                upstream=upstream,
             )
+            # Existing published builds record the full execution provenance in
+            # their hash. Verify it before comparing the same content contract.
+            recorded_fingerprint = fingerprint({
+                "name": stage.name, "config": stage.config, "component": stage.component,
+                "upstream": list(upstream), "batch_size": stage.batch_size,
+            })
             resolved_fingerprint = stage.fingerprint
-            if stage.fingerprint == original_fingerprint:
+            if stage.fingerprint in {content_fingerprint, recorded_fingerprint}:
                 resolved_fingerprint = make_stage_fingerprint(
                     stage.name,
                     config=stage.config,
                     component=component,
                     upstream=tuple(normalized[name].fingerprint for name in stage.inputs),
-                    batch_size=stage.batch_size,
                 )
-            normalized[stage.name] = replace(stage, component=component, fingerprint=resolved_fingerprint)
+            normalized[stage.name] = replace(stage, component=component, fingerprint=resolved_fingerprint, batch_size=1)
     return tuple(normalized[stage.name] for stage in stages)
 
 
