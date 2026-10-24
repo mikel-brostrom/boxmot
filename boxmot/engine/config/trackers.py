@@ -81,19 +81,21 @@ def resolve_tracker_options(
         else load_tracker_config(tracker_name, None, options)
     )
     variable_dt = effective.get("kalman.variable_dt", False)
-    if getattr(args, "geometry", None) is not None:
+    geometry = getattr(args, "geometry", None)
+    if geometry is not None:
         from boxmot.trackers.common.motion.kalman_filters.profile import validate_calibration_profile
 
-        validate_calibration_profile(effective, tracker_name=tracker_name, geometry=args.geometry, backend=backend)
+        validate_calibration_profile(effective, tracker_name=tracker_name, geometry=geometry, backend=backend)
     kalman = normalize_kalman_config(
         effective,
         tracker_name=tracker_name,
         backend=backend,
     )
-    if tracker_name in KALMAN_TRACKER_NAMES:
+    # CLI preflight runs before replay inputs resolve their geometry.
+    if tracker_name in KALMAN_TRACKER_NAMES and geometry is not None:
         from boxmot.trackers.common.motion.models import resolve_motion_model_kind
 
-        resolve_motion_model_kind(tracker_name, kalman.type, is_obb=getattr(args, "geometry", "aabb") == "obb")
+        resolve_motion_model_kind(tracker_name, kalman.type, is_obb=geometry == "obb")
     if backend == "python" and tracker_name in KALMAN_TRACKER_NAMES and (include_defaults or stamp_timing):
         options.update(flatten_tracker_options({"kalman": kalman}))
         options["kalman.variable_dt"] = variable_dt
