@@ -258,6 +258,13 @@ class PerceptionPipeline:
                 raise TypeError(f"frames[{index}] must be a Frame, not {type(frame).__name__}.")
         return frame_batch
 
+    def _required_payloads(self, requirements: TrackerRequirements) -> tuple[bool, bool]:
+        """Resolve mask and embedding needs without inspecting detection values."""
+        needs_embeddings = self.outputs.embeddings or requirements.embeddings
+        encoder_needs_masks = needs_embeddings and self.reid is not None and _encoder_requirements(self.reid).masks
+        needs_masks = self.outputs.masks or requirements.masks or encoder_needs_masks
+        return needs_masks, needs_embeddings
+
     def enrich(
         self,
         frames: Sequence[Frame],
@@ -269,9 +276,14 @@ class PerceptionPipeline:
             raise TypeError("requirements must be a TrackerRequirements object.")
         frame_batch = self._validate_frames(frames)
         detection_batch = self._validate_detector_results(frame_batch, list(detections))
-        needs_embeddings = self.outputs.embeddings or requirements.embeddings
-        encoder_needs_masks = needs_embeddings and self.reid is not None and _encoder_requirements(self.reid).masks
-        needs_masks = self.outputs.masks or requirements.masks or encoder_needs_masks
+        needs_masks, needs_embeddings = self._required_payloads(requirements)
+        if not any(
+            (needs_masks and item.masks is None) or (needs_embeddings and item.embeddings is None)
+            for item in detection_batch
+        ):
+            # Nothing calls an external provider or changes these validated
+            # objects, so another full tensor scan would repeat the input check.
+            return detection_batch
         detection_batch = self._attach_masks(frame_batch, detection_batch, required=needs_masks)
         detection_batch = self._attach_embeddings(
             frame_batch,

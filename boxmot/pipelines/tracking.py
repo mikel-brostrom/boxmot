@@ -179,7 +179,19 @@ class TrackingPipeline:
         self._validate_frame_order(frame)
         if getattr(self.tracker, "variable_dt", False):
             self.tracker.validate_timing(frame)
-        enriched = self._perception.enrich((frame,), (detections,), self._perception_requirements)[0]
+        needs_masks, needs_embeddings = self._perception._required_payloads(self._perception_requirements)
+        if (needs_masks and detections.masks is None) or (needs_embeddings and detections.embeddings is None):
+            enriched = self._perception.enrich((frame,), (detections,), self._perception_requirements)[0]
+        else:
+            # Complete cached payloads need no perception pass. Validate the
+            # mutable tensors once here, including for third-party trackers;
+            # the public tracker update still owns its own input boundary.
+            detections.validate()
+            if detections.sample_id != frame.sample_id:
+                raise ValueError(
+                    f"Detections have sample_id {detections.sample_id!r}; expected {frame.sample_id!r}."
+                )
+            enriched = detections
         return self._track(frame, enriched)
 
     def step(self, frame: Frame) -> PipelineResult:

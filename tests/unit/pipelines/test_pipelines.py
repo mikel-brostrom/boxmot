@@ -525,6 +525,152 @@ def test_tracking_step_detections_skips_detector_and_enriches_for_tracker() -> N
     assert result.detections.embeddings is not None
 
 
+@pytest.mark.parametrize("empty", (False, True))
+@pytest.mark.parametrize("payloads", (False, True))
+def test_tracking_complete_cached_payloads_validate_once_without_perception(
+    monkeypatch: pytest.MonkeyPatch, empty: bool, payloads: bool
+) -> None:
+    """Cached frames keep one pipeline input check and the public tracker call."""
+    events = []
+    frame = _frame("one")
+    detections = _detections(frame, empty=empty, masks=payloads, embeddings=payloads)
+    tracker = _Tracker(events, masks=payloads, embeddings=payloads)
+    pipeline = TrackingPipeline(detector=None, tracker=tracker)
+    validated = []
+    original_validate = Detections.validate
+
+    def validate(item: Detections) -> None:
+        validated.append(item)
+        original_validate(item)
+
+    def unexpected_enrichment(*args: object, **kwargs: object) -> list[Detections]:
+        pytest.fail("Complete cached detections must not enter perception enrichment.")
+
+    monkeypatch.setattr(Detections, "validate", validate)
+    monkeypatch.setattr(PerceptionPipeline, "enrich", unexpected_enrichment)
+
+    result = pipeline.step_detections(frame, detections)
+
+    assert validated == [detections]
+    assert tracker.received == (detections, None)
+    assert events == [("track", "one")]
+    assert result.detections is detections
+
+
+@pytest.mark.parametrize("payloads", (False, True))
+def test_perception_complete_cached_payloads_validate_once(
+    monkeypatch: pytest.MonkeyPatch, payloads: bool
+) -> None:
+    """A no-op enrichment checks mutable input without repeating that check."""
+    frame = _frame("one")
+    detections = _detections(frame, masks=payloads, embeddings=payloads)
+    pipeline = PerceptionPipeline(outputs=PipelineOutputs(masks=payloads, embeddings=payloads))
+    validated = []
+    original_validate = Detections.validate
+
+    def validate(item: Detections) -> None:
+        validated.append(item)
+        original_validate(item)
+
+    monkeypatch.setattr(Detections, "validate", validate)
+
+    assert pipeline.enrich([frame], [detections]) == [detections]
+    assert validated == [detections]
+
+
+@pytest.mark.parametrize("entrypoint", ("tracking", "perception"))
+@pytest.mark.parametrize("field", ("geometry", "scores", "embeddings"))
+def test_cached_payloads_are_revalidated_after_caller_mutation(entrypoint: str, field: str) -> None:
+    """Frozen containers cannot make their underlying tensor storage trusted."""
+    events = []
+    frame = _frame("one")
+    detections = _detections(frame, embeddings=True)
+    tracker = _Tracker(events)
+    tracking = TrackingPipeline(detector=None, tracker=tracker)
+    perception = PerceptionPipeline()
+
+    def advance() -> object:
+        if entrypoint == "tracking":
+            return tracking.step_detections(frame, detections)
+        return perception.enrich([frame], [detections])
+
+    advance()
+    previous_events = events.copy()
+    values = detections.geometry.values if field == "geometry" else getattr(detections, field)
+    values.fill_(float("nan"))
+
+    with pytest.raises(ValueError, match="finite"):
+        advance()
+    assert events == previous_events
+
+
+@pytest.mark.parametrize("mismatch", ("sample", "mask_size"))
+def test_tracking_cached_payloads_reject_frame_mismatch_before_tracker(mismatch: str) -> None:
+    frame = _frame("one")
+    events = []
+    tracker = _Tracker(events, masks=True)
+    detections = _detections(frame, masks=True)
+    if mismatch == "sample":
+        detections = dataclasses.replace(detections, sample_id="other")
+    else:
+        detections = detections.with_masks(MaskBatch(torch.ones((1, 4, 4), dtype=torch.bool)))
+    pipeline = TrackingPipeline(detector=None, tracker=tracker)
+
+    with pytest.raises(ValueError, match="sample_id|mask size"):
+        pipeline.step_detections(frame, detections)
+    assert events == []
+
+
+def test_tracking_cached_path_validates_mutated_custom_tracker_output() -> None:
+    """Custom trackers may modify a Tracks tensor after its constructor ran."""
+    class InvalidTracker(_Tracker):
+        def update(self, detections: Detections, frame: Frame | None = None) -> Tracks:
+            tracks = super().update(detections, frame)
+            tracks.track_ids.fill_(-1)
+            return tracks
+
+    frame = _frame("one")
+    pipeline = TrackingPipeline(detector=None, tracker=InvalidTracker([]))
+
+    with pytest.raises(ValueError, match="track_ids must be non-negative"):
+        pipeline.step_detections(frame, _detections(frame))
+
+
+def test_tracking_cached_embeddings_still_enrich_missing_encoder_masks() -> None:
+    """The cached branch honors all configured perception requirements."""
+    events = []
+    frame = _frame("one")
+    tracker = _Tracker(events, embeddings=True)
+    pipeline = TrackingPipeline(
+        detector=None,
+        tracker=tracker,
+        segmentor=_Segmentor(events),
+        reid=_Encoder(events, requires_masks=True),
+    )
+
+    result = pipeline.step_detections(frame, _detections(frame, embeddings=True))
+
+    assert events == [("segment", ("one",)), ("track", "one")]
+    assert result.detections.masks is not None
+
+
+def test_perception_enrichment_rechecks_input_mutated_by_provider() -> None:
+    """External providers must not leave invalid data behind the input check."""
+    first, second = _frame("first"), _frame("second")
+    complete = _detections(first, embeddings=True)
+
+    class MutatingEncoder(_Encoder):
+        def encode(self, frames: list[Frame], detections: list[Detections]) -> list[torch.Tensor]:
+            # This already-complete object is not reconstructed by enrichment.
+            complete.scores.fill_(float("nan"))
+            return super().encode(frames, detections)
+
+    pipeline = PerceptionPipeline(reid=MutatingEncoder([]), outputs=PipelineOutputs(embeddings=True))
+
+    with pytest.raises(ValueError, match="finite"):
+        pipeline.enrich([first, second], [complete, _detections(second)])
+
+
 def test_tracking_without_detector_rejects_live_step_with_actionable_error() -> None:
     frame = _frame("one")
     pipeline = TrackingPipeline(detector=None, tracker=_Tracker([]))
