@@ -1,6 +1,7 @@
-"""Compare ByteTrack's previous LAPJV wrapper with its current LAPJVR wrapper.
+"""Compare historical LAPJV, LAPJV without cost summation, and current LAPCPP.
 
-Run from the repository root with ``python -m
+Install the standalone comparison dependency with ``uv pip install 'lapx==0.11.1'``. Run from the
+repository root with ``uv run --no-sync python -m
 tests.performance.trackers.benchmark_assignment --help``. Inputs are preloaded
 materialized AABB/OBB detections; optionally replay saved camera transforms. No images,
 embeddings, detector inference, or HOTA evaluation are needed.
@@ -17,6 +18,7 @@ import platform
 import statistics
 import time
 from collections import defaultdict
+from functools import partial
 from pathlib import Path
 from typing import Callable
 from unittest.mock import patch
@@ -33,8 +35,10 @@ from boxmot.trackers.common.association import matching
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
 
 
-def previous_assignment(cost_matrix: np.ndarray, cost_limit: float | None = None) -> np.ndarray:
-    """Use the exact LAPJV wrapper preceding commit 3a2fdfbe."""
+def previous_assignment(
+    cost_matrix: np.ndarray, cost_limit: float | None = None, *, return_cost: bool = True
+) -> np.ndarray:
+    """Use the pre-3a2fdfbe LAPJV wrapper, optionally skipping unused cost summation."""
     cost_matrix = np.asarray(cost_matrix)
     if cost_matrix.size == 0:
         return np.empty((0, 2), dtype=int)
@@ -49,7 +53,8 @@ def previous_assignment(cost_matrix: np.ndarray, cost_limit: float | None = None
         cost_limit = float(values.max() + np.ptp(values) + max(1.0, np.abs(values).max()))
     if cost_limit is not None:
         kwargs["cost_limit"] = cost_limit
-    _, row_to_col, _ = lap.lapjv(cost_matrix, **kwargs)
+    # The final two outputs are always row/column maps, with or without cost.
+    row_to_col = lap.lapjv(cost_matrix, return_cost=return_cost, **kwargs)[-2]
     assigned_rows = np.flatnonzero(row_to_col >= 0)
     matches = np.column_stack((assigned_rows, row_to_col[assigned_rows])).astype(int, copy=False)
     return matches[finite[matches[:, 0], matches[:, 1]]]
@@ -168,7 +173,7 @@ def time_assignment(matrices: list, solver: Callable, loops: int = 10) -> float:
 
 
 def main() -> None:
-    """Run warmup, alternating paired measurements, and exact-output validation."""
+    """Run warmup, rotated solver measurements, and exact-output validation."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build", type=Path, required=True)
     parser.add_argument("--config", type=Path, required=True, help="Current ByteTrack algorithm fields plus kalman.")
@@ -188,10 +193,17 @@ def main() -> None:
     if kalman.variable_dt:
         parser.error("This fixed-step benchmark requires kalman.variable_dt: false.")
     sequences = load_sequences(options)
-    solvers = {"lapjv": previous_assignment, "lapjvr": matching.solve_assignment}
+    solvers = {
+        "lapjv": previous_assignment,
+        "lapjv_no_cost": partial(previous_assignment, return_cost=False),
+        "lapcpp": matching.solve_assignment,
+    }
+    names = list(solvers)
+    orders = [names[repeat % len(names) :] + names[: repeat % len(names)] for repeat in range(options.repeats)]
     results = {
         "python": platform.python_version(),
         "lapx": importlib.metadata.version("lapx"),
+        "lapcpp": importlib.metadata.version("lapcpp"),
         "numpy": np.__version__,
         "matching_source_sha256": hashlib.sha256(Path(matching.__file__).read_bytes()).hexdigest(),
         "build": str(options.build),
@@ -199,7 +211,7 @@ def main() -> None:
         "kalman": kalman.to_dict(),
         "cmc_report": str(options.cmc_report) if options.cmc_report else None,
         "scope": "Preloaded ByteTrack.update, single numerical thread; no pixel processing.",
-        "baseline": "Previous LAPJV wrapper from 3a2fdfbe^, using the same installed lapx as LAPJVR.",
+        "baseline": "Previous LAPJV wrapper from 3a2fdfbe^, plus the same wrapper with return_cost=False.",
         "sequences": {
             name: {"frames": len(frames), "detections": sum(len(dets) for dets, _ in frames)}
             for name, frames in sequences.items()
@@ -214,8 +226,7 @@ def main() -> None:
             times, digests = replay(sequences, algorithm, kalman, solver, capture=matrices if name == "lapjv" else None)
             results["output_digests"][name] = digests
             print(f"Warmup {name}: {sum(times.values()):.3f}s", flush=True)
-        for repeat in range(options.repeats):
-            order = list(solvers) if repeat % 2 == 0 else list(reversed(solvers))
+        for repeat, order in enumerate(orders):
             paired = {}
             for name in order:
                 times, digests = replay(sequences, algorithm, kalman, solvers[name])
@@ -223,11 +234,12 @@ def main() -> None:
                     raise RuntimeError(f"Nondeterministic outputs from {name}")
                 results["runs"].append({"repeat": repeat, "solver": name, "seconds": times})
                 paired[name] = sum(times.values())
-            print(f"Pair {repeat + 1}: {paired}", flush=True)
-        for repeat in range(options.repeats):
-            order = list(solvers) if repeat % 2 == 0 else list(reversed(solvers))
+            print(f"Round {repeat + 1}: {paired}", flush=True)
+        for order in orders:
             results["assignment_runs"].append({name: time_assignment(matrices, solvers[name]) for name in order})
-    results["outputs_identical"] = results["output_digests"]["lapjv"] == results["output_digests"]["lapjvr"]
+    results["outputs_identical"] = all(
+        digests == results["output_digests"]["lapcpp"] for digests in results["output_digests"].values()
+    )
     results["matrix_count"] = len(matrices)
     results["matrix_shape_percentiles"] = np.percentile(
         [cost.shape for cost, _ in matrices], [0, 50, 90, 100], axis=0

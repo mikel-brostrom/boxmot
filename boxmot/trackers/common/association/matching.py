@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from typing import Any, Literal
 
 import numpy as np
-from lap import lapjvr
+from lapcpp import lapjv
 from scipy.spatial.distance import cdist
 
 from boxmot.trackers.common.association.iou import AssociationFunction
@@ -50,14 +50,14 @@ def solve_assignment(cost_matrix: np.ndarray, cost_limit: float | None = None) -
         values = cost_matrix[eligible]
         cost_limit = float(values.max() + np.ptp(values) + max(1.0, np.abs(values).max()))
     if cost_limit is not None:
-        # LAPJVR can prefer rejection at equality. Raise its penalty in the
+        # LAP can prefer rejection at equality. Raise its penalty in the
         # working precision; two steps survive cost_limit / 2 even at zero.
         # The original eligibility mask still forbids every above-limit edge.
         dtype = np.float32 if cost_matrix.dtype == np.float32 else np.float64
         limit = dtype(cost_limit)
         kwargs["cost_limit"] = np.nextafter(np.nextafter(limit, dtype(np.inf)), dtype(np.inf))
 
-    matches = lapjvr(cost_matrix, return_cost=False, output="pairs", **kwargs).astype(int, copy=False)
+    matches = lapjv(cost_matrix, return_cost=False, output="pairs", **kwargs).astype(int, copy=False)
     return matches[eligible[matches[:, 0], matches[:, 1]]]
 
 

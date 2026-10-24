@@ -1,6 +1,7 @@
 """Compare ByteTrack package snapshots on identical, preloaded materialized detections.
 
-Run from the repository root with ``python -m
+Install the standalone comparison dependency with ``uv pip install 'lapx==0.11.1'``,
+then run from the repository root with ``uv run --no-sync python -m
 tests.performance.trackers.benchmark_bytetrack_snapshots --help``. Settings,
 sequence selection, and expected output hashes come from benchmark_assignment's
 saved results. CMC is disabled. Process startup, loading, warmup, and hashing are
@@ -10,6 +11,7 @@ excluded from the replay timings.
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
 import json
 import os
 import platform
@@ -41,6 +43,9 @@ def _child(options: argparse.Namespace) -> None:
     if Path(boxmot.__file__).resolve().parent != options.code_root / "boxmot":
         raise RuntimeError(f"Imported the wrong package: {boxmot.__file__}")
     source = json.loads(options.reference_results.read_text())
+    expected_outputs = source["output_digests"]
+    if not expected_outputs or any(not value for value in expected_outputs.values()):
+        raise ValueError("The reference must contain nonempty output digests for every solver.")
     algorithm = ByteTrackConfig.from_mapping(source["algorithm"])
     kalman = KalmanConfig.from_mapping(source["kalman"])
     if algorithm.use_cmc or source.get("cmc_report"):
@@ -79,6 +84,7 @@ def _child(options: argparse.Namespace) -> None:
             "boxmot": boxmot.__file__,
             "code_root": str(options.code_root),
             "python": platform.python_version(),
+            "lapcpp": importlib.metadata.version("lapcpp"),
             "cpu_affinity": sorted(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else None,
             "sequences": counts,
             "seconds": seconds,
@@ -86,7 +92,7 @@ def _child(options: argparse.Namespace) -> None:
             "frames": frames,
             "fps": frames / total,
             "output_digests": digests,
-            "matches_saved_outputs": digests == source["output_digests"]["lapjvr"],
+            "matches_saved_outputs": all(digests == expected for expected in expected_outputs.values()),
         },
     )
 
