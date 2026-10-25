@@ -30,6 +30,8 @@ class KalmanBoxTracker(SortBoxTrack):
     ``(cx, cy, w, h, angle, conf, cls, det_ind)``.
     """
 
+    _batch_prediction_geometry = True
+
     def __init__(
         self,
         det,
@@ -164,14 +166,14 @@ class KalmanBoxTracker(SortBoxTrack):
         if self.motion_model.kind is not MotionModelKind.XYHR:
             self.motion_model.prevent_invalid_size(self.kf, dt=dt)
 
-    def _finish_prediction(self) -> np.ndarray:
+    def _finish_prediction(self, box: np.ndarray | None = None) -> np.ndarray:
         """Advance lifecycle counters after scalar or batched prediction."""
         self.age += 1
         if self.time_since_update > 0:
             self.hit_streak = 0
         self.time_since_update += 1
         sync_track_meta(self)
-        return self.get_state()
+        return self.get_state() if box is None else box
 
     def get_state(self):
         return self.motion_model.to_box(self.kf.x)

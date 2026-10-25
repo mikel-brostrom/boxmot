@@ -36,7 +36,10 @@ def _use_scalar_kalman(monkeypatch):
     """Switch only numerical batching off, retaining the same tracker code."""
     for name in ("ocsort", "deepocsort", "hybridsort", "boosttrack", "occluboost"):
         module = import_module(f"boxmot.trackers.{name}.tracker")
-        monkeypatch.setattr(module, "predict_tracks", _predict_scalar)
+        # OccluBoost inherits BoostTrack's prediction helper, so patch the
+        # module that owns that helper rather than adding an unused alias.
+        if hasattr(module, "predict_tracks"):
+            monkeypatch.setattr(module, "predict_tracks", _predict_scalar)
         if hasattr(module, "update_tracks"):
             monkeypatch.setattr(module, "update_tracks", _update_scalar)
     monkeypatch.setattr(

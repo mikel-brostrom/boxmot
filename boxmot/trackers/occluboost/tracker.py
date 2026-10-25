@@ -48,7 +48,6 @@ from boxmot.trackers.common.association.boost import associate
 from boxmot.trackers.common.association.iou import AssociationFunction
 from boxmot.trackers.common.association.matching import fuse_iou, fuse_score, solve_assignment
 from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runtime_options
-from boxmot.trackers.common.motion.batching import predict_tracks
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
 from boxmot.trackers.common.tracking.track import TrackState, sync_track_meta
 from boxmot.trackers.occluboost.config import OccluBoostConfig
@@ -138,34 +137,30 @@ class OccluBoost(BoostTrack):
             return self._update_obb(dets, img, embs)
 
         det_dtype = dets.dtype
-        batch = self._make_detection_batch(dets, embs=embs)
+        batch = self._make_detection_batch(dets, embs=embs, copy=False)
         dets = batch.as_indexed_detections(dtype=det_dtype)
         self.frame_count += 1
 
-        trks = []
-        confs = []
-        predictions = predict_tracks(self.trackers, dt=self._prediction_dt)
-        if self.cmc is not None:
-            self.apply_cmc(img, dets, self.trackers)
-            predictions = [track.get_state() for track in self.trackers]
-        for trk, prediction in zip(self.trackers, predictions, strict=True):
-            pos = prediction[0]
-            conf = trk.get_confidence()
-            confs.append(conf)
-            trks.append(np.concatenate([pos, [conf]]))
-        trks_np = np.vstack(trks) if len(trks) > 0 else np.empty((0, 5))
+        trks_np = self._predict_track_rows(img, dets)
+        mh_dist_matrix = (
+            self.get_mh_dist_matrix(dets)
+            if self.use_duo_boost or (self.use_dlo_boost and self.use_rich_s)
+            else None
+        )
 
         # Capture original detection confidences before any boosting so the
         # ByteTrack-style second pass can recover the genuinely low-conf set.
         orig_confs = batch.confs.copy()
 
         if self.use_dlo_boost:
-            dets = self.dlo_confidence_boost(dets)
+            dets = self.dlo_confidence_boost(dets, tracker_rows=trks_np, motion_distances=mh_dist_matrix)
         if self.use_duo_boost:
-            dets = self.duo_confidence_boost(dets)
+            dets = self.duo_confidence_boost(dets, motion_distances=mh_dist_matrix)
 
         boosted_confs = self.detection_layout.confidences(dets)
         keep_mask = boosted_confs >= self.det_thresh
+        if mh_dist_matrix is not None and mh_dist_matrix.size:
+            mh_dist_matrix = mh_dist_matrix[keep_mask]
         second_mask = (
             ((~keep_mask) & (orig_confs >= self.track_low_thresh) & (orig_confs < self.det_thresh))
             if self.use_second_pass
@@ -175,6 +170,8 @@ class OccluBoost(BoostTrack):
         high_batch = batch.select(keep_mask).with_confs(boosted_confs[keep_mask])
         second_batch = batch.select(second_mask).with_confs(boosted_confs[second_mask])
         dets = high_batch.as_indexed_detections(dtype=det_dtype)
+        if mh_dist_matrix is None:
+            mh_dist_matrix = self.get_mh_dist_matrix(dets)
         dets_second = second_batch.as_indexed_detections(dtype=det_dtype)
         scores = high_batch.confs
         dets_embs = resolve_batch_embeddings(
@@ -194,7 +191,6 @@ class OccluBoost(BoostTrack):
         else:
             emb_cost = None
 
-        mh_dist_matrix = self.get_mh_dist_matrix(dets)
         geometry_similarity = self.asso_func(high_batch.boxes, trks_np[:, :4])
         if self.config.fuse_detection_score:
             geometry_similarity = 1.0 - fuse_score((1.0 - geometry_similarity).T, high_batch.confs).T
@@ -206,7 +202,7 @@ class OccluBoost(BoostTrack):
             trks_np,
             self.iou_threshold,
             mahalanobis_distance=mh_dist_matrix,
-            track_confidence=np.array(confs).reshape(-1, 1),
+            track_confidence=trks_np[:, -1:],
             detection_confidence=scores,
             emb_cost=emb_cost,
             lambda_iou=self.lambda_iou,
@@ -253,11 +249,7 @@ class OccluBoost(BoostTrack):
                 det_e = dets_embs[u_det_idx].reshape(len(u_det_idx), -1)
                 sim = det_e @ trk_e.T
 
-                trks_pos = np.zeros((len(elig), 5))
-                for j, t in enumerate(elig):
-                    pos = self.trackers[t].get_state()[0]
-                    trks_pos[j, :4] = pos
-                    trks_pos[j, 4] = self.trackers[t].get_confidence()
+                trks_pos = trks_np[elig]
                 ious = self.asso_func(high_batch.boxes[u_det_idx], trks_pos[:, :4])
                 guided_ious = self._condition_similarity(
                     ious,
@@ -305,11 +297,7 @@ class OccluBoost(BoostTrack):
                 and getattr(self.trackers[int(t)], "is_activated", True)
             ]
             if elig_sec:
-                trks_pos = np.zeros((len(elig_sec), 5))
-                for j, t in enumerate(elig_sec):
-                    pos = self.trackers[t].get_state()[0]
-                    trks_pos[j, :4] = pos
-                    trks_pos[j, 4] = self.trackers[t].get_confidence()
+                trks_pos = trks_np[elig_sec]
                 ious2 = self.asso_func(second_batch.boxes, trks_pos[:, :4])
                 ious2 = self._condition_similarity(
                     ious2,
@@ -382,15 +370,8 @@ class OccluBoost(BoostTrack):
                 new_trk.is_activated = bool(dets[i, 4] >= self.instant_confirm_thresh or self.confirm_hits <= 1)
                 self.trackers.append(new_trk)
 
-        outputs = []
-        self.active_tracks = []
-        emitted_now = []
-        for trk in self.trackers:
-            d = trk.get_state()[0]
-            is_activated = getattr(trk, "is_activated", True)
-            warmup = self.frame_count <= self.min_hits
-            if (trk.time_since_update < 1) and is_activated and (trk.hit_streak >= self.min_hits or warmup):
-                emitted_now.append((trk, d))
+        eligible_tracks = self._emitted_tracks()
+        emitted_now = list(zip(eligible_tracks, self._track_boxes(eligible_tracks), strict=True))
 
         # ---- Duplicate-track suppression on emitted tracks ----
         # When two tracks predict to nearly the same box, BotSort kills the
@@ -402,9 +383,7 @@ class OccluBoost(BoostTrack):
         if len(emitted_now) > 1 and 0.0 < self.duplicate_iou_thresh < 1.0:
             emitted_now = self._suppress_duplicate_emissions(emitted_now)
 
-        for trk, d in emitted_now:
-            outputs.append(self.format_output_row(d, trk.id, trk.conf, trk.cls, trk.det_ind))
-            self.active_tracks.append(trk)
+        self.active_tracks = [trk for trk, _ in emitted_now]
 
         # Lifecycle: confirmed tracks live up to ``max_age`` frames; tentative
         # tracks are dropped after ``tentative_max_age`` to prevent ghost IDs
@@ -416,8 +395,19 @@ class OccluBoost(BoostTrack):
             and (getattr(trk, "is_activated", True) or trk.time_since_update <= self.tentative_max_age)
         ]
 
-        outputs = self.format_output_rows(outputs, dtype=np.float32)
+        boxes = np.asarray([box for _, box in emitted_now]) if emitted_now else self._track_boxes([])
+        outputs = self.format_outputs(self.active_tracks, dtype=np.float32, boxes=boxes)
         return self.filter_outputs(outputs)
+
+    def _emitted_tracks(self) -> list[KalmanBoxTracker]:
+        """Select visible confirmed identities before decoding output geometry."""
+        warmup = self.frame_count <= self.min_hits
+        return [
+            trk for trk in self.trackers
+            if trk.time_since_update < 1
+            and getattr(trk, "is_activated", True)
+            and (trk.hit_streak >= self.min_hits or warmup)
+        ]
 
     def _maybe_activate(self, trk: KalmanBoxTracker) -> None:
         """Promote a tentative track to activated once it accumulates enough
@@ -469,7 +459,8 @@ class OccluBoost(BoostTrack):
         cur_v = cur - prev  # [vx, vy, vw, vh]
 
         # Mean speed over the (N-1) previous transitions in the buffer.
-        diffs = np.diff(np.asarray(buf, dtype=float), axis=0)
+        observations = np.asarray(buf, dtype=float)
+        diffs = np.diff(observations, axis=0)
         mean_v = diffs.mean(axis=0)
 
         eps = 1e-6
@@ -493,7 +484,7 @@ class OccluBoost(BoostTrack):
         # otherwise the speed spike is more likely legitimate fast motion or
         # the track re-emerging from full occlusion at its true scale.
         cur_area = float(cur[2] * cur[3])
-        mean_area = float(np.mean(np.asarray(buf, dtype=float)[:, 2:].prod(axis=1)))
+        mean_area = float(np.mean(observations[:, 2:].prod(axis=1)))
         if cur_area >= mean_area * self.kalman_config.ams.shrink_ratio:
             alpha = 1.0
 
@@ -557,19 +548,21 @@ class OccluBoost(BoostTrack):
         else:
             boxes = np.stack([e[1][:4] for e in emitted], axis=0)
             ious = AssociationFunction.iou_batch(boxes, boxes)
-        np.fill_diagonal(ious, 0.0)
         drop = set()
-        n = len(emitted)
-        for i in range(n):
-            if i in drop:
+        rows, columns = np.nonzero(np.triu(ious >= self.duplicate_iou_thresh, k=1))
+        current_row = -1
+        skip_row = False
+        for i, j in zip(rows, columns, strict=True):
+            if i != current_row:
+                current_row = i
+                skip_row = i in drop
+            # The original traversal finishes a row even if that row's track
+            # loses an earlier comparison. Preserve that ordered policy.
+            if skip_row or j in drop:
                 continue
-            for j in range(i + 1, n):
-                if j in drop:
-                    continue
-                if ious[i, j] >= self.duplicate_iou_thresh:
-                    age_i = emitted[i][0].age
-                    age_j = emitted[j][0].age
-                    drop.add(j if age_i >= age_j else i)
+            age_i = emitted[i][0].age
+            age_j = emitted[j][0].age
+            drop.add(j if age_i >= age_j else i)
         if not drop:
             return emitted
         # Also remove the dropped (younger) tracks from ``self.trackers`` so
@@ -613,31 +606,28 @@ class OccluBoost(BoostTrack):
           ``[cx, cy, w, h, angle, id, conf, cls, det_ind]`` (9 cols).
         """
         det_dtype = dets.dtype
-        batch = self._make_detection_batch(dets, embs=embs)
+        batch = self._make_detection_batch(dets, embs=embs, copy=False)
         dets = batch.as_indexed_detections(dtype=det_dtype)
         self.frame_count += 1
 
-        # Predict all current trackers
-        trks_xywha = []
-        confs = []
-        predictions = predict_tracks(self.trackers, dt=self._prediction_dt)
-        if self.cmc is not None:
-            self.apply_cmc(img, dets, self.trackers)
-            predictions = [track.get_state() for track in self.trackers]
-        for trk, prediction in zip(self.trackers, predictions, strict=True):
-            pos = prediction[0]  # [cx, cy, w, h, angle]
-            trks_xywha.append(pos)
-            confs.append(trk.get_confidence())
-        trks_xywha = np.vstack(trks_xywha) if len(trks_xywha) > 0 else np.empty((0, 5))
+        tracker_rows = self._predict_track_rows(img, dets)
+        trks_xywha = tracker_rows[:, :5]
+        motion_distances = (
+            self.get_mh_dist_matrix(dets)
+            if self.use_duo_boost or (self.use_dlo_boost and self.use_rich_s)
+            else None
+        )
 
         # Confidence-based detection split (high / low for second pass).
         # Preserve the detector scores so ByteTrack recovery remains a true
         # low-confidence pass even when an OBB boost promotes a row.
         orig_confs = batch.confs.copy()
         if self.use_dlo_boost:
-            dets = self.dlo_confidence_boost_obb(dets, threshold=self.det_thresh)
+            dets = self.dlo_confidence_boost_obb(
+                dets, threshold=self.det_thresh, tracker_rows=tracker_rows, motion_distances=motion_distances
+            )
         if self.use_duo_boost:
-            dets = self.duo_confidence_boost_obb(dets, threshold=self.det_thresh)
+            dets = self.duo_confidence_boost_obb(dets, threshold=self.det_thresh, motion_distances=motion_distances)
         boosted_confs = self.detection_layout.confidences(dets)
         batch = batch.with_confs(boosted_confs)
         keep_mask = boosted_confs >= self.det_thresh
@@ -712,14 +702,10 @@ class OccluBoost(BoostTrack):
 
         # Apply matched updates
         self._ams_multi_update([self.trackers[index] for index in matched[:, 1]], dets[matched[:, 0]])
+        dets_alpha = confidence_aware_alpha(high_batch.confs, self.det_thresh, base_alpha=self.alpha_fixed_emb)
         for m in matched:
             if self.use_embeddings:
-                alpha_emb = confidence_aware_alpha(
-                    self.detection_layout.confidences(dets)[m[0] : m[0] + 1],
-                    self.det_thresh,
-                    base_alpha=self.alpha_fixed_emb,
-                )[0]
-                self.trackers[m[1]].update_emb(dets_embs[m[0]], alpha=float(alpha_emb))
+                self.trackers[m[1]].update_emb(dets_embs[m[0]], alpha=float(dets_alpha[m[0]]))
             self._maybe_activate(self.trackers[m[1]])
 
         # ---- ReID-only recovery pass ----
@@ -736,7 +722,7 @@ class OccluBoost(BoostTrack):
                 det_e = dets_embs[u_det_idx].reshape(len(u_det_idx), -1)
                 sim = det_e @ trk_e.T
 
-                trks_pos = np.stack([self.trackers[t].get_state()[0] for t in elig], axis=0)
+                trks_pos = trks_xywha[elig]
                 ious = self.asso_func(high_batch.boxes[u_det_idx], trks_pos)
 
                 gated = sim.copy()
@@ -778,7 +764,7 @@ class OccluBoost(BoostTrack):
                 and getattr(self.trackers[int(t)], "is_activated", True)
             ]
             if elig_sec:
-                trks_pos = np.stack([self.trackers[t].get_state()[0] for t in elig_sec], axis=0)
+                trks_pos = trks_xywha[elig_sec]
                 ious2 = self.asso_func(second_batch.boxes, trks_pos)
                 eligible = (ious2 >= self.second_iou_thresh) & self.association_eligibility(
                     second_batch.boxes, trks_pos
@@ -846,22 +832,13 @@ class OccluBoost(BoostTrack):
                 self.trackers.append(new_trk)
 
         # ---- Build outputs ----
-        outputs = []
-        self.active_tracks = []
-        emitted_now = []
-        for trk in self.trackers:
-            d = trk.get_state()[0]  # [cx, cy, w, h, angle]
-            is_activated = getattr(trk, "is_activated", True)
-            warmup = self.frame_count <= self.min_hits
-            if (trk.time_since_update < 1) and is_activated and (trk.hit_streak >= self.min_hits or warmup):
-                emitted_now.append((trk, d))
+        eligible_tracks = self._emitted_tracks()
+        emitted_now = list(zip(eligible_tracks, self._track_boxes(eligible_tracks), strict=True))
 
         if len(emitted_now) > 1 and 0.0 < self.duplicate_iou_thresh < 1.0:
             emitted_now = self._suppress_duplicate_emissions(emitted_now)
 
-        for trk, d in emitted_now:
-            outputs.append(self.format_output_row(d, trk.id, trk.conf, trk.cls, trk.det_ind))
-            self.active_tracks.append(trk)
+        self.active_tracks = [trk for trk, _ in emitted_now]
 
         # Lifecycle
         self.trackers = [
@@ -871,5 +848,6 @@ class OccluBoost(BoostTrack):
             and (getattr(trk, "is_activated", True) or trk.time_since_update <= self.tentative_max_age)
         ]
 
-        outputs = self.format_output_rows(outputs, dtype=np.float32)
+        boxes = np.asarray([box for _, box in emitted_now]) if emitted_now else self._track_boxes([])
+        outputs = self.format_outputs(self.active_tracks, dtype=np.float32, boxes=boxes)
         return self.filter_outputs(outputs)
