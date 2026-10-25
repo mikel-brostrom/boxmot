@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import configparser
 import sys
+from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -153,8 +154,8 @@ def fps_case(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespace
     encoder = _PixelEncoder()
     detector_spec = DetectorSpec("fixture", geometry_mode="aabb", device="cpu")
     encoder_spec = ReIDEncoderSpec("fixture", device="cpu", options=(("embedding_dim", 2),))
-    detector_provenance = {"spec": {"backend": "fixture", "device": "cpu"}}
-    encoder_provenance = {"spec": {"backend": "fixture", "device": "cpu"}}
+    detector_provenance = {"spec": asdict(detector_spec)}
+    encoder_provenance = {"spec": asdict(encoder_spec)}
     monkeypatch.setattr(experiment_config, "resolve_experiment_config", lambda *_args, **_kwargs: experiment)
     for module in (workflow, evaluator):
         monkeypatch.setattr(module, "resolve_experiment_config", lambda *_args, **_kwargs: experiment)
