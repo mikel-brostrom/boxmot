@@ -68,19 +68,43 @@ def parse_numpy_detection_rows(detections: np.ndarray, *, is_obb: bool) -> NumPy
         raise ValueError("Detection scores must be in the inclusive range [0, 1].")
 
     max_exact_float64_integer = 2**53
-    max_int64 = np.iinfo(np.int64).max
-    parsed_class_ids: list[int] = []
-    for value in detections[:, -1].tolist():
-        if isinstance(value, (bool, np.bool_)):
-            raise ValueError("Detection class IDs must be non-negative integers.")
-        class_id = int(value)
-        if class_id != value or class_id < 0 or class_id > max_int64:
-            raise ValueError("Detection class IDs must be non-negative integers.")
-        if class_id > max_exact_float64_integer:
+    class_values = detections[:, -1]
+    # Array validation pays off on larger batches; scalar checks avoid several
+    # temporary arrays for sparse frames, which commonly have only a few rows.
+    if class_values.size < 32:
+        max_int64 = np.iinfo(np.int64).max
+        for value in class_values.tolist():
+            class_id = int(value)
+            if class_id != value or class_id < 0 or class_id > max_int64:
+                raise ValueError("Detection class IDs must be non-negative integers.")
+            if class_id > max_exact_float64_integer:
+                raise ValueError(
+                    "Detection class IDs must be within the exact float64 integer range; "
+                    "use Detections input for Tracks."
+                )
+    else:
+        invalid = class_values < 0
+        if np.issubdtype(class_values.dtype, np.floating):
+            invalid |= class_values != np.floor(class_values)
+            # The exclusive power-of-two bound is exactly representable, unlike
+            # int64.max when compared in float64. Strong float64 scalars also keep
+            # finite float16 inputs from overflowing during threshold conversion.
+            invalid |= class_values >= np.float64(2**63)
+            outside_exact_range = class_values > np.float64(max_exact_float64_integer)
+        else:
+            if np.issubdtype(class_values.dtype, np.unsignedinteger):
+                invalid |= class_values > np.uint64(np.iinfo(np.int64).max)
+            outside_exact_range = class_values > max_exact_float64_integer
+        rejected = invalid | outside_exact_range
+        if rejected.any():
+            # Preserve the scalar validator's first offending row and its error,
+            # even when later rows fail a different part of the class-ID contract.
+            first_rejected = int(rejected.argmax())
+            if invalid[first_rejected]:
+                raise ValueError("Detection class IDs must be non-negative integers.")
             raise ValueError(
                 "Detection class IDs must be within the exact float64 integer range; use Detections input for Tracks."
             )
-        parsed_class_ids.append(class_id)
 
     with np.errstate(over="ignore", invalid="ignore"):
         geometry = np.ascontiguousarray(detections[:, :geometry_columns], dtype=np.float32)
@@ -98,7 +122,7 @@ def parse_numpy_detection_rows(detections: np.ndarray, *, is_obb: bool) -> NumPy
     return NumPyDetectionRows(
         geometry=geometry,
         scores=scores,
-        class_ids=np.asarray(parsed_class_ids, dtype=np.int64),
+        class_ids=np.array(class_values, dtype=np.int64, copy=True, order="C"),
     )
 
 
@@ -124,8 +148,11 @@ def pack_numpy_track_rows(
             f"expected [M, {geometry_columns}]."
         )
     with np.errstate(over="ignore", invalid="ignore"):
-        geometry_values = np.ascontiguousarray(geometry_values, dtype=np.float32)
-        score_values = np.ascontiguousarray(scores, dtype=np.float32)
+        # These columns are only read before final float64 packing, so strided
+        # float32 views need no intermediate contiguous allocation. Keep the
+        # existing scalar-score coercion of ascontiguousarray explicit.
+        geometry_values = np.asarray(geometry_values, dtype=np.float32)
+        score_values = np.atleast_1d(np.asarray(scores, dtype=np.float32))
     if geometry_values.size and not np.isfinite(geometry_values).all():
         raise ValueError(f"{owner} returned non-finite track geometry.")
     if len(geometry_values):
@@ -165,7 +192,7 @@ def pack_numpy_track_rows(
                 raise ValueError(f"{owner} returned non-integer {name}.")
             if array.size and (np.any(array < np.iinfo(np.int64).min) or np.any(array > np.iinfo(np.int64).max)):
                 raise ValueError(f"{owner} returned {name} outside the int64 range.")
-        integer_columns[name] = np.ascontiguousarray(array, dtype=np.int64)
+        integer_columns[name] = np.asarray(array, dtype=np.int64)
 
     track_id_values = integer_columns["track IDs"]
     class_id_values = integer_columns["class IDs"]

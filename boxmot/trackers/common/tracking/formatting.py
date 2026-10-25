@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from boxmot.trackers.common.geometry.obb import xywha_to_xyxy
+from boxmot.trackers.common.geometry.obb import normalize_angle, xywha_to_xyxy
 from boxmot.trackers.common.tracking import outputs as output_utils
 from boxmot.trackers.common.tracking.records import TrackRecord
 
@@ -69,20 +69,67 @@ class TrackFormattingMixin:
             dtype=dtype,
         )
 
-    def format_outputs(self, tracks, dtype=np.float32) -> np.ndarray:
-        """Format track-like objects into the public output array."""
-        rows = [
-            self.format_output_row(
-                self._track_box_for_output(track),
+    def format_outputs(self, tracks, dtype=np.float32, *, boxes: np.ndarray | None = None) -> np.ndarray:
+        """Pack outputs once, optionally reusing already selected track geometry."""
+        tracks = list(tracks)
+        box_cols = self.detection_layout.box_cols
+        custom_row_formatter = (
+            getattr(self.format_output_row, "__func__", None) is not TrackFormattingMixin.format_output_row
+        )
+        if boxes is None and dtype is not None:
+            boxes = self._batch_output_boxes(tracks)
+        if boxes is not None:
+            # Explicit geometry previously passed straight to custom scalar
+            # formatters. Let those hooks control their own rounding.
+            boxes = np.asarray(boxes, dtype=None if custom_row_formatter else np.float32)
+            if boxes.shape != (len(tracks), box_cols):
+                raise ValueError(f"Expected output boxes with shape {(len(tracks), box_cols)}, got {boxes.shape}.")
+        if not tracks:
+            return self.format_output_rows(self._empty_output(dtype=dtype), dtype=dtype)
+
+        # User-supplied row hooks retain their per-track behavior. Inferred
+        # dtypes also need scalar packing: geometry can round before metadata
+        # promotes the row, and custom box hooks can return different dtypes.
+        if dtype is None or custom_row_formatter:
+            rows = [
+                self.format_output_row(
+                    self._track_box_for_output(track) if boxes is None else boxes[index],
+                    self._track_id(track),
+                    float(getattr(track, "conf", 1.0)),
+                    int(getattr(track, "cls", -1)),
+                    int(getattr(track, "det_ind", -1)),
+                    dtype=dtype,
+                )
+                for index, track in enumerate(tracks)
+            ]
+            return self.format_output_rows(rows, dtype=dtype)
+
+        rows = np.empty((len(tracks), self.detection_layout.output_cols), dtype=dtype)
+        if boxes is not None:
+            rows[:, :box_cols] = boxes
+        metadata = []
+        for index, track in enumerate(tracks):
+            if boxes is None:
+                box = np.asarray(self._track_box_for_output(track)).reshape(-1)
+                if box.size != box_cols:
+                    raise ValueError(f"Expected {box_cols} output box values, got {box.size}")
+                rows[index, :box_cols] = box
+            metadata.append((
                 self._track_id(track),
                 float(getattr(track, "conf", 1.0)),
                 int(getattr(track, "cls", -1)),
                 int(getattr(track, "det_ind", -1)),
-                dtype=dtype,
-            )
-            for track in tracks
-        ]
-        return output_utils.format_output_rows(self.detection_layout, rows, dtype=dtype)
+            ))
+        rows[:, box_cols:] = metadata
+        if self.is_obb:
+            # The scalar formatter rounds to output dtype before wrapping in
+            # float64. Preserve that order, including float16 boundary cases.
+            rows[:, 4] = normalize_angle(rows[:, 4].astype(np.float64))
+        return self.format_output_rows(rows, dtype=dtype)
+
+    def _batch_output_boxes(self, tracks: list[object]) -> np.ndarray | None:
+        """Optionally prepare geometry in bulk; None retains scalar box hooks."""
+        return None
 
     def format_output_rows(self, rows, dtype=np.float32) -> np.ndarray:
         """Return rows with the tracker-specific empty shape when no rows exist."""

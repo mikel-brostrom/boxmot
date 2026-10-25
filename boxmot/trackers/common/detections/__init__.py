@@ -33,7 +33,7 @@ class _DetectionBatch:
         masks: np.ndarray | None = None,
         copy: bool = True,
     ) -> _DetectionBatch:
-        """Parse raw or det-indexed detections using ``layout``."""
+        """Parse raw or indexed rows, optionally borrowing arrays until selection."""
         dets = np.asarray(dets)
         if dets.ndim != 2:
             raise ValueError(f"Detections must be a 2D array, got shape {dets.shape}")
@@ -66,7 +66,6 @@ class _DetectionBatch:
         if copy:
             boxes = boxes.copy()
             confs = confs.copy()
-            clss = clss.copy()
             if embs_arr is not None:
                 embs_arr = embs_arr.copy()
             if masks_arr is not None:
@@ -161,13 +160,37 @@ class _DetectionBatch:
         """Reconstruct ``[box..., conf, cls, det_ind]`` detections."""
         if len(self) == 0:
             return np.empty((0, self.boxes.shape[1] + 3), dtype=dtype)
-        return np.column_stack((self.boxes, self.confs, self.clss, self.det_inds)).astype(dtype, copy=False)
+        output_dtype = np.dtype(dtype)
+        if (
+            self.boxes.dtype.kind != "f"
+            or self.confs.dtype != self.boxes.dtype
+            or self.clss.dtype != np.dtype(np.int32)
+            or self.det_inds.dtype != np.dtype(np.int32)
+            or output_dtype.kind not in "biufc"
+        ):
+            # Preserve NumPy promotion for custom batches, including object
+            # and string outputs. Standard floating kernel rows need no
+            # intermediate float64 matrix to hold their int32 metadata.
+            return np.column_stack((self.boxes, self.confs, self.clss, self.det_inds)).astype(dtype, copy=False)
+        box_cols = self.boxes.shape[1]
+        rows = np.empty((len(self), box_cols + 3), dtype=output_dtype)
+        rows[:, :box_cols] = self.boxes
+        rows[:, box_cols] = self.confs
+        rows[:, box_cols + 1] = self.clss
+        rows[:, box_cols + 2] = self.det_inds
+        return rows
 
     def as_box_conf_detections(self, dtype=np.float32) -> np.ndarray:
         """Reconstruct ``[box..., conf]`` detections for AABB-only association."""
         if len(self) == 0:
             return np.empty((0, self.boxes.shape[1] + 1), dtype=dtype)
-        return np.column_stack((self.boxes, self.confs)).astype(dtype, copy=False)
+        if self.confs.dtype != self.boxes.dtype or np.dtype(dtype).kind not in "biufc":
+            return np.column_stack((self.boxes, self.confs)).astype(dtype, copy=False)
+        box_cols = self.boxes.shape[1]
+        rows = np.empty((len(self), box_cols + 1), dtype=dtype)
+        rows[:, :box_cols] = self.boxes
+        rows[:, box_cols] = self.confs
+        return rows
 
 
 __all__: tuple[str, ...] = ()

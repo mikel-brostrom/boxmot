@@ -26,7 +26,7 @@ from boxmot.trackers.common.appearance.live import _REID_OPTION_UNSET, LiveReIDM
 from boxmot.trackers.common.association.iou import AssociationFunction
 from boxmot.trackers.common.detections import _DetectionBatch
 from boxmot.trackers.common.detections.layout import get_detection_layout
-from boxmot.trackers.common.geometry.obb import align_obb_measurement
+from boxmot.trackers.common.geometry.obb import align_obb_measurement, align_obb_measurements
 from boxmot.trackers.common.input import (
     frame_image_size,
     pack_numpy_track_rows,
@@ -548,9 +548,10 @@ class BaseTracker(
         numpy_output: bool,
     ) -> Tracks | np.ndarray:
         """Invoke one NumPy kernel update and return its requested public representation."""
-        self.class_catalog.validate_ids(class_ids.tolist())
+        class_id_values = class_ids.tolist()
+        self.class_catalog.validate_ids(class_id_values)
         kernel_class_ids = np.asarray(
-            [self._encode_kernel_class_id(int(value)) for value in class_ids.tolist()],
+            [self._encode_kernel_class_id(value) for value in class_id_values],
             dtype=np.float32,
         )
         dets = np.column_stack((geometry, scores, kernel_class_ids)).astype(np.float32, copy=False)
@@ -596,14 +597,31 @@ class BaseTracker(
 
         track_ids = integer_column(self.detection_layout.schema.track_id_index, "track IDs")
         geometry_columns = self.detection_layout.box_cols
-        geometry_array = np.ascontiguousarray(raw[:, :geometry_columns], dtype=np.float32)
+        geometry_array = raw[:, :geometry_columns]
         if self.is_obb:
-            geometry_array = geometry_array.copy()
-            for index, track_id in enumerate(track_ids.tolist()):
+            # Own the aligned geometry once, then evaluate equivalent forms
+            # together. Cache rows stay independent of the public result.
+            geometry_array = geometry_array.copy(order="C")
+            track_id_values = track_ids.tolist()
+            matched_indices = []
+            references = []
+            for index, track_id in enumerate(track_id_values):
                 previous = self._obb_output_by_track_id.get(track_id)
                 if previous is not None:
+                    matched_indices.append(index)
+                    references.append(previous)
+            if len(matched_indices) > 4:
+                geometry_array[matched_indices] = align_obb_measurements(
+                    geometry_array[matched_indices], np.asarray(references),
+                )
+            else:
+                # A few scalar rows cost less than setting up candidate arrays.
+                for index, previous in zip(matched_indices, references, strict=True):
                     geometry_array[index] = align_obb_measurement(geometry_array[index], previous)
+            for index, track_id in enumerate(track_id_values):
                 self._obb_output_by_track_id[track_id] = geometry_array[index].copy()
+        elif not numpy_output:
+            geometry_array = np.ascontiguousarray(geometry_array)
 
         raw_class_ids = integer_column(self.detection_layout.schema.track_class_index, "class IDs")
         decoded_class_ids = np.asarray(
@@ -617,10 +635,7 @@ class BaseTracker(
         if detection_indices.size and np.any(detection_indices >= len(scores)):
             raise ValueError(f"{self.__class__.__name__} kernel returned a detection index outside the current batch.")
         self._observe_track_outputs(geometry, track_ids, detection_indices)
-        track_scores = np.ascontiguousarray(
-            raw[:, self.detection_layout.schema.track_conf_index],
-            dtype=np.float32,
-        )
+        track_scores = raw[:, self.detection_layout.schema.track_conf_index]
 
         if numpy_output:
             return pack_numpy_track_rows(
@@ -660,7 +675,7 @@ class BaseTracker(
         return Tracks(
             geometry=geometry,
             track_ids=torch.from_numpy(track_ids),
-            scores=torch.from_numpy(track_scores),
+            scores=torch.from_numpy(np.ascontiguousarray(track_scores)),
             class_ids=torch.from_numpy(decoded_class_ids),
             detection_indices=torch.from_numpy(detection_indices),
             sample_id=sample_id,
@@ -784,6 +799,13 @@ class BaseTracker(
         if not values:
             return np.empty((0, geometry_cols), dtype=np.float32)
 
+        item_type = type(values[0])
+        batch_geometry = getattr(item_type, "batch_geometry", None)
+        if batch_geometry is not None and all(type(item) is item_type for item in values):
+            geometry = batch_geometry(values, is_obb=self.is_obb)
+            if geometry is not None:
+                return self._association_boxes(np.asarray(geometry))
+
         geometry_attr = "xywha" if self.is_obb else "xyxy"
         rows = []
         for item in values:
@@ -823,13 +845,16 @@ class BaseTracker(
         dets: np.ndarray,
         embs: np.ndarray | None = None,
         masks: np.ndarray | None = None,
+        *,
+        copy: bool = True,
     ) -> _DetectionBatch:
-        """Convert raw detections to a canonical detection batch."""
+        """Parse detections, optionally borrowing arrays until selection copies them."""
         return _DetectionBatch.from_layout(
             dets,
             self.detection_layout,
             embs=embs,
             masks=masks,
+            copy=copy,
         )
 
     def configure_class_catalog(
