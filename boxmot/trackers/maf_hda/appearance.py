@@ -8,6 +8,10 @@ notices and BSD licenses are in ``APPEARANCE_LICENSE.txt``.
 
 from __future__ import annotations
 
+from collections import OrderedDict
+from collections.abc import Callable
+from dataclasses import dataclass
+
 import cv2
 import numpy as np
 
@@ -170,6 +174,11 @@ class MaskedKCF:
         bbox, foreground = observation
         features = self._features(image, bbox, foreground)
         response = np.fft.ifft2(self._alphaf * np.fft.fft2(self._kernel(features, self._template))).real
+        return self._response_score(response, foreground)
+
+    @staticmethod
+    def _response_score(response: np.ndarray, foreground: np.ndarray) -> float:
+        """Normalize a response with the original MAF integer-rounding policy."""
         if np.ptp(response) <= np.finfo(np.float32).eps:
             return 0.0
         # MAF converts to an 8-bit response before both normalizations.
@@ -199,3 +208,78 @@ class MaskedKCF:
             rate = self.interp_factor
             self._template = (1.0 - rate) * self._template + rate * features
             self._alphaf = (1.0 - rate) * self._alphaf + rate * alphaf
+
+
+_NATIVE_SCORE_METHODS = {
+    name: getattr(MaskedKCF, name)
+    for name in ("score", "_observation", "_features", "_kernel", "_response_score")
+}
+
+
+@dataclass(frozen=True)
+class _FeatureSpectrum:
+    """Reusable FFT and squared norm, retaining NumPy's original scalar dtype."""
+
+    spectrum: np.ndarray
+    squared_norm: np.floating
+    size: int
+
+    @classmethod
+    def from_features(cls, features: np.ndarray) -> _FeatureSpectrum:
+        """Compute the candidate- or template-dependent kernel terms once."""
+        return cls(np.fft.fft2(features, axes=(-2, -1)), np.sum(features**2), features.size)
+
+
+class _AppearanceScorer:
+    """Reuse native KCF inputs during one immutable association stage only.
+
+    The owner creates a fresh scorer for every association, before any model
+    updates. Observation identity is its column in that stage; feature sharing
+    additionally requires identical sample and FHOG template dimensions.
+    Custom models or overridden scoring methods keep their scalar call path.
+    """
+
+    def __init__(self, image: np.ndarray | None, *, max_cache_bytes: int = 64 * 1024 * 1024) -> None:
+        self.image = image
+        self._observations: dict[int, tuple[np.ndarray, np.ndarray] | None] = {}
+        self._spectra: OrderedDict[tuple, _FeatureSpectrum] = OrderedDict()
+        self._max_cache_bytes = max(0, int(max_cache_bytes))
+        self._cache_bytes = 0
+
+    def _spectrum(self, key: tuple, features: Callable[[], np.ndarray]) -> _FeatureSpectrum:
+        """Bound FFT memory even when every candidate/model needs a different grid."""
+        if key in self._spectra:
+            self._spectra.move_to_end(key)
+            return self._spectra[key]
+        spectrum = _FeatureSpectrum.from_features(features())
+        size = spectrum.spectrum.nbytes
+        if size <= self._max_cache_bytes:
+            while self._cache_bytes + size > self._max_cache_bytes:
+                _, expired = self._spectra.popitem(last=False)
+                self._cache_bytes -= expired.spectrum.nbytes
+            self._spectra[key] = spectrum
+            self._cache_bytes += size
+        return spectrum
+
+    def score(self, model: MaskedKCF, column: int, box: np.ndarray, mask: np.ndarray) -> float:
+        """Score a pair while sharing unchanged observation and template work."""
+        if type(model) is not MaskedKCF or any(
+            getattr(getattr(model, name), "__func__", getattr(model, name)) is not method
+            for name, method in _NATIVE_SCORE_METHODS.items()
+        ):
+            return model.score(self.image, box, mask)
+        if column not in self._observations:
+            self._observations[column] = model._observation(self.image, box, mask)
+        observation = self._observations[column]
+        if observation is None or model._template is None:
+            return 0.0
+        bbox, foreground = observation
+        key = (column, *model._sample_wh, *model._template_wh)
+        first = self._spectrum(key, lambda: model._features(self.image, bbox, foreground))
+        second = self._spectrum((model,), lambda: model._template)
+        spectrum = first.spectrum * np.conj(second.spectrum)
+        correlation = np.fft.fftshift(np.fft.ifft2(spectrum.sum(axis=0)).real)
+        distance = np.maximum((first.squared_norm + second.squared_norm - 2 * correlation) / first.size, 0)
+        kernel = np.exp(-distance / model.sigma**2)
+        response = np.fft.ifft2(model._alphaf * np.fft.fft2(kernel)).real
+        return model._response_score(response, foreground)
