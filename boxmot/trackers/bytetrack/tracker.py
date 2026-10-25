@@ -12,7 +12,6 @@ from boxmot.trackers.common.association.matching import apply_motion_fusion, fus
 from boxmot.trackers.common.box.base import BoxTracker
 from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runtime_options
 from boxmot.trackers.common.geometry import xywh2xyxy
-from boxmot.trackers.common.geometry.obb import normalize_angle
 from boxmot.trackers.common.motion.cmc.registry import create_cmc
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
 from boxmot.trackers.common.motion.models import MotionModelKind, create_motion_model, resolve_motion_model_kind
@@ -129,35 +128,18 @@ class ByteTrack(BoxTracker):
         # float64. Preserve their individual rounding before combining them.
         return super()._association_boxes(tracks)
 
-    def format_outputs(self, tracks: Iterable[object], dtype=np.float32) -> np.ndarray:
-        """Pack native track geometry in one output allocation without per-row arrays."""
-        tracks = list(tracks)
+    def _batch_output_boxes(self, tracks: list[object]) -> np.ndarray | None:
+        """Reuse native association geometry in the shared output formatter."""
         if (
-            dtype is None
-            or type(self) is not ByteTrack
+            type(self) is not ByteTrack
             or any(type(track) is not STrack or track.is_obb != self.is_obb for track in tracks)
             or any(
                 name in self.__dict__
                 for name in ("_track_box_for_output", "_track_id", "format_output_row", "_association_boxes")
             )
         ):
-            return super().format_outputs(tracks, dtype=dtype)
-        if not tracks:
-            return self._empty_output(dtype=dtype)
-
-        # Generic output formatting rounds every geometry to float32 before
-        # casting to the requested row dtype. Keep that rounding explicitly.
-        boxes = np.asarray(self._association_boxes(tracks), dtype=np.float32)
-        columns = self.detection_layout.box_cols
-        rows = np.empty((len(tracks), self.detection_layout.output_cols), dtype=dtype)
-        rows[:, :columns] = boxes
-        rows[:, columns:] = [
-            (self._track_id(track), float(track.conf), int(track.cls), int(track.det_ind)) for track in tracks
-        ]
-        if self.is_obb:
-            for row in rows:
-                row[4] = normalize_angle(float(row[4]))
-        return self.format_output_rows(rows, dtype=dtype)
+            return None
+        return self._association_boxes(tracks)
 
     def _make_detections(self, rows: np.ndarray) -> list[_Detection]:
         """Allocate only observation data until an unmatched detection is born."""
@@ -171,7 +153,7 @@ class ByteTrack(BoxTracker):
         masks: np.ndarray = None,
     ) -> np.ndarray:
         cmc_dets = dets
-        batch = self._make_detection_batch(dets, embs=embs, masks=masks)
+        batch = self._make_detection_batch(dets, embs=embs, masks=masks, copy=False)
         self.frame_count += 1
         activated_starcks = []
         refind_stracks = []

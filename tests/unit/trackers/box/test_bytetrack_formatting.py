@@ -9,7 +9,6 @@ from boxmot.trackers.bytetrack.track import STrack
 from boxmot.trackers.bytetrack.tracker import ByteTrack
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
 from boxmot.trackers.common.tracking.display import TrackDisplayMixin
-from boxmot.trackers.common.tracking.formatting import TrackFormattingMixin
 
 
 def _tracks(tracker: ByteTrack) -> list[STrack]:
@@ -34,6 +33,22 @@ def _tracks(tracker: ByteTrack) -> list[STrack]:
     return tracks
 
 
+def _scalar_outputs(tracker: ByteTrack, tracks: list[object], dtype=np.float32) -> np.ndarray:
+    """Independent row-by-row reference for geometry and metadata rounding."""
+    rows = [
+        tracker.format_output_row(
+            tracker._track_box_for_output(track),
+            tracker._track_id(track),
+            float(track.conf),
+            int(track.cls),
+            int(track.det_ind),
+            dtype=dtype,
+        )
+        for track in tracks
+    ]
+    return tracker.format_output_rows(rows, dtype=dtype)
+
+
 @pytest.mark.parametrize("is_obb", [False, True])
 @pytest.mark.parametrize("kind", ["xyah", "xywh", "xysr", "xyhr", "xyscr"])
 @pytest.mark.parametrize("dtype", [None, np.float16, np.float32, np.float64])
@@ -42,7 +57,7 @@ def test_native_output_matches_generic_formatting(is_obb: bool, kind: str, dtype
     tracker = ByteTrack(kalman=KalmanConfig(type=kind), is_obb=is_obb)
     tracks = _tracks(tracker)
     for selected in (tracks, tracks[1:], []):
-        expected = TrackFormattingMixin.format_outputs(tracker, selected, dtype=dtype)
+        expected = _scalar_outputs(tracker, selected, dtype=dtype)
         actual = tracker.format_outputs(iter(selected), dtype=dtype)
         assert actual.dtype == np.dtype(dtype)
         assert actual.flags.c_contiguous
@@ -66,7 +81,7 @@ def test_foreign_and_subclass_track_output_uses_generic_geometry() -> None:
     )
     foreign = SimpleNamespace(output_box=np.array([5, 6, 7, 8]), id=9, conf=0.7, cls=2, det_ind=1)
     actual = tracker.format_outputs([custom, foreign])
-    np.testing.assert_array_equal(actual, TrackFormattingMixin.format_outputs(tracker, [custom, foreign]))
+    np.testing.assert_array_equal(actual, _scalar_outputs(tracker, [custom, foreign]))
     np.testing.assert_array_equal(actual[:, :4], [[1, 2, 3, 4], [5, 6, 7, 8]])
 
 
@@ -92,6 +107,23 @@ def test_instance_formatting_override_is_preserved(monkeypatch: pytest.MonkeyPat
     np.testing.assert_array_equal(rows[:, :4], [[1, 2, 3, 4]] * 3)
 
 
+def test_output_matrix_and_empty_hooks_are_preserved(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Consolidation retains ByteTrack's final matrix and empty output hooks."""
+    tracker = ByteTrack()
+    format_rows = tracker.format_output_rows
+
+    def custom_rows(rows, dtype=np.float32):
+        result = format_rows(rows, dtype=dtype)
+        result[:, -1] = -2
+        return result
+
+    monkeypatch.setattr(tracker, "format_output_rows", custom_rows)
+    np.testing.assert_array_equal(tracker.format_outputs(_tracks(tracker))[:, -1], [-2, -2, -2])
+    empty = np.empty((0, 8), dtype=np.float32)
+    monkeypatch.setattr(tracker, "_empty_output", lambda dtype: empty)
+    assert tracker.format_outputs([]) is empty
+
+
 def test_native_output_rejects_nonfinite_metadata() -> None:
     """Preallocated rows retain the common output finiteness check."""
     tracker = ByteTrack()
@@ -99,6 +131,23 @@ def test_native_output_rejects_nonfinite_metadata() -> None:
     tracks[0].conf = np.nan
     with pytest.raises(ValueError, match="finite values"):
         tracker.format_outputs(tracks)
+
+
+def test_native_output_keeps_batched_geometry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sharing the packer must not reintroduce one conversion per native track."""
+    tracker = ByteTrack()
+    tracks = _tracks(tracker)[1:]
+    expected = _scalar_outputs(tracker, tracks)
+    original = STrack._current_aabb_xywh
+    conversions = []
+
+    def counted(track):
+        conversions.append(track)
+        return original(track)
+
+    monkeypatch.setattr(STrack, "_current_aabb_xywh", counted)
+    np.testing.assert_array_equal(tracker.format_outputs(tracks), expected)
+    assert not conversions
 
 
 def test_geometry_property_is_resolved_once() -> None:
