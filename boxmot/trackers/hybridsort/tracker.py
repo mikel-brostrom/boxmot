@@ -32,7 +32,12 @@ from boxmot.trackers.common.association.hybrid import (
 )
 from boxmot.trackers.common.box.base import BoxTracker
 from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runtime_options
-from boxmot.trackers.common.motion.batching import predict_tracks, update_tracks
+from boxmot.trackers.common.motion.batching import (
+    current_track_boxes,
+    observation_output_boxes,
+    predict_tracks,
+    update_tracks,
+)
 from boxmot.trackers.common.motion.cmc.registry import create_cmc
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
 from boxmot.trackers.common.tracking.observations import k_previous_obs
@@ -163,7 +168,7 @@ class HybridSort(BoxTracker):
         association_function = self.asso_func
         self.frame_count += 1
 
-        batch = self._make_detection_batch(dets, embs=embs, masks=masks)
+        batch = self._make_detection_batch(dets, embs=embs, masks=masks, copy=False)
 
         def _safe_cls(x: int) -> int:
             xi = int(x)
@@ -209,38 +214,31 @@ class HybridSort(BoxTracker):
 
         # ---- Predict step for existing tracks
         trks = np.zeros((len(self.active_tracks), 6))
-        to_del = []
         predictions = predict_tracks(self.active_tracks, dt=self._prediction_dt)
         if self.cmc is not None:
             self.apply_cmc(img, dets, self.active_tracks)
-            predictions = [
-                (track.get_state(), prediction[1], prediction[2]) if not self.is_obb else track.get_state()
-                for track, prediction in zip(self.active_tracks, predictions, strict=True)
-            ]
-        for t in range(len(trks)):
-            pos, kal_score, simple_score = predictions[t]
-            x1, y1, x2, y2 = pos[0].tolist()
-            trks[t] = [x1, y1, x2, y2, kal_score, simple_score]
-            if np.any(np.isnan(pos)):
-                to_del.append(t)
-        trks = np.ma.compress_rows(np.ma.masked_invalid(trks))
-        for t in reversed(to_del):
-            self.active_tracks.pop(t)
+            trks[:, :4] = current_track_boxes(self.active_tracks, is_obb=False)
+        else:
+            trks[:, :4] = np.asarray([prediction[0] for prediction in predictions]).reshape(-1, 4)
+        trks[:, 4:] = np.asarray([prediction[1:] for prediction in predictions]).reshape(-1, 2)
+        valid = np.isfinite(trks).all(axis=1)
+        if not valid.all():
+            self.active_tracks = [track for track, keep in zip(self.active_tracks, valid, strict=True) if keep]
+            trks = trks[valid]
 
         # Prepare motion cues
         velocities_lt = np.array(
-            [t.velocity_lt if t.velocity_lt is not None else np.array((0, 0)) for t in self.active_tracks]
+            [t.velocity_lt if t.velocity_lt is not None else (0, 0) for t in self.active_tracks]
         )
         velocities_rt = np.array(
-            [t.velocity_rt if t.velocity_rt is not None else np.array((0, 0)) for t in self.active_tracks]
+            [t.velocity_rt if t.velocity_rt is not None else (0, 0) for t in self.active_tracks]
         )
         velocities_lb = np.array(
-            [t.velocity_lb if t.velocity_lb is not None else np.array((0, 0)) for t in self.active_tracks]
+            [t.velocity_lb if t.velocity_lb is not None else (0, 0) for t in self.active_tracks]
         )
         velocities_rb = np.array(
-            [t.velocity_rb if t.velocity_rb is not None else np.array((0, 0)) for t in self.active_tracks]
+            [t.velocity_rb if t.velocity_rb is not None else (0, 0) for t in self.active_tracks]
         )
-        last_boxes = np.array([t.last_observation for t in self.active_tracks])
         k_observations = np.array([k_previous_obs(t.observations, t.age, self.delta_t) for t in self.active_tracks])
 
         # ===== First association (optionally embedding-guided)
@@ -260,10 +258,7 @@ class HybridSort(BoxTracker):
             long_emb_dists = None
             if self.with_longterm_reid:
                 long_track_features = np.asarray(
-                    [
-                        np.vstack(list(t.features)).mean(0) if len(t.features) else t.smooth_feat
-                        for t in self.active_tracks
-                    ],
+                    [t.get_longterm_feature() for t in self.active_tracks],
                     dtype=float,
                 )
                 long_emb_dists = feature_distance(long_track_features, id_feature_keep).T
@@ -383,7 +378,7 @@ class HybridSort(BoxTracker):
         # ===== Final chance: IoU vs last boxes
         if unmatched_dets.shape[0] > 0 and unmatched_trks.shape[0] > 0:
             left_dets = dets_first[unmatched_dets]
-            left_trks = last_boxes[unmatched_trks]
+            left_trks = np.asarray([self.active_tracks[index].last_observation for index in unmatched_trks])
             similarity = np.asarray(association_function(left_dets, left_trks))
             similarity = self._condition_similarity(
                 similarity,
@@ -444,59 +439,41 @@ class HybridSort(BoxTracker):
             self.active_tracks.append(trk)
 
         # Collect outputs (match BotSort/OcSort style)
-        outputs = []
-        for trk in self.active_tracks[::-1]:
-            if trk.last_observation[-1] < 0:
-                d = trk.motion_model.to_box(trk.kf.x)[0][:4]
-            else:
-                d = trk.last_observation[:4]
-
+        output_tracks = []
+        i = len(self.active_tracks)
+        for trk in reversed(self.active_tracks):
             # Only output fresh tracks and valid det_ind for this frame
             if (trk.time_since_update < 1) and (trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits):
-                outputs.append(
-                    [
-                        *d.tolist(),
-                        trk.id,  # track id
-                        float(trk.conf),  # conf
-                        int(trk.cls),  # cls (from detection)
-                        int(trk.det_ind),  # det index (frame-local)
-                    ]
-                )
-
-        # Remove dead tracks
-        i = len(self.active_tracks)
-        for trk in self.active_tracks[::-1]:
+                output_tracks.append(trk)
             i -= 1
             if trk.time_since_update > self.max_age:
                 self.active_tracks.pop(i)
 
-        return self.format_output_rows(outputs, dtype=np.float32)
+        return self.format_outputs(
+            output_tracks,
+            boxes=observation_output_boxes(output_tracks, is_obb=False),
+            dtype=np.float32,
+        )
 
     def _update_obb(self, dets, img, embs=None, masks=None):
         """HybridSORT adaptation using oriented DIoU, ReID, and XYWHA motion state."""
         self.frame_count += 1
-        batch = self._make_detection_batch(dets, embs=embs, masks=masks)
+        batch = self._make_detection_batch(dets, embs=embs, masks=masks, copy=False)
         high, low = batch.split_by_confidence(high_thresh=self.det_thresh, low_thresh=self.low_thresh)
         high_dets = high.as_indexed_detections(dtype=dets.dtype)
         low_dets = low.as_indexed_detections(dtype=dets.dtype)
         high_embs = resolve_batch_embeddings(high, enabled=self.use_embeddings, placeholder_value=0.0)
 
-        predicted = []
-        valid_tracks = []
         predictions = predict_tracks(self.active_tracks, dt=self._prediction_dt)
         if self.cmc is not None:
             self.apply_cmc(img, dets, self.active_tracks)
-            predictions = [
-                (track.get_state(), prediction[1], prediction[2]) if not self.is_obb else track.get_state()
-                for track, prediction in zip(self.active_tracks, predictions, strict=True)
-            ]
-        for track, state in zip(self.active_tracks, predictions, strict=True):
-            prediction = np.asarray(state[0][:5], dtype=np.float32)
-            if np.isfinite(prediction).all():
-                predicted.append(prediction)
-                valid_tracks.append(track)
-        self.active_tracks = valid_tracks
-        predicted = np.asarray(predicted, dtype=np.float32).reshape(-1, 5)
+            predicted = current_track_boxes(self.active_tracks, is_obb=True).astype(np.float32)
+        else:
+            predicted = np.asarray([prediction[0][:5] for prediction in predictions], dtype=np.float32).reshape(-1, 5)
+        valid = np.isfinite(predicted).all(axis=1)
+        if not valid.all():
+            self.active_tracks = [track for track, keep in zip(self.active_tracks, valid, strict=True) if keep]
+            predicted = predicted[valid]
 
         unmatched_dets = np.arange(len(high_dets))
         unmatched_tracks = np.arange(len(self.active_tracks))
@@ -583,16 +560,16 @@ class HybridSort(BoxTracker):
             track.smooth_feat = high_embs[det_index]
             self.active_tracks.append(track)
 
-        outputs = []
-        for track in self.active_tracks[::-1]:
-            if track.last_observation[-1] < 0:
-                box = track.get_state()[0][:5]
-            else:
-                box = track.last_observation[:5]
+        output_tracks = []
+        for track in reversed(self.active_tracks):
             if track.time_since_update < 1 and (track.hit_streak >= self.min_hits or self.frame_count <= self.min_hits):
-                outputs.append(self.format_output_row(box, track.id, track.conf, track.cls, track.det_ind))
+                output_tracks.append(track)
         self.active_tracks = [track for track in self.active_tracks if track.time_since_update <= self.max_age]
-        return self.format_output_rows(outputs, dtype=np.float32)
+        return self.format_outputs(
+            output_tracks,
+            boxes=observation_output_boxes(output_tracks, is_obb=True),
+            dtype=np.float32,
+        )
 
     def reset(self):
         self._reset_common_state()

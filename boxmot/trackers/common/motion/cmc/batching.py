@@ -156,6 +156,33 @@ def transform_directions(
             setattr(owner, name, normalized[index, ::-1].copy())
 
 
+def transform_prediction_histories(
+    tracks: Sequence, transform: np.ndarray, *, model: MotionModelAdapter
+) -> None:
+    """Warp retained prediction rows together without changing array ownership."""
+    rows = [np.asarray(box).reshape(1, -1) for track in tracks for box in track.history]
+    if not rows:
+        return
+
+    # Repeated or overlapping rows must observe every earlier in-place warp.
+    # Normal histories own disjoint rows, including views into batched boxes.
+    contiguous = all(row.flags.c_contiguous for row in rows)
+    intervals = sorted((row.ctypes.data, row.ctypes.data + row.nbytes) for row in rows) if contiguous else []
+    overlapping = any(start < previous_end for (_, previous_end), (start, _) in zip(intervals, intervals[1:]))
+    if not contiguous or overlapping:
+        for row in rows:
+            row[:] = model.transform_boxes(row, transform)
+        return
+
+    groups: dict[int, list[np.ndarray]] = {}
+    for row in rows:
+        groups.setdefault(row.shape[1], []).append(row)
+    for group in groups.values():
+        transformed = model.transform_boxes(np.concatenate(group, axis=0), transform)
+        for row, geometry in zip(group, transformed, strict=True):
+            row[:] = geometry
+
+
 def transform_ocsort_tracks(
     tracks: Sequence,
     transform: np.ndarray,
@@ -173,10 +200,7 @@ def transform_ocsort_tracks(
 
     # Predictions are appended before camera compensation. Keep these boxes
     # in the same frame as the live state and retained observations.
-    for track in tracks:
-        for box in track.history:
-            values = np.asarray(box).reshape(1, -1)
-            values[:] = model.transform_boxes(values, transform)
+    transform_prediction_histories(tracks, transform, model=model)
 
     transform_filter_histories(
         [track.kf for track in tracks],

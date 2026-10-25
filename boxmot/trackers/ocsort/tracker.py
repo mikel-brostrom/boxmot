@@ -18,7 +18,12 @@ from boxmot.trackers.common.association import (
 from boxmot.trackers.common.association.velocity import associate
 from boxmot.trackers.common.box.base import BoxTracker
 from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runtime_options
-from boxmot.trackers.common.motion.batching import predict_tracks, update_tracks
+from boxmot.trackers.common.motion.batching import (
+    current_track_boxes,
+    observation_output_boxes,
+    predict_tracks,
+    update_tracks,
+)
 from boxmot.trackers.common.motion.cmc.registry import create_cmc
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
 from boxmot.trackers.common.tracking.observations import k_previous_obs
@@ -123,7 +128,7 @@ class OcSort(BoxTracker):
         self.frame_count += 1
         cmc_dets = dets
 
-        batch = self._make_detection_batch(dets, embs=embs, masks=masks)
+        batch = self._make_detection_batch(dets, embs=embs, masks=masks, copy=False)
         high_batch, second_batch = batch.split_by_confidence(
             high_thresh=self.det_thresh,
             low_thresh=self.min_conf,
@@ -132,26 +137,24 @@ class OcSort(BoxTracker):
         dets = high_batch.as_box_conf_detections(dtype=dets.dtype)
 
         # get predicted locations from existing trackers.
-        trks = np.zeros((len(self.active_tracks), self.detection_layout.box_with_conf_cols))
-        to_del = []
-        ret = []
         predictions = predict_tracks(self.active_tracks, dt=self._prediction_dt)
         if self.cmc is not None:
             self.apply_cmc(img, cmc_dets, self.active_tracks)
-            predictions = [track.get_state() for track in self.active_tracks]
-        for t, trk in enumerate(trks):
-            pos = predictions[t][0]
-            trk[:] = [pos[i] for i in range(self.detection_layout.box_cols)] + [0]
-            if np.any(np.isnan(pos)):
-                to_del.append(t)
-        trks = np.ma.compress_rows(np.ma.masked_invalid(trks))
-        for t in reversed(to_del):
-            self.active_tracks.pop(t)
+            boxes = current_track_boxes(self.active_tracks, is_obb=self.is_obb)
+        else:
+            boxes = np.asarray([prediction[0][: self.detection_layout.box_cols] for prediction in predictions]).reshape(
+                -1, self.detection_layout.box_cols
+            )
+        valid = np.isfinite(boxes).all(axis=1)
+        if not valid.all():
+            self.active_tracks = [track for track, keep in zip(self.active_tracks, valid, strict=True) if keep]
+            boxes = boxes[valid]
+        trks = np.zeros((len(boxes), self.detection_layout.box_with_conf_cols))
+        trks[:, : self.detection_layout.box_cols] = boxes
 
         velocities = np.array(
-            [trk.velocity if trk.velocity is not None else np.array((0, 0)) for trk in self.active_tracks]
+            [trk.velocity if trk.velocity is not None else (0, 0) for trk in self.active_tracks]
         )
-        last_boxes = np.array([trk.last_observation for trk in self.active_tracks])
 
         k_observations = np.array(
             [k_previous_obs(trk.observations, trk.age, self.delta_t, is_obb=self.is_obb) for trk in self.active_tracks]
@@ -234,12 +237,14 @@ class OcSort(BoxTracker):
 
         if unmatched_dets.shape[0] > 0 and unmatched_trks.shape[0] > 0:
             left_dets = dets[unmatched_dets]
+            last_boxes = np.asarray([self.active_tracks[index].last_observation for index in unmatched_trks])
             # New tracks retain a negative-confidence sentinel until their first
             # explicit update. Keep those rows out of strict OBB geometry while
             # preserving the mapping back to active-track indices.
-            rematch_trk_indices = unmatched_trks[last_boxes[unmatched_trks, -1] >= 0]
+            observed = last_boxes[:, -1] >= 0
+            rematch_trk_indices = unmatched_trks[observed]
             if rematch_trk_indices.size:
-                left_trks = last_boxes[rematch_trk_indices]
+                left_trks = last_boxes[observed]
                 similarity = np.asarray(self.asso_func(left_dets, left_trks))
                 similarity = self._condition_similarity(
                     similarity,
@@ -287,22 +292,19 @@ class OcSort(BoxTracker):
             )
             self.active_tracks.append(trk)
         i = len(self.active_tracks)
+        output_tracks = []
         for trk in reversed(self.active_tracks):
-            if trk.last_observation[-1] < 0:
-                d = trk.get_state()[0]
-            else:
-                """
-                this is optional to use the recent observation or the kalman filter prediction,
-                we didn't notice significant difference here
-                """
-                d = trk.last_observation[: self.detection_layout.box_cols]
             if (trk.time_since_update < 1) and (trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits):
-                ret.append(self.format_output_row(d, trk.id, trk.conf, trk.cls, trk.det_ind))
+                output_tracks.append(trk)
             i -= 1
             # remove dead tracklet
             if trk.time_since_update > self.max_age:
                 self.active_tracks.pop(i)
-        return self.format_output_rows(ret, dtype=np.float32)
+        return self.format_outputs(
+            output_tracks,
+            boxes=observation_output_boxes(output_tracks, is_obb=self.is_obb),
+            dtype=np.float32,
+        )
 
     def reset(self) -> None:
         self._reset_common_state()

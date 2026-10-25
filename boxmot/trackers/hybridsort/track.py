@@ -68,6 +68,7 @@ class KalmanBoxTracker(SortBoxTrack):
     """
 
     observation_centric = True
+    _batch_prediction_geometry = True
 
     def __init__(
         self,
@@ -136,6 +137,7 @@ class KalmanBoxTracker(SortBoxTrack):
         # ReID buffers
         self.smooth_feat = None
         self.features = deque([], maxlen=int(longterm_bank_length))
+        self._longterm_feature: np.ndarray | None = None
         self.alpha = float(alpha)
         self.adapfs = bool(adapfs)
         self.track_thresh = float(track_thresh)
@@ -182,9 +184,21 @@ class KalmanBoxTracker(SortBoxTrack):
 
     def _prune_observations(self) -> None:
         cutoff = self.age - self.max_obs + 1
-        for obs_age in list(self.observations):
-            if obs_age < cutoff:
-                self.observations.pop(obs_age, None)
+        while self.observations:
+            obs_age = next(iter(self.observations))
+            if obs_age >= cutoff:
+                break
+            del self.observations[obs_age]
+
+    def get_longterm_feature(self) -> np.ndarray:
+        """Reuse the exact bank mean until a feature is appended or evicted."""
+        if not self.features:
+            return self.smooth_feat
+        if self._longterm_feature is None:
+            # Recompute in bank order to preserve float32 summation and avoid
+            # cumulative rounding drift from an incrementally maintained sum.
+            self._longterm_feature = np.vstack(self.features).mean(axis=0)
+        return self._longterm_feature
 
     def update_features(self, feat, score: float = -1.0):
         feat = normalize_embedding(feat)
@@ -207,6 +221,7 @@ class KalmanBoxTracker(SortBoxTrack):
                     alpha=self.alpha,
                 )
         self.features.append(feat)
+        self._longterm_feature = None
 
     def camera_update(self, warp_matrix: np.ndarray) -> None:
         """Move this track's motion and association state to the new frame."""
@@ -378,14 +393,14 @@ class KalmanBoxTracker(SortBoxTrack):
         if self.confidence_filter is not None:
             self.confidence_filter.predict(dt=dt)
 
-    def _finish_prediction(self) -> tuple[np.ndarray, float, float]:
+    def _finish_prediction(self, box: np.ndarray | None = None) -> tuple[np.ndarray, float, float]:
         """Advance counters and expose box and confidence predictions."""
         self.age += 1
         if self.time_since_update > 0:
             self.hit_streak = 0
         self.time_since_update += 1
 
-        self.history.append(self.motion_model.to_box(self.kf.x))
+        self.history.append(self.motion_model.to_box(self.kf.x) if box is None else box)
         sync_track_meta(self)
 
         # --- make scalars robustly ---
