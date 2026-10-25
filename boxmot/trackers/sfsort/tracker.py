@@ -232,7 +232,7 @@ class SFSORT(BoxTracker):
 
         self.frame_count += 1
 
-        batch = self._make_detection_batch(dets)
+        batch = self._make_detection_batch(dets, copy=False)
 
         hth, nth, mth = self._dynamic_thresholds(batch.confs)
         high_batch, second_batch = batch.split_by_confidence(
@@ -245,6 +245,7 @@ class SFSORT(BoxTracker):
         self._purge_stale_lost_tracks()
 
         track_pool = self.active_tracks + self.lost_tracks
+        recovered_ids: set[int] = set()
 
         # With no high-confidence detections, every current track must remain
         # eligible for the low-confidence second pass.
@@ -279,8 +280,7 @@ class SFSORT(BoxTracker):
                         definite_det_inds[detection_idx],
                     )
                     next_active_tracks.append(track)
-                    if track in self.lost_tracks:
-                        self.lost_tracks.remove(track)
+                    recovered_ids.add(id(track))
 
                 for detection_idx in unmatched_detections:
                     if definite_scores[detection_idx] > nth:
@@ -325,7 +325,7 @@ class SFSORT(BoxTracker):
             cost = self._condition_association(
                 cost, unmatched_track_pool, possible_boxes, threshold=self.match_th_second
             )
-            matches, _, unmatched_detections = linear_assignment(cost, self.match_th_second)
+            matches, unmatched_second_tracks, unmatched_detections = linear_assignment(cost, self.match_th_second)
 
             for track_idx, detection_idx in matches:
                 track = unmatched_track_pool[track_idx]
@@ -337,14 +337,13 @@ class SFSORT(BoxTracker):
                     possible_det_inds[detection_idx],
                 )
                 next_active_tracks.append(track)
-                if track in self.lost_tracks:
-                    self.lost_tracks.remove(track)
-                if track in next_lost_tracks:
-                    next_lost_tracks.remove(track)
+                recovered_ids.add(id(track))
+            next_lost_tracks = [unmatched_track_pool[index] for index in unmatched_second_tracks]
 
         if not (len(high_batch) or len(second_batch)):
             next_lost_tracks = track_pool.copy()
 
+        self.lost_tracks = [track for track in self.lost_tracks if id(track) not in recovered_ids]
         self._update_lost_tracks(next_lost_tracks)
         self.active_tracks = next_active_tracks.copy()
 
@@ -365,19 +364,22 @@ class SFSORT(BoxTracker):
         return hth, nth, self._geometry_cost_threshold(mth)
 
     def _purge_stale_lost_tracks(self) -> None:
-        for track in self.lost_tracks.copy():
-            if track.lost_region == "central":
-                if self.frame_count - track.last_frame > self.central_timeout:
-                    self.lost_tracks.remove(track)
-            else:
-                if self.frame_count - track.last_frame > self.marginal_timeout:
-                    self.lost_tracks.remove(track)
+        """Expire lost identities in one stable pass through the pool."""
+        self.lost_tracks = [
+            track
+            for track in self.lost_tracks
+            if self.frame_count - track.last_frame
+            <= (self.central_timeout if track.lost_region == "central" else self.marginal_timeout)
+        ]
 
     def _update_lost_tracks(self, next_lost_tracks: Iterable[Track]) -> None:
+        """Keep existing pool order, appending each newly lost identity once."""
+        lost_ids = {id(track) for track in self.lost_tracks}
         for track in next_lost_tracks:
             track.time_since_update = max(0, self.frame_count - track.last_frame)
-            if track not in self.lost_tracks:
+            if id(track) not in lost_ids:
                 self.lost_tracks.append(track)
+                lost_ids.add(id(track))
                 if track.bbox.shape[0] == 5:
                     u, v = float(track.bbox[0]), float(track.bbox[1])
                 else:
