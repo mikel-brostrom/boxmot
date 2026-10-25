@@ -302,7 +302,7 @@ class BotSort(BoxTracker):
 
         costs = geometry_dists
         if self.use_embeddings:
-            emb_dists = embedding_distance(tracks, detections)
+            emb_dists = embedding_distance(tracks, detections, candidate_mask=~geometry_dists_mask)
             if self.config.fuse_iou:
                 emb_dists = fuse_iou(emb_dists, tracks, detections, is_obb=self.is_obb)
             emb_dists[emb_dists > self.appearance_thresh] = 1.0
@@ -428,7 +428,9 @@ class BotSort(BoxTracker):
 
         costs = geometry_dists
         if self.use_embeddings:
-            emb_dists = embedding_distance(tracks, detections) / self.unconfirmed_emb_scale
+            emb_dists = embedding_distance(
+                tracks, detections, candidate_mask=~geometry_dists_mask,
+            ) / self.unconfirmed_emb_scale
             emb_dists[emb_dists > self.appearance_thresh] = 1.0
             emb_dists[geometry_dists_mask] = 1.0
             costs = np.minimum(geometry_dists, emb_dists)

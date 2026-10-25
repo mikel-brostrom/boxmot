@@ -6,9 +6,9 @@ from boxmot.trackers.common.detections import _DetectionBatch
 
 
 def _float_array(values: np.ndarray) -> np.ndarray:
+    """Borrow floating inputs; arithmetic below allocates independent results."""
     array = np.asarray(values)
-    dtype = array.dtype if np.issubdtype(array.dtype, np.floating) else np.float32
-    return array.astype(dtype, copy=True)
+    return array if array.dtype.kind == "f" else array.astype(np.float32, copy=False)
 
 
 def normalize_embedding(embedding: np.ndarray, eps: float = 1e-12) -> np.ndarray:
