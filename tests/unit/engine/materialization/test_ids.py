@@ -8,7 +8,7 @@ from boxmot.datasets.manifest import StageProvenance
 from boxmot.engine.materialization.ids import component_content, fingerprint, make_stage_fingerprint, stage_content
 
 
-def _stages(device: str, **detector_spec: str) -> tuple[StageProvenance, ...]:
+def _stages(device: str, *, reid_precision: str = "fp32", **detector_spec: str) -> tuple[StageProvenance, ...]:
     """Construct a real fingerprint chain with two parallel detector consumers."""
 
     stages: dict[str, StageProvenance] = {}
@@ -24,7 +24,7 @@ def _stages(device: str, **detector_spec: str) -> tuple[StageProvenance, ...]:
             else {
                 "spec": {
                     "device": device,
-                    "precision": "fp32",
+                    "precision": reid_precision if name == "embed" else "fp32",
                     "preprocessing": "default",
                     "artifact_sha256": "a" * 64,
                     **(detector_spec if name == "detect" else {}),
@@ -122,6 +122,41 @@ def test_recorded_execution_hashes_normalize_to_current_content() -> None:
         })
         recorded[stage.name] = replace(stage, fingerprint=digest)
     assert stage_content(tuple(recorded.values())) == stage_content(_stages("cpu"))
+
+
+@pytest.mark.parametrize("recorded_execution_hashes", [False, True])
+def test_embedding_precision_reuse_normalizes_verified_dependencies(recorded_execution_hashes: bool) -> None:
+    """Old and current fingerprint chains permit reuse without changing creation identity."""
+
+    original = _stages("cuda:0", reid_precision="fp32")
+    requested = _stages("cpu", reid_precision="fp16")
+    if recorded_execution_hashes:
+        recorded = {}
+        for stage in original:
+            recorded[stage.name] = replace(stage, fingerprint=fingerprint({
+                "name": stage.name, "config": stage.config, "component": stage.component,
+                "upstream": [recorded[name].fingerprint for name in stage.inputs], "batch_size": stage.batch_size,
+            }))
+        original = tuple(recorded.values())
+
+    assert stage_content(original) != stage_content(requested)
+    normalized = stage_content(original, ignore_embedding_precision=True)
+    assert normalized == stage_content(requested, ignore_embedding_precision=True)
+    assert normalized[-1].fingerprint != original[-1].fingerprint
+    assert original[2].component["spec"]["precision"] == "fp32"
+    assert normalized[0].component["spec"]["precision"] == "fp32"
+    assert normalized[1].component["spec"]["precision"] == "fp32"
+
+
+def test_embedding_precision_reuse_rejects_stale_stage_hash() -> None:
+    """A recorded precision edit without a matching fingerprint remains incompatible."""
+
+    original = list(_stages("cuda:0"))
+    original[2] = replace(original[2], component={"spec": {**original[2].component["spec"], "precision": "fp16"}})
+
+    assert stage_content(tuple(original), ignore_embedding_precision=True) != stage_content(
+        _stages("cpu", reid_precision="fp16"), ignore_embedding_precision=True
+    )
 
 
 @pytest.mark.parametrize(

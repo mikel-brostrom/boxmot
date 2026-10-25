@@ -39,8 +39,10 @@ sequence worker. See the
 for installation, device selection, and source requirements.
 
 Matching complete builds are reused across BoxMOT releases and CPU, MPS, or
-CUDA devices. Source data, weights, precision, preprocessing, class mapping,
-stage settings, and requested outputs must still match. Reuse validates the
+CUDA devices. Source data, weights, detector and segmentor precision,
+preprocessing, class mapping, stage settings, and requested outputs must still
+match. Completed ReID embeddings can be reused across inference precisions,
+as described below. Reuse validates the
 saved artifacts and keeps the original build ID without rerunning perception.
 
 Preparation caches detector output separately from ReID embeddings. If a
@@ -92,6 +94,14 @@ automatic preparation needs new inference. It does not force regeneration of
 matching saved outputs. With `--edgetam`, it also selects the
 EdgeTAM replay device and can accompany an explicit `--build`. Other
 perception-build workflows reject `--device` with an explicit `--build`.
+
+Changing a ReID profile from FP32 to FP16 also permits reuse of completed
+embeddings. Automatic preparation prefers a build with matching precision,
+then accepts another ReID precision with the same weights, backend, and
+preprocessing. The reused build keeps its original embeddings and recorded
+precision; they are not recomputed or cast. This also applies when validating
+an explicit `--build` against an experiment. Detector and segmentor precision
+must still match.
 
 After materialization completes, evaluation consumes the exact path returned
 by that build operation. It does not scan `--build-root`, select a latest

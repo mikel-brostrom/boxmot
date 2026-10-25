@@ -47,7 +47,9 @@ def _manifest_matches_plan(manifest: DatasetManifest, plan: BuildPlan) -> bool:
     return manifest.build_id == plan.build_id and _manifest_matches_content(manifest, plan)
 
 
-def _component_content_fingerprints(metadata: Mapping[str, Any]) -> dict[str, Any]:
+def _component_content_fingerprints(
+    metadata: Mapping[str, Any], *, ignore_reid_precision: bool = False
+) -> dict[str, Any]:
     """Compare component settings without erasing inconsistent recorded hashes."""
 
     fingerprints = metadata.get("component_fingerprints") or {}
@@ -57,7 +59,9 @@ def _component_content_fingerprints(metadata: Mapping[str, Any]) -> dict[str, An
     recorded = dict(fingerprints)
     for name, provenance in components.items():
         if isinstance(provenance, Mapping) and recorded.get(name) == fingerprint(provenance):
-            recorded[name] = fingerprint(component_content(provenance))
+            recorded[name] = fingerprint(
+                component_content(provenance, ignore_precision=ignore_reid_precision and name == "reid")
+            )
     return recorded
 
 
@@ -77,7 +81,9 @@ def _plan_stages(plan: BuildPlan) -> tuple[StageProvenance, ...]:
     )
 
 
-def _manifest_matches_content(manifest: DatasetManifest, plan: BuildPlan) -> bool:
+def _manifest_matches_content(
+    manifest: DatasetManifest, plan: BuildPlan, *, ignore_reid_precision: bool = False
+) -> bool:
     """Match perception semantics independently of execution settings and release."""
 
     return (
@@ -88,8 +94,10 @@ def _manifest_matches_content(manifest: DatasetManifest, plan: BuildPlan) -> boo
             masks=plan.publish.masks,
             embeddings=plan.publish.embeddings,
         )
-        and stage_content(manifest.stages) == stage_content(_plan_stages(plan))
-        and _component_content_fingerprints(manifest.metadata) == _component_content_fingerprints(plan.metadata)
+        and stage_content(manifest.stages, ignore_embedding_precision=ignore_reid_precision)
+        == stage_content(_plan_stages(plan), ignore_embedding_precision=ignore_reid_precision)
+        and _component_content_fingerprints(manifest.metadata, ignore_reid_precision=ignore_reid_precision)
+        == _component_content_fingerprints(plan.metadata, ignore_reid_precision=ignore_reid_precision)
         and manifest.metadata.get("dataset_name") == plan.dataset_name
         and manifest.metadata.get("source_fingerprint") == plan.source_fingerprint
         and manifest.metadata.get("experiment_id") == plan.metadata.get("experiment_id")
@@ -134,21 +142,35 @@ def find_matching_build(
     *,
     status_callback: Callable[[str], None] | None = None,
 ) -> Path | None:
-    """Reuse a fully validated build with identical source and perception semantics.
+    """Reuse a fully validated build with compatible source and perception settings.
 
     The producing release, device, and batch sizes remain recorded in provenance,
-    but do not invalidate otherwise identical perception outputs.
+    but do not invalidate otherwise compatible perception outputs. Prefer matching
+    ReID precision, then allow completed embeddings from another precision while
+    preserving their original build identity and provenance.
     The exact requested output, when present, remains authoritative and is
     validated by the materializer rather than replaced by another candidate.
     """
 
     if plan.output_root.exists():
         return None
+    other_precision: list[tuple[Path, DatasetManifest]] = []
     for path in _published_build_candidates(plan):
         try:
             manifest = DatasetManifest.load(path)
-            if manifest.build_id != path.name or not _manifest_matches_content(manifest, plan):
+            if manifest.build_id != path.name:
                 continue
+            if _manifest_matches_content(manifest, plan):
+                if status_callback is not None:
+                    status_callback(f"Validating matching perception build {path.name[:12]}…")
+                validate_published_build(path, manifest=manifest)
+                return path
+            elif _manifest_matches_content(manifest, plan, ignore_reid_precision=True):
+                other_precision.append((path, manifest))
+        except (OSError, ValueError):
+            continue
+    for path, manifest in other_precision:
+        try:
             if status_callback is not None:
                 status_callback(f"Validating matching perception build {path.name[:12]}…")
             validate_published_build(path, manifest=manifest)

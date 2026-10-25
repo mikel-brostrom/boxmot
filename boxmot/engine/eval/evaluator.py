@@ -86,17 +86,17 @@ def _reid_reference(resolved: Mapping[str, Any]) -> Mapping[str, Any] | None:
     }
 
 
-def _provenance_at_build_device(
+def _provenance_at_build_runtime(
     provenance: Mapping[str, Any],
     manifest: DatasetManifest,
     component_name: str,
 ) -> dict[str, Any]:
-    """Recompute experiment provenance using the build's execution device only.
+    """Compare experiment provenance using the build's reusable runtime choices.
 
-    Device selection is part of a build fingerprint but is an execution choice,
-    not an authored experiment override. All other spec and artifact fields stay
-    resolved from the selected experiment, so manifest data cannot substitute a
-    different model or preprocessing policy.
+    Device selection and ReID inference precision can differ when consuming
+    stored outputs. Other spec and artifact fields remain resolved from the
+    selected experiment, including detector and segmentor precision, so manifest
+    data cannot substitute a different model or preprocessing policy.
     """
 
     components = manifest.metadata.get("components")
@@ -109,9 +109,15 @@ def _provenance_at_build_device(
     resolved_spec = provenance.get("spec")
     if not isinstance(resolved_spec, Mapping):
         raise ValueError(f"Resolved {component_name} provenance is missing its canonical spec.")
+    runtime = {"device": device}
+    if component_name == "reid":
+        precision = recorded_spec.get("precision")
+        if not isinstance(precision, str) or precision not in {"fp16", "fp32", "bf16"}:
+            raise ValueError("Build manifest has missing or invalid components.reid.spec.precision provenance.")
+        runtime["precision"] = precision
     return {
         **dict(provenance),
-        "spec": {**dict(resolved_spec), "device": device},
+        "spec": {**dict(resolved_spec), **runtime},
     }
 
 
@@ -131,7 +137,7 @@ def _experiment_component_fingerprints(
         allow_download=False,
         **resolver_options,
     )
-    detector_provenance = _provenance_at_build_device(detector_provenance, manifest, "detector")
+    detector_provenance = _provenance_at_build_runtime(detector_provenance, manifest, "detector")
     expected = {"detector": fingerprint(detector_provenance)}
     actual = manifest.metadata.get("component_fingerprints")
     actual = actual if isinstance(actual, Mapping) else {}
@@ -148,7 +154,7 @@ def _experiment_component_fingerprints(
             allow_download=False,
             **resolver_options,
         )
-        provenance = _provenance_at_build_device(provenance, manifest, "segmentor")
+        provenance = _provenance_at_build_runtime(provenance, manifest, "segmentor")
         expected["segmentor"] = fingerprint(provenance)
 
     if actual.get("reid") is not None:
@@ -160,7 +166,7 @@ def _experiment_component_fingerprints(
             allow_download=False,
             **resolver_options,
         )
-        provenance = _provenance_at_build_device(provenance, manifest, "reid")
+        provenance = _provenance_at_build_runtime(provenance, manifest, "reid")
         expected["reid"] = fingerprint(provenance)
     return expected
 

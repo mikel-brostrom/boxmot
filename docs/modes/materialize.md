@@ -58,10 +58,15 @@ identity after work begins.
 Inference batch sizes, execution devices, worker counts, retries, and writer
 shard sizes do not change content identity or prevent reuse. For example, a
 request using detector batch size 16 can reuse a build produced with batch
-size 2. Model weights, precision, preprocessing, thresholds, geometry, and
-published payloads still distinguish builds. Execution settings remain recorded
-in provenance. An interrupted build retains its recorded stage batching on
-resume so completed shard checkpoints continue to refer to the same samples.
+size 2. Model weights, preprocessing, thresholds, geometry, and published
+payloads still distinguish builds. Precision remains part of new build IDs and
+provenance, but a completed embedding build can be reused when only ReID
+precision changes, for example from FP32 to FP16. A matching-precision build is
+preferred when available; otherwise the reused embeddings retain their original
+precision and values. Detector and segmentor precision still must match.
+Execution settings remain recorded in provenance. An interrupted build retains
+its recorded stage batching on resume so completed shard checkpoints continue
+to refer to the same samples.
 
 Use `--device cpu`, `--device mps`, or a CUDA selector such as
 `--device cuda:0` (`--device 0` is equivalent) to override the execution device
@@ -89,7 +94,8 @@ looks for a compatible published full-rate materialization and copies only
 the selected detections, embeddings, and masks into the sampled build, without
 loading perception models. Reuse validates source images, capture timestamps,
 ground-truth provenance, component settings and artifacts, geometry, class
-mapping, and availability of every requested payload. If no compatible parent
+mapping, and availability of every requested payload. Deriving a new sampled
+build requires matching ReID precision as well. If no compatible parent
 exists, perception runs only on the selected frames.
 
 Images, detections, embeddings, and evaluation ground truth refer to the same
@@ -152,10 +158,11 @@ also omitted, the existing catalog identity is preserved.
 from C++ compilation output. A build ID resolves only below that root. An
 already complete matching build is validated and reused without mutation.
 BoxMOT checks the selected root for the same source data, experiment, model
-weights, precision, preprocessing, class mapping, stage settings, and published
-outputs. A package release or execution-device change alone does not trigger
-inference again. The reused build keeps its original ID and provenance; its
-publication marker and every saved artifact are validated before reuse.
+weights, preprocessing, class mapping, stage settings, and published outputs.
+A package release, execution-device change, or ReID precision change alone does
+not require new inference when a compatible completed build exists. The reused
+build keeps its original ID and provenance; its publication marker and every
+saved artifact are validated before reuse.
 
 Detector output is cached independently below
 `<selected-build-root>/.cache/detect` (by default,

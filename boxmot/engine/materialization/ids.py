@@ -48,13 +48,15 @@ def make_stage_fingerprint(
     )
 
 
-def component_content(provenance: Mapping[str, Any]) -> dict[str, Any]:
-    """Exclude known inference scheduling controls while retaining their provenance."""
+def component_content(provenance: Mapping[str, Any], *, ignore_precision: bool = False) -> dict[str, Any]:
+    """Exclude scheduling controls, optionally comparing cached encoder precisions."""
 
     content = dict(provenance)
     spec = content.get("spec")
     if isinstance(spec, Mapping):
         spec = {key: value for key, value in spec.items() if key != "device"}
+        if ignore_precision:
+            spec.pop("precision", None)
         options = spec.get("options")
         if isinstance(options, Mapping):
             spec["options"] = {key: value for key, value in options.items() if key != "batch_size"}
@@ -64,13 +66,17 @@ def component_content(provenance: Mapping[str, Any]) -> dict[str, Any]:
     return content
 
 
-def stage_content(stages: tuple[StageProvenance, ...]) -> tuple[StageProvenance, ...]:
+def stage_content(
+    stages: tuple[StageProvenance, ...], *, ignore_embedding_precision: bool = False
+) -> tuple[StageProvenance, ...]:
     """Normalize execution-dependent stage identities without hiding fingerprint drift.
 
     Original fingerprints must match their recorded inputs before they can be
     recomputed with normalized components and upstream identities. Opaque or
     mismatched fingerprints remain unchanged, preserving mismatch detection.
     Returned stages retain the supplied order and leave original provenance intact.
+    Completed-build reuse may ignore embedding precision; build and checkpoint
+    identities retain it by default.
     """
 
     original = {stage.name: stage for stage in stages}
@@ -86,7 +92,9 @@ def stage_content(stages: tuple[StageProvenance, ...]) -> tuple[StageProvenance,
         if not ready:
             raise ValueError("Materialization stage graph contains a cycle.")
         for stage in ready:
-            component = component_content(stage.component)
+            component = component_content(
+                stage.component, ignore_precision=ignore_embedding_precision and stage.name == "embed"
+            )
             upstream = tuple(original[name].fingerprint for name in stage.inputs)
             content_fingerprint = make_stage_fingerprint(
                 stage.name,
