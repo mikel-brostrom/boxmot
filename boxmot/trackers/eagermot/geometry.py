@@ -117,6 +117,34 @@ def project_box3d(box: np.ndarray, projection: np.ndarray, image_size: tuple[int
     return bounds if np.all(bounds[2:] > bounds[:2]) else None
 
 
+def project_boxes3d(
+    boxes: np.ndarray, projection: np.ndarray, image_size: tuple[int, int]
+) -> tuple[np.ndarray, np.ndarray]:
+    """Project a batch, returning zero rows and a validity mask for invisible boxes.
+
+    Corner visibility, rounding and clipping match :func:`project_box3d`.
+    Camera validation and reductions run once for the whole batch.
+    """
+    corners = boxes3d_corners(boxes)
+    projection = np.asarray(projection, dtype=np.float64)
+    if projection.shape != (3, 4) or not np.isfinite(projection).all():
+        raise ValueError("projection must be a finite 3x4 matrix.")
+    if len(image_size) != 2 or any(not np.isfinite(value) or value <= 0 for value in image_size):
+        raise ValueError("image_size must contain positive height and width.")
+    projected = corners @ projection[:, :3].T + projection[:, 3]
+    forward = projected[:, :, 2] > 0
+    pixels = np.zeros((len(corners), 8, 2), dtype=np.float64)
+    np.divide(projected[:, :, :2], projected[:, :, 2, None], out=pixels, where=forward[:, :, None])
+    np.rint(pixels, out=pixels)
+    lower = np.where(forward[:, :, None], pixels, np.inf).min(axis=1)
+    upper = np.where(forward[:, :, None], pixels, -np.inf).max(axis=1)
+    bounds = np.concatenate((lower, upper), axis=1)
+    np.clip(bounds, 0, [image_size[1], image_size[0], image_size[1], image_size[0]], out=bounds)
+    valid = (forward.sum(axis=1) >= 4) & np.all(bounds[:, 2:] > bounds[:, :2], axis=1)
+    bounds[~valid] = 0
+    return bounds, valid
+
+
 def iou2d_matrix(first: np.ndarray, second: np.ndarray) -> np.ndarray:
     """Return pairwise xyxy IoU, treating nonfinite/zero-area rows as invisible."""
     first = np.asarray(first, dtype=np.float64)

@@ -34,7 +34,7 @@ from boxmot.trackers.eagermot.association import (
     similarity_3d,
 )
 from boxmot.trackers.eagermot.config import EagerMotConfig
-from boxmot.trackers.eagermot.geometry import iou2d_matrix, project_box3d, transform_boxes3d
+from boxmot.trackers.eagermot.geometry import iou2d_matrix, project_boxes3d, transform_boxes3d
 from boxmot.trackers.eagermot.motion import Kalman3D
 
 
@@ -166,15 +166,7 @@ class EagerMot(BaseTracker):
     @staticmethod
     def _project(boxes: np.ndarray, camera: CameraModel) -> tuple[np.ndarray, np.ndarray]:
         """Project camera-coordinate boxes while keeping invalid rows in place."""
-        projections = np.zeros((len(boxes), 4), dtype=np.float64)
-        valid = np.zeros(len(boxes), dtype=bool)
-        projection = camera.projection.detach().numpy()
-        for index, box in enumerate(boxes):
-            projected = project_box3d(box, projection, camera.image_size)
-            if projected is not None:
-                projections[index] = projected
-                valid[index] = True
-        return projections, valid
+        return project_boxes3d(boxes, camera.projection.detach().numpy(), camera.image_size)
 
     @staticmethod
     def _observe_image(track: _Track, index: int, detections: Detections) -> None:
