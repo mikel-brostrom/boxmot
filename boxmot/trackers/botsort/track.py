@@ -1,4 +1,5 @@
 from collections import deque
+from dataclasses import dataclass
 from typing import Optional
 
 import cv2
@@ -13,6 +14,58 @@ from boxmot.trackers.common.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.trackers.common.motion.models import MotionModelAdapter, MotionModelKind, create_motion_model
 from boxmot.trackers.common.track_state import BoxTrack
 from boxmot.trackers.common.tracking.track import TrackIdAllocator
+
+
+@dataclass(slots=True, eq=False)
+class _Detection:
+    """One observation without a track's histories or lifecycle state."""
+
+    raw_row: np.ndarray
+    xywh: np.ndarray
+    curr_feat: np.ndarray | None
+    conf: np.float32
+    cls: np.float32
+    det_ind: np.float32
+    is_obb: bool
+
+    @classmethod
+    def from_rows(
+        cls, rows: np.ndarray, features: np.ndarray | None = None, *, is_obb: bool
+    ) -> list["_Detection"]:
+        """Own float32 geometry and normalize each supplied observation once."""
+        if not len(rows):
+            return []
+        values = np.array(rows, dtype=np.float32, copy=True)
+        boxes = values[:, :5] if is_obb else xyxy2xywh(values[:, :4])
+        embeddings = [None] * len(values) if features is None else [normalize_embedding(feat) for feat in features]
+        return [
+            cls(row, box, feature, row[-3], row[-2], row[-1], is_obb)
+            for row, box, feature in zip(values, boxes, embeddings, strict=True)
+        ]
+
+    @property
+    def xyxy(self) -> np.ndarray:
+        """Return geometry in the coordinates used by AABB association."""
+        return BoxTrack.obb_to_xyxy(self.xywh) if self.is_obb else xywh2xyxy(self.xywh)
+
+    @property
+    def xywha(self) -> np.ndarray:
+        """Return an owned oriented geometry row."""
+        if self.is_obb:
+            return self.xywh.copy()
+        return np.array([*self.xywh, 0.0], dtype=np.float32)
+
+    @classmethod
+    def batch_geometry(cls, tracks, *, is_obb: bool) -> np.ndarray | None:
+        """Convert native observation rows with the scalar float32 arithmetic."""
+        if cls is not _Detection or any(type(track) is not _Detection or track.is_obb != is_obb for track in tracks):
+            return None
+        if not tracks:
+            return np.empty((0, 5 if is_obb else 4), dtype=np.float32)
+        if any(track.xywh.dtype != tracks[0].xywh.dtype for track in tracks):
+            return None
+        boxes = np.asarray([track.xywh for track in tracks])
+        return boxes if is_obb else xywh2xyxy(boxes)
 
 
 class TrackState:
@@ -44,7 +97,7 @@ class STrack(BaseTrack):
 
     def __init__(
         self,
-        det,
+        det: np.ndarray | _Detection,
         feat=None,
         *,
         id_allocator: TrackIdAllocator,
@@ -54,9 +107,17 @@ class STrack(BaseTrack):
         is_obb=False,
         motion_model: MotionModelAdapter | None = None,
     ):
+        """Create persistent state from raw input or a prepared observation."""
+        observation = det if isinstance(det, _Detection) else None
         if motion_model is None:
             motion_model = create_motion_model(MotionModelKind.XYWH, is_obb=is_obb)
-        super().__init__(det, id_allocator=id_allocator, max_obs=max_obs, is_obb=is_obb, motion_model=motion_model)
+        super().__init__(
+            observation.raw_row if observation is not None else det,
+            id_allocator=id_allocator,
+            max_obs=max_obs,
+            is_obb=is_obb,
+            motion_model=motion_model,
+        )
 
         # Classification history and feature history
         self.cls_hist = []
@@ -69,6 +130,13 @@ class STrack(BaseTrack):
         self.update_cls(self.cls, self.conf)
         if feat is not None:
             self.update_features(feat)
+        elif observation is not None and observation.curr_feat is not None:
+            # The observation already performed the first normalization from
+            # update_features(). Keep the second EMA normalization at birth
+            # exactly as for a raw detection, without normalizing twice again.
+            self.curr_feat = observation.curr_feat
+            self.smooth_feat = ema_update_embedding(None, self.curr_feat, alpha=self.alpha)
+            self.features.append(self.curr_feat)
 
     def _init_from_aabb_detection(self, det: np.ndarray) -> None:
         self.xywh = xyxy2xywh(det[:4])
@@ -98,7 +166,7 @@ class STrack(BaseTrack):
             self.cls_hist.append([cls, conf])
             self.cls = cls
 
-    def _measurement_for_update(self, track: "STrack") -> np.ndarray:
+    def _measurement_for_update(self, track: "STrack | _Detection") -> np.ndarray:
         if self.motion_model.kind is MotionModelKind.XYWH:
             return track.xywh
         box = track.xywh if self.is_obb else xywh2xyxy(track.xywh)
@@ -109,12 +177,38 @@ class STrack(BaseTrack):
             return xyxy2xywh(self.motion_model.to_box(self.mean)[0])
         return self.mean[:4].copy() if self.mean is not None else self.xywh.copy()
 
-    def _after_reactivate(self, new_track: "STrack") -> None:
+    @classmethod
+    def batch_geometry(cls, tracks, *, is_obb: bool) -> np.ndarray | None:
+        """Batch native XYWH states without changing scalar geometry rounding."""
+        if cls is not STrack or any(
+            type(track) is not STrack
+            or track.is_obb != is_obb
+            or track.motion_model.kind is not MotionModelKind.XYWH
+            or any(name in track.__dict__ for name in ("xyxy", "xywha", "_current_aabb_xywh", "obb_to_xyxy"))
+            for track in tracks
+        ):
+            return None
+        if not tracks:
+            return np.empty((0, 5 if is_obb else 4), dtype=np.float32)
+        initialized = [track.mean is not None for track in tracks]
+        if all(initialized):
+            if any(track.mean.dtype != tracks[0].mean.dtype for track in tracks):
+                return None
+            boxes = np.asarray([track.mean[:5 if is_obb else 4] for track in tracks])
+        elif not any(initialized):
+            if any(track.xywh.dtype != tracks[0].xywh.dtype for track in tracks):
+                return None
+            boxes = np.asarray([track.xywh for track in tracks])
+        else:
+            return None
+        return boxes.astype(np.float32) if is_obb else xywh2xyxy(boxes)
+
+    def _after_reactivate(self, new_track: "STrack | _Detection") -> None:
         if new_track.curr_feat is not None:
             self.update_features(new_track.curr_feat)
         self.update_cls(new_track.cls, new_track.conf)
 
-    def _after_update(self, new_track: "STrack") -> None:
+    def _after_update(self, new_track: "STrack | _Detection") -> None:
         if new_track.curr_feat is not None:
             self.update_features(new_track.curr_feat)
         self.update_cls(new_track.cls, new_track.conf)

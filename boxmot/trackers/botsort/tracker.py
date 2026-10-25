@@ -10,7 +10,7 @@ from typing_extensions import Unpack
 from boxmot.reid.protocols import AppearanceEncoder
 from boxmot.reid.specs import ReIDConfig
 from boxmot.trackers.botsort.config import BotSortConfig
-from boxmot.trackers.botsort.track import STrack, TrackState
+from boxmot.trackers.botsort.track import STrack, TrackState, _Detection
 from boxmot.trackers.common.appearance import resolve_batch_embeddings
 from boxmot.trackers.common.association import AssociationStage, run_association_stage
 from boxmot.trackers.common.association.matching import (
@@ -227,7 +227,7 @@ class BotSort(BoxTracker):
         return self._prepare_output(activated_stracks, refind_stracks, lost_stracks, removed_stracks)
 
     def _split_detections(self, dets, embs):
-        batch = self._make_detection_batch(dets, embs=embs)
+        batch = self._make_detection_batch(dets, embs=embs, copy=False)
         first_batch, second_batch = batch.split_by_confidence(
             high_thresh=self.track_high_thresh,
             low_thresh=self.track_low_thresh,
@@ -237,36 +237,9 @@ class BotSort(BoxTracker):
         dets_second = second_batch.as_indexed_detections(dtype=dets.dtype)
         return dets, dets_first, first_batch, dets_second
 
-    def _create_detections(self, dets_first, features_high):
-        if len(dets_first) > 0:
-            if self.use_embeddings:
-                detections = [
-                    STrack(
-                        det,
-                        f,
-                        id_allocator=self.id_allocator,
-                        max_obs=self.max_obs,
-                        alpha=self.config.alpha_fixed_emb,
-                        is_obb=self.is_obb,
-                        motion_model=self.motion_model,
-                    )
-                    for (det, f) in zip(dets_first, features_high)
-                ]
-            else:
-                detections = [
-                    STrack(
-                        det,
-                        id_allocator=self.id_allocator,
-                        max_obs=self.max_obs,
-                        alpha=self.config.alpha_fixed_emb,
-                        is_obb=self.is_obb,
-                        motion_model=self.motion_model,
-                    )
-                    for det in dets_first
-                ]
-        else:
-            detections = []
-        return detections
+    def _create_detections(self, rows: np.ndarray, features: np.ndarray | None = None) -> list[_Detection]:
+        """Prepare observations; allocate track state only for unmatched births."""
+        return _Detection.from_rows(rows, features if self.use_embeddings else None, is_obb=self.is_obb)
 
     def _separate_tracks(self):
         unconfirmed, active_tracks = [], []
@@ -320,7 +293,7 @@ class BotSort(BoxTracker):
 
         return matches, u_track, u_detection
 
-    def _first_association_cost(self, tracks: list[STrack], detections: list[STrack]) -> np.ndarray:
+    def _first_association_cost(self, tracks: list[STrack], detections: list[_Detection]) -> np.ndarray:
         """Fuse high-confidence costs after prediction and camera compensation."""
         geometry_dists = self.association_distance(tracks, detections)
         geometry_dists_mask = geometry_dists > self.proximity_thresh
@@ -367,20 +340,7 @@ class BotSort(BoxTracker):
         u_track_first,
         strack_pool,
     ):
-        if len(dets_second) > 0:
-            detections_second = [
-                STrack(
-                    det,
-                    id_allocator=self.id_allocator,
-                    max_obs=self.max_obs,
-                    alpha=self.config.alpha_fixed_emb,
-                    is_obb=self.is_obb,
-                    motion_model=self.motion_model,
-                )
-                for det in dets_second
-            ]
-        else:
-            detections_second = []
+        detections_second = self._create_detections(dets_second)
 
         r_tracked_stracks = [strack_pool[i] for i in u_track_first if strack_pool[i].state == TrackState.Tracked]
 
@@ -474,12 +434,21 @@ class BotSort(BoxTracker):
             costs = np.minimum(geometry_dists, emb_dists)
         return self._condition_association(costs, tracks, detections, threshold=self.unconfirmed_match_thresh)
 
-    def _initialize_new_tracks(self, u_detections, activated_stracks, detections):
+    def _initialize_new_tracks(self, u_detections, activated_stracks, detections) -> None:
+        """Allocate histories and motion state only for accepted new identities."""
         for inew in u_detections:
-            track = detections[inew]
-            if track.conf < self.new_track_thresh:
+            detection = detections[inew]
+            if detection.conf < self.new_track_thresh:
                 continue
 
+            track = STrack(
+                detection,
+                id_allocator=self.id_allocator,
+                max_obs=self.max_obs,
+                alpha=self.config.alpha_fixed_emb,
+                is_obb=self.is_obb,
+                motion_model=self.motion_model,
+            )
             track.activate(self.kalman_filter, self.frame_count)
             activated_stracks.append(track)
 
@@ -533,10 +502,16 @@ class BotSort(BoxTracker):
             duplicate_threshold=self.config.duplicate_distance_thresh,
         )
 
-        return self.format_outputs(
-            [t for t in self.active_tracks if t.is_activated],
-            dtype=np.float32,
-        )
+        visible = [track for track in self.active_tracks if track.is_activated]
+        if (
+            type(self) is BotSort
+            and not any(name in self.__dict__ for name in ("_track_box_for_output", "format_outputs"))
+            and not any(any(name in track.__dict__ for name in ("output_box", "box", "bbox")) for track in visible)
+        ):
+            boxes = STrack.batch_geometry(visible, is_obb=self.is_obb)
+            if boxes is not None:
+                return self.format_outputs(visible, dtype=np.float32, boxes=boxes)
+        return self.format_outputs(visible, dtype=np.float32)
 
     def reset(self) -> None:
         self._reset_common_state()

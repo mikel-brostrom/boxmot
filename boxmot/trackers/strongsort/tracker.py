@@ -77,6 +77,25 @@ class _Detection:
             raise AttributeError("xywha is only available for OBB detections")
         return self.tlwh.copy()
 
+    @classmethod
+    def batch_geometry(cls, tracks, *, is_obb: bool) -> np.ndarray | None:
+        """Extract native observations without allocating one geometry per row."""
+        if cls is not _Detection or any(
+            type(track) is not _Detection
+            or track.is_obb != is_obb
+            or any(name in track.__dict__ for name in ("xyxy", "xywha"))
+            for track in tracks
+        ):
+            return None
+        if not tracks:
+            return np.empty((0, 5 if is_obb else 4), dtype=np.float32)
+        if any(track.tlwh.dtype != tracks[0].tlwh.dtype for track in tracks):
+            return None
+        boxes = np.asarray([track.tlwh for track in tracks])
+        if not is_obb:
+            boxes[:, 2:] += boxes[:, :2]
+        return boxes
+
 
 class StrongSort(BoxTracker):
     """Track AABB or OBB detections with appearance matching and ECC camera motion.
@@ -189,7 +208,7 @@ class StrongSort(BoxTracker):
         embs: np.ndarray = None,
         masks: np.ndarray = None,
     ) -> np.ndarray:
-        batch = self._make_detection_batch(dets, embs=embs, masks=masks)
+        batch = self._make_detection_batch(dets, embs=embs, masks=masks, copy=False)
         batch = batch.select(batch.confs >= self.min_conf)
         features = resolve_batch_embeddings(
             batch,
@@ -211,20 +230,11 @@ class StrongSort(BoxTracker):
         self.apply_cmc(img, dets, self.tracks)
         self._update_tracks(detections)
 
-        outputs = []
-        for track in self.tracks:
-            if not track.is_confirmed() or track.time_since_update >= 1:
-                continue
-
-            box = track.xywha if self.is_obb else track.to_tlbr()
-
-            id = track.id
-            conf = track.conf
-            cls = track.cls
-            det_ind = track.det_ind
-
-            outputs.append(self.format_output_row(box, id, conf, cls, det_ind))
-        return self.format_output_rows(outputs, dtype=np.float32)
+        visible = [track for track in self.tracks if track.is_confirmed() and track.time_since_update < 1]
+        boxes = Track.batch_geometry(visible, is_obb=self.is_obb)
+        if boxes is None:
+            boxes = np.asarray([track.xywha if self.is_obb else track.to_tlbr() for track in visible])
+        return self.format_outputs(visible, dtype=np.float32, boxes=boxes)
 
     def _predict_tracks(self) -> None:
         """Propagate all active track states to the current frame."""

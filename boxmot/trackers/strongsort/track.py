@@ -120,6 +120,29 @@ class Track:
             return self.mean[:5].copy()
         return self.motion_model.to_box(self.mean)[0]
 
+    @classmethod
+    def batch_geometry(cls, tracks, *, is_obb: bool) -> np.ndarray | None:
+        """Batch native default-model states in their scalar conversion order."""
+        kind = MotionModelKind.XYWH if is_obb else MotionModelKind.XYAH
+        if cls is not Track or any(
+            type(track) is not Track
+            or track.is_obb != is_obb
+            or track.motion_model.kind is not kind
+            or any(name in track.__dict__ for name in ("xyxy", "xywha", "to_tlwh", "to_tlbr"))
+            for track in tracks
+        ):
+            return None
+        if not tracks:
+            return np.empty((0, 5 if is_obb else 4), dtype=np.float32)
+        if any(track.mean.dtype != tracks[0].mean.dtype for track in tracks):
+            return None
+        boxes = np.asarray([track.mean[:5 if is_obb else 4] for track in tracks])
+        if not is_obb:
+            boxes[:, 2] *= boxes[:, 3]
+            boxes[:, :2] -= boxes[:, 2:] / 2
+            boxes[:, 2:] = boxes[:, :2] + boxes[:, 2:]
+        return boxes
+
     def measurement_for_detection(self, detection) -> np.ndarray:
         """Convert a detection into this track's measurement coordinates."""
         if (self.is_obb and self.motion_model.kind is MotionModelKind.XYWH) or (

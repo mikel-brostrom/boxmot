@@ -73,11 +73,15 @@ def min_cost_matching(
     row_indices, col_indices = linear_sum_assignment(cost_matrix)
 
     matches, unmatched_tracks, unmatched_detections = [], [], []
+    matched_columns = np.zeros(len(detection_indices), dtype=bool)
+    matched_rows = np.zeros(len(track_indices), dtype=bool)
+    matched_columns[col_indices] = True
+    matched_rows[row_indices] = True
     for col, detection_idx in enumerate(detection_indices):
-        if col not in col_indices:
+        if not matched_columns[col]:
             unmatched_detections.append(detection_idx)
     for row, track_idx in enumerate(track_indices):
-        if row not in row_indices:
+        if not matched_rows[row]:
             unmatched_tracks.append(track_idx)
     for row, col in zip(row_indices, col_indices):
         track_idx = track_indices[row]
@@ -203,12 +207,15 @@ def gate_cost_matrix(
         Returns the modified cost matrix.
     """
 
+    boxes_by_geometry = {}
     for row, track_idx in enumerate(track_indices):
         track = tracks[track_idx]
-        geometry_attr = "xywha" if track.is_obb else "xyxy"
-        boxes = np.asarray([getattr(detections[i], geometry_attr) for i in detection_indices]).reshape(
-            -1, 5 if track.is_obb else 4
-        )
+        if track.is_obb not in boxes_by_geometry:
+            geometry_attr = "xywha" if track.is_obb else "xyxy"
+            boxes_by_geometry[track.is_obb] = np.asarray(
+                [getattr(detections[i], geometry_attr) for i in detection_indices]
+            ).reshape(-1, 5 if track.is_obb else 4)
+        boxes = boxes_by_geometry[track.is_obb]
         distances = motion_gating_distance(track, boxes, only_position=only_position)
         blocked = ~np.isfinite(cost_matrix[row]) | ~np.isfinite(distances)
         blocked |= distances > motion_gating_threshold(track, only_position=only_position)
@@ -300,9 +307,7 @@ def _nn_cosine_distance(x, y):
         A vector of length M that contains for each entry in `y` the
         smallest cosine distance to a sample in `x`.
     """
-    x_ = torch.from_numpy(np.asarray(x))
-    y_ = torch.from_numpy(np.asarray(y))
-    distances = _cosine_distance(x_, y_)
+    distances = _cosine_distance(np.asarray(x), np.asarray(y))
     return distances.min(axis=0)
 
 
@@ -371,6 +376,18 @@ class NearestNeighborDistanceMetric(object):
             `targets[i]` and `features[j]`.
         """
         cost_matrix = np.zeros((len(targets), len(features)))
+        if self._metric is _nn_cosine_distance and len(targets):
+            # Every gallery sees the same query matrix. Normalize it once,
+            # retaining each gallery's own dot product and reduction order.
+            # Galleries remain raw so direct sample edits and budget eviction
+            # retain their existing behavior without a stale normalized cache.
+            queries = np.asarray(features) / np.linalg.norm(features, axis=1, keepdims=True)
+            for i, target in enumerate(targets):
+                gallery = np.asarray(self.samples[target])
+                gallery = gallery / np.linalg.norm(gallery, axis=1, keepdims=True)
+                distances = _cosine_distance(gallery, queries, data_is_normalized=True)
+                cost_matrix[i, :] = distances.min(axis=0)
+            return cost_matrix
         for i, target in enumerate(targets):
             cost_matrix[i, :] = self._metric(self.samples[target], features)
         return cost_matrix
