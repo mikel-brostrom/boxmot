@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 
+import cv2
 import numpy as np
 import torch
 
@@ -126,7 +127,10 @@ class LiveReIDMixin:
 
         if isinstance(frame, np.ndarray):
             return frame
-        return frame.image.permute(1, 2, 0).flip(-1).contiguous().numpy()
+        # Merge the contiguous RGB planes in reverse order directly into one
+        # owned HWC buffer; Torch flip/contiguous otherwise copy the image twice.
+        red, green, blue = frame.image.numpy(force=True)
+        return cv2.merge((blue, green, red))
 
     def _resolve_input_embeddings(
         self,

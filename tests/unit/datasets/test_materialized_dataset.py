@@ -662,8 +662,26 @@ def test_loader_decodes_relative_mmot_numpy_image_ref(materialized_build, tmp_pa
     assert sample.frame.image.is_contiguous()
 
 
+@pytest.mark.parametrize("image_size", ((1, 1), (1, 5), (5, 1), (3, 5)))
+def test_image_reader_preserves_all_pixels_from_local_image(tmp_path, image_size) -> None:
+    """Color and layout conversion preserve all pixels, including narrow images."""
+    path = tmp_path / "frame.png"
+    height, width = image_size
+    source = np.arange(height * width * 3, dtype=np.uint8).reshape(height, width, 3)
+    assert cv2.imwrite(str(path), source)
+
+    image = read_rgb_chw_uint8(path.name, tmp_path.as_uri())
+
+    expected = np.stack((source[..., 2], source[..., 1], source[..., 0]))
+    assert np.array_equal(image.numpy(), expected)
+    assert image.dtype is torch.uint8
+    assert image.is_contiguous()
+
+
 def test_image_reader_decodes_selected_local_video_frame(monkeypatch, tmp_path) -> None:
     import boxmot.datasets.readers.images as image_reader
+
+    source = np.arange(2 * 5 * 3, dtype=np.uint8).reshape(2, 5, 3)
 
     class FakeCapture:
         def __init__(self) -> None:
@@ -678,7 +696,7 @@ def test_image_reader_decodes_selected_local_video_frame(monkeypatch, tmp_path) 
             return True
 
         def read(self):
-            return True, np.array([[[1, 2, 3]]], dtype=np.uint8)
+            return True, source
 
         def release(self):
             self.released = True
@@ -690,7 +708,8 @@ def test_image_reader_decodes_selected_local_video_frame(monkeypatch, tmp_path) 
 
     assert capture.seek == (cv2.CAP_PROP_POS_FRAMES, 7)
     assert capture.released is True
-    assert image[:, 0, 0].tolist() == [3, 2, 1]
+    expected = np.stack((source[..., 2], source[..., 1], source[..., 0]))
+    assert np.array_equal(image.numpy(), expected)
     assert image.dtype is torch.uint8
     assert image.is_contiguous()
 
