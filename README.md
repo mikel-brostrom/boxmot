@@ -285,7 +285,7 @@ tracks = tracker.update(dets, frame)
 print(tracks[:, 5].astype(int))  # track IDs
 ```
 
-2D/3D sensor fusion with [EagerMot](docs/trackers/eagermot.md):
+2D/3D sensor fusion with ego-motion compensation using [EagerMot](docs/trackers/eagermot.md):
 
 ```python
 import numpy as np
@@ -298,8 +298,10 @@ camera = np.array([  # synthetic camera projection
     [0, 100, 50, 0],
     [0, 0, 1, 0],
 ])
+camera_to_world = np.eye(4)
+camera_to_world[0, 3] = 1.0  # synthetic pose: camera at world x = 1 meter
 dets = np.array([[78, 39, 122, 62, 0.95, 0]])
-# 3D: x, y, z, yaw, length, width, height, confidence, class_id
+# 3D in camera coordinates: x, y, z, yaw, length, width, height, confidence, class_id
 dets_3d = np.array([[0, 1, 10, 0, 4, 2, 2, 0.9, 0]])
 
 tracks_2d, tracks_3d = tracker.update(
@@ -307,10 +309,16 @@ tracks_2d, tracks_3d = tracker.update(
     detections_3d=dets_3d,
     camera=camera,
     image_size=(100, 200),  # height, width
+    camera_to_world=camera_to_world,
 )
 print(tracks_2d[:, 4].astype(int))  # image track IDs
 print(tracks_3d[:, 7].astype(int))  # 3D track IDs
 ```
+
+Replace the synthetic pose with the current frame's absolute 4×4 camera-to-world
+transform on every update. KITTI evaluation loads these from `poses.npy` when
+the dataset declares a `poses` modality. If poses are unavailable, omit
+`camera_to_world` throughout the sequence to track in camera coordinates.
 
 ## Contributing
 

@@ -429,8 +429,9 @@ for storage and invalidation behavior.
 
 ## Sensor fusion example
 
-This example supplies one synthetic camera and matching 2D/3D observations.
-Replace them with calibrated observations for each frame in a real sequence.
+This example supplies a synthetic camera, an absolute camera-to-world pose,
+and matching 2D/3D observations. Replace them with calibrated observations and
+the current frame's pose for each update in a real sequence.
 
 ```python
 import numpy as np
@@ -441,6 +442,8 @@ tracker = EagerMot()
 camera = np.array(
     [[100, 0, 100, 0], [0, 100, 50, 0], [0, 0, 1, 0]], dtype=float
 )
+camera_to_world = np.eye(4)
+camera_to_world[0, 3] = 1.0  # synthetic pose: camera at world x = 1 meter
 dets = np.array([[78, 39, 122, 62, 0.95, 0]])
 # 3D: bottom-face center (x, y, z), yaw, length, width, height, confidence, class_id
 dets_3d = np.array([[0, 1, 10, 0, 4, 2, 2, 0.9, 0]])
@@ -450,12 +453,19 @@ image_tracks, spatial_tracks = tracker.update(
     detections_3d=dets_3d,
     camera=camera,
     image_size=(100, 200),  # height, width; a supplied frame also provides this
+    camera_to_world=camera_to_world,
 )
 print(image_tracks[:, 4].astype(int))    # image track IDs
 print(spatial_tracks[:, 7].astype(int))  # 3D track IDs
 print(spatial_tracks[:, :7])            # tracked 3D boxes
 tracker.reset()
 ```
+
+Pass absolute 4×4 camera-to-world transforms on every update for ego-motion
+compensation. KITTI evaluation reads these from `poses.npy` when the dataset
+declares a `poses` modality. If poses are unavailable, omit `camera_to_world`
+throughout the sequence to track in camera coordinates. Spatial outputs remain
+in the current camera coordinates in either case.
 
 ## Outputs and lifecycle
 
