@@ -65,16 +65,23 @@ class _Track:
 class EagerMot(BaseTracker):
     """Fuse independent 2D/3D detections and preserve identities across dropouts.
 
-    Call the inherited ``update`` with canonical ``Detections``, an independent
-    ``detections_3d=Detections3D(...)`` batch, and ``camera=CameraModel(...)``.
+    Call the inherited ``update`` with independent 2D and 3D detection batches
+    and camera calibration. NumPy inputs use ``[N,6]`` image rows
+    ``(x1, y1, x2, y2, confidence, class_id)``, ``[M,9]`` spatial rows
+    ``(x, y, z, yaw, length, width, height, confidence, class_id)``, and a
+    ``[3,4]`` camera projection with ``image_size=(height, width)`` or a frame.
+    Optional ``camera_to_world`` poses use ``[4,4]`` NumPy matrices. Canonical
+    ``Detections``, ``Detections3D``, and ``CameraModel`` are also accepted.
     An empty 3D batch explicitly represents a depth-detector dropout. A 3D
     observation is needed to create a track; subsequent 2D observations can
     sustain it without updating its 3D Kalman measurement.
 
-    The result contains current image observations in ``image_tracks`` and
-    current 3D estimates in ``spatial_tracks``, sharing the same track IDs.
-    Optional segmentation masks are preserved on image tracks. The two output
-    collections have independent row counts and detection indices.
+    NumPy image detections return ``(image_tracks, spatial_tracks)`` as
+    contiguous float64 arrays with 8 and 11 columns; track IDs occupy columns
+    4 and 7. Canonical image detections return ``MultimodalTracks`` and preserve
+    optional segmentation masks on image tracks. Both forms contain current
+    image observations and 3D estimates sharing track IDs. The two collections
+    have independent row counts and detection indices.
     RGB pixels and ReID embeddings are unused. Camera projection is required;
     camera-to-world ego poses are optional but must be provided consistently
     throughout a sequence. Prediction advances once per update, using fixed
@@ -160,8 +167,8 @@ class EagerMot(BaseTracker):
         embs: np.ndarray | None = None,
         masks: np.ndarray | None = None,
     ) -> np.ndarray:
-        """Reject calls that bypass the canonical multimodal input branch."""
-        raise ValueError("EagerMot requires canonical detections, detections_3d, and camera on every update.")
+        """Reject calls that bypass the multimodal input branch."""
+        raise ValueError("EagerMot requires detections, detections_3d, and camera on every update.")
 
     @staticmethod
     def _project(boxes: np.ndarray, camera: CameraModel) -> tuple[np.ndarray, np.ndarray]:

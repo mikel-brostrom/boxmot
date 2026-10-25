@@ -133,6 +133,24 @@ def test_detections_enrichment_and_selection_preserve_all_row_alignment() -> Non
     assert selected.embeddings.is_contiguous()
 
 
+def test_detections_allow_omitted_sample_id_through_enrichment_and_selection() -> None:
+    """Detection batches can remain anonymous until submitted to a tracker."""
+    source = _aabb_detections()
+    detections = Detections(source.geometry, source.scores, source.class_ids)
+    enriched = (
+        detections.with_instance_ids(("first", "second"))
+        .with_masks(MaskBatch(torch.zeros((2, 4, 5), dtype=torch.bool)))
+        .with_embeddings(torch.eye(2, dtype=torch.float32))
+    )
+    selected = enriched.select(torch.tensor([1, 0]))
+    empty = selected.select(torch.tensor([False, False]))
+
+    assert all(value.sample_id is None for value in (detections, enriched, selected, empty))
+    assert selected.instance_ids == ("second", "first")
+    torch.testing.assert_close(selected.embeddings, torch.eye(2).flip(0))
+    assert empty.to_aabb_rows().shape == (0, 6)
+
+
 @pytest.mark.parametrize("nonfinite", [float("nan"), float("inf"), -float("inf")])
 @pytest.mark.parametrize("negative_view", [False, True])
 def test_embedding_validation_checks_autograd_storage_and_lazy_views(nonfinite: float, negative_view: bool) -> None:
@@ -170,6 +188,9 @@ def test_detections_boolean_selection_and_empty_batches_retain_geometry_mode() -
         ("embeddings", torch.zeros((1, 4), dtype=torch.float32), ValueError, "aligned"),
         ("embeddings", torch.zeros((2, 0), dtype=torch.float32), ValueError, "positive embedding dimension"),
         ("embeddings", torch.zeros((2, 4), dtype=torch.float64), TypeError, "dtype"),
+        ("sample_id", "", ValueError, "sample_id"),
+        ("sample_id", "  ", ValueError, "sample_id"),
+        ("sample_id", 1, TypeError, "sample_id"),
     ],
 )
 def test_detections_reject_invalid_or_misaligned_fields(
@@ -287,6 +308,7 @@ def test_obb_track_serializer_and_wrong_geometry_errors() -> None:
         ({"scores": torch.tensor([0.5], dtype=torch.float32)}, ValueError, "aligned"),
         ({"detection_indices": torch.tensor([0, -2], dtype=torch.int64)}, ValueError, "only use -1"),
         ({"masks": MaskBatch(torch.zeros((1, 4, 5), dtype=torch.bool))}, ValueError, "aligned"),
+        ({"sample_id": None}, TypeError, "sample_id"),
     ],
 )
 def test_tracks_reject_invalid_or_misaligned_fields(

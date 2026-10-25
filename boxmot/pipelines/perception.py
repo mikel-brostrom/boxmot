@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import torch
 
@@ -135,11 +135,15 @@ class PerceptionPipeline:
             raise TypeError("Detector.predict() must return a list of Detections.")
         if len(results) != len(frames):
             raise ValueError(f"Detector returned {len(results)} results for {len(frames)} frames.")
+        results = results.copy()
         capabilities = _detector_capabilities(self.detector)
         for index, (frame, detections) in enumerate(zip(frames, results)):
             if not isinstance(detections, Detections):
                 raise TypeError(f"Detector result {index} is not a Detections object.")
-            detections.validate()
+            if detections.sample_id is None:
+                detections = results[index] = replace(detections, sample_id=frame.sample_id)
+            else:
+                detections.validate()
             if detections.sample_id != frame.sample_id:
                 raise ValueError(
                     f"Detector result {index} has sample_id {detections.sample_id!r}; "
@@ -271,7 +275,7 @@ class PerceptionPipeline:
         detections: Sequence[Detections],
         requirements: TrackerRequirements = TrackerRequirements(),
     ) -> list[Detections]:
-        """Attach requested and tracker-required payloads to existing detections."""
+        """Bind unidentified detections to their frames and attach required payloads."""
         if not isinstance(requirements, TrackerRequirements):
             raise TypeError("requirements must be a TrackerRequirements object.")
         frame_batch = self._validate_frames(frames)

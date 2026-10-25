@@ -9,6 +9,14 @@ import numpy as np
 from boxmot.structures import Frame
 
 
+def resolve_sample_id(*sample_ids: str | None, frame_index: int) -> str:
+    """Resolve validated input identities, falling back to a sequence-local index."""
+    supplied = [sample_id for sample_id in sample_ids if sample_id is not None]
+    if supplied and any(sample_id != supplied[0] for sample_id in supplied[1:]):
+        raise ValueError(f"Frame and detections must identify the same sample, got {supplied!r}.")
+    return supplied[0] if supplied else f"tracker:{frame_index}"
+
+
 def prepare_frame(frame: Frame | np.ndarray | None) -> Frame | np.ndarray | None:
     """Validate a canonical frame or normalize a uint8 HWC BGR image's strides."""
 
@@ -52,9 +60,44 @@ def parse_numpy_detection_rows(detections: np.ndarray, *, is_obb: bool) -> NumPy
     if type(detections) is not np.ndarray:
         raise TypeError(f"detections must be Detections or a plain numpy.ndarray, got {type(detections).__name__}.")
 
-    geometry_columns = 5 if is_obb else 4
+    rows = _parse_numpy_detection_rows(
+        detections, geometry_columns=5 if is_obb else 4, geometry_name="OBB" if is_obb else "AABB"
+    )
+    geometry = rows.geometry
+    if len(geometry):
+        if is_obb and np.any(geometry[:, 2:4] <= 0):
+            raise ValueError("OBB detection rows must have positive width and height.")
+        if not is_obb and (np.any(geometry[:, 2] <= geometry[:, 0]) or np.any(geometry[:, 3] <= geometry[:, 1])):
+            raise ValueError("AABB detection rows must satisfy x2 > x1 and y2 > y1.")
+    return rows
+
+
+def parse_numpy_detection_rows_3d(detections: np.ndarray) -> NumPyDetectionRows:
+    """Validate camera-space ``x,y,z,yaw,length,width,height,conf,cls`` rows."""
+    if type(detections) is not np.ndarray:
+        raise TypeError(
+            f"detections_3d must be Detections3D or a plain numpy.ndarray, got {type(detections).__name__}."
+        )
+    rows = _parse_numpy_detection_rows(
+        detections,
+        geometry_columns=7,
+        geometry_name="3D",
+        canonical_input="canonical Detections and Detections3D inputs",
+    )
+    if len(rows.geometry) and np.any(rows.geometry[:, 4:] <= 0):
+        raise ValueError("3D detection rows must have positive length, width, and height.")
+    return rows
+
+
+def _parse_numpy_detection_rows(
+    detections: np.ndarray,
+    *,
+    geometry_columns: int,
+    geometry_name: str,
+    canonical_input: str = "Detections input for Tracks",
+) -> NumPyDetectionRows:
+    """Validate shared packed numeric rows before geometry-specific checks."""
     expected_columns = geometry_columns + 2
-    geometry_name = "OBB" if is_obb else "AABB"
     if detections.ndim != 2 or detections.shape[1] != expected_columns:
         raise ValueError(
             f"{geometry_name} detection rows must have shape [N, {expected_columns}], got {detections.shape}."
@@ -80,7 +123,7 @@ def parse_numpy_detection_rows(detections: np.ndarray, *, is_obb: bool) -> NumPy
             if class_id > max_exact_float64_integer:
                 raise ValueError(
                     "Detection class IDs must be within the exact float64 integer range; "
-                    "use Detections input for Tracks."
+                    f"use {canonical_input}."
                 )
     else:
         invalid = class_values < 0
@@ -103,7 +146,7 @@ def parse_numpy_detection_rows(detections: np.ndarray, *, is_obb: bool) -> NumPy
             if invalid[first_rejected]:
                 raise ValueError("Detection class IDs must be non-negative integers.")
             raise ValueError(
-                "Detection class IDs must be within the exact float64 integer range; use Detections input for Tracks."
+                f"Detection class IDs must be within the exact float64 integer range; use {canonical_input}."
             )
 
     with np.errstate(over="ignore", invalid="ignore"):
@@ -113,12 +156,6 @@ def parse_numpy_detection_rows(detections: np.ndarray, *, is_obb: bool) -> NumPy
         raise ValueError("Detection geometry must be representable as finite float32 values.")
     if scores.size and not np.isfinite(scores).all():
         raise ValueError("Detection scores must be representable as finite float32 values.")
-    if len(geometry):
-        if is_obb and np.any(geometry[:, 2:4] <= 0):
-            raise ValueError("OBB detection rows must have positive width and height.")
-        if not is_obb and (np.any(geometry[:, 2] <= geometry[:, 0]) or np.any(geometry[:, 3] <= geometry[:, 1])):
-            raise ValueError("AABB detection rows must satisfy x2 > x1 and y2 > y1.")
-
     return NumPyDetectionRows(
         geometry=geometry,
         scores=scores,
@@ -229,5 +266,7 @@ __all__ = (
     "frame_image_size",
     "pack_numpy_track_rows",
     "parse_numpy_detection_rows",
+    "parse_numpy_detection_rows_3d",
     "prepare_frame",
+    "resolve_sample_id",
 )

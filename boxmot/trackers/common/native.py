@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from dataclasses import replace
 from typing import Any, Protocol, overload
 
 import numpy as np
@@ -24,6 +25,7 @@ from boxmot.trackers.common.input import (
     pack_numpy_track_rows,
     parse_numpy_detection_rows,
     prepare_frame,
+    resolve_sample_id,
 )
 from boxmot.trackers.common.mask_guidance import MASK_GUIDANCE_OPTIONS
 from boxmot.trackers.common.motion.kalman_filters.config import normalize_kalman_config
@@ -207,6 +209,7 @@ class NativeTrackerAdapter(LiveReIDMixin):
         )
         self._library = library
         self._handle = self._library.create(self.cfg)
+        self._sample_index = 0
         self._obb_output_by_track_id: dict[int, np.ndarray] = {}
         self._dimension_only_images: dict[tuple[int, int], np.ndarray] = {}
 
@@ -254,8 +257,14 @@ class NativeTrackerAdapter(LiveReIDMixin):
             self._validate_detection_inputs(detections)
             if detections.is_obb != is_obb:
                 raise ValueError(f"Native {self._native_display_name} is fixed to {self.geometry.upper()} geometry.")
-            if isinstance(frame, Frame) and frame.sample_id != detections.sample_id:
-                raise ValueError("Frame and detections must have the same sample_id.")
+            sample_id = resolve_sample_id(
+                detections.sample_id,
+                frame.sample_id if isinstance(frame, Frame) else None,
+                frame_index=self._sample_index,
+            )
+            if detections.sample_id is None:
+                detections = replace(detections, sample_id=sample_id)
+                canonical_detections = detections
             if (
                 detections.masks is not None
                 and frame is not None
@@ -265,7 +274,6 @@ class NativeTrackerAdapter(LiveReIDMixin):
                     "Detection masks must match the frame spatial size, "
                     f"got {detections.masks.image_size} and {frame_image_size(frame)}."
                 )
-            sample_id = detections.sample_id
             geometry = detections.geometry.values.detach().numpy()
             scores = detections.scores.detach().numpy()
             class_ids = detections.class_ids.detach().numpy()
@@ -326,7 +334,7 @@ class NativeTrackerAdapter(LiveReIDMixin):
             )
 
         if numpy_input:
-            return pack_numpy_track_rows(
+            tracks = pack_numpy_track_rows(
                 geometry=output_geometry,
                 track_ids=batch.track_ids,
                 scores=batch.scores,
@@ -336,21 +344,24 @@ class NativeTrackerAdapter(LiveReIDMixin):
                 detection_count=len(scores),
                 owner=f"Native {self._native_display_name}",
             )
-
-        assert sample_id is not None
-        output_batch = NativeTrackBatch(
-            geometry=output_geometry,
-            scores=batch.scores,
-            track_ids=batch.track_ids,
-            class_ids=batch.class_ids,
-            detection_indices=batch.detection_indices,
-        )
-        return _to_tracks(output_batch, sample_id=sample_id, is_obb=is_obb)
+        else:
+            assert sample_id is not None
+            output_batch = NativeTrackBatch(
+                geometry=output_geometry,
+                scores=batch.scores,
+                track_ids=batch.track_ids,
+                class_ids=batch.class_ids,
+                detection_indices=batch.detection_indices,
+            )
+            tracks = _to_tracks(output_batch, sample_id=sample_id, is_obb=is_obb)
+        self._sample_index += 1
+        return tracks
 
     def reset(self) -> None:
         """Reset native state and OBB continuity state."""
 
         self._library.reset(self._handle)
+        self._sample_index = 0
         self._obb_output_by_track_id.clear()
         self._dimension_only_images.clear()
         self._reset_live_reid_sequence()

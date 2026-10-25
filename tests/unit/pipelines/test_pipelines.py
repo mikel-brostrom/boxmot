@@ -238,6 +238,53 @@ def test_perception_enrich_supports_no_detector_but_process_requires_one() -> No
         pipeline.process([frame])
 
 
+@pytest.mark.parametrize("detect", (False, True))
+def test_perception_binds_missing_sample_ids_before_enrichment(detect: bool) -> None:
+    """Frame pairing supplies identity without mutating caller or detector results."""
+    events = []
+    frames = [_frame("first"), _frame("second")]
+    detections = [dataclasses.replace(_detections(frame), sample_id=None) for frame in frames]
+
+    class CheckingEncoder(_Encoder):
+        def encode(self, frames: list[Frame], detections: list[Detections]) -> list[torch.Tensor]:
+            assert [item.sample_id for item in detections] == [frame.sample_id for frame in frames]
+            return super().encode(frames, detections)
+
+    pipeline = PerceptionPipeline(
+        detector=_Detector(detections, events) if detect else None,
+        reid=CheckingEncoder(events),
+        outputs=PipelineOutputs(embeddings=True),
+    )
+
+    results = pipeline.process(frames) if detect else pipeline.enrich(frames, detections)
+
+    assert [item.sample_id for item in results] == ["first", "second"]
+    assert all(item.embeddings is not None for item in results)
+    assert all(item.sample_id is None and item.embeddings is None for item in detections)
+    assert all(result.geometry is original.geometry for result, original in zip(results, detections))
+
+
+@pytest.mark.parametrize("detect", (False, True))
+def test_perception_rejects_explicit_sample_mismatch_before_enrichment(detect: bool) -> None:
+    """Optional identity must not disable checks on supplied detector identities."""
+    frame = _frame("one")
+    detections = [dataclasses.replace(_detections(frame), sample_id="other")]
+    events = []
+    pipeline = PerceptionPipeline(
+        detector=_Detector(detections, events) if detect else None,
+        reid=_Encoder(events),
+        outputs=PipelineOutputs(embeddings=True),
+    )
+
+    with pytest.raises(ValueError, match="sample_id"):
+        if detect:
+            pipeline.process([frame])
+        else:
+            pipeline.enrich([frame], detections)
+
+    assert all(event[0] != "embed" for event in events)
+
+
 def test_perception_preserves_detector_enrichments_and_skips_other_providers() -> None:
     events = []
     frame = _frame("one")
@@ -523,6 +570,25 @@ def test_tracking_step_detections_skips_detector_and_enriches_for_tracker() -> N
 
     assert events == [("embed", ("one",), (False,)), ("track", "one")]
     assert result.detections.embeddings is not None
+
+
+@pytest.mark.parametrize("empty", (False, True))
+@pytest.mark.parametrize("enrich", (False, True))
+def test_tracking_step_detections_binds_missing_sample_id(empty: bool, enrich: bool) -> None:
+    """Both cached and enriched paths supply frame identity before tracking."""
+    frame = _frame("one")
+    detections = dataclasses.replace(_detections(frame, empty=empty), sample_id=None)
+    events = []
+    tracker = _Tracker(events, embeddings=enrich)
+    pipeline = TrackingPipeline(detector=None, tracker=tracker, reid=_Encoder(events) if enrich else None)
+
+    result = pipeline.step_detections(frame, detections)
+
+    assert result.detections.sample_id == result.tracks.sample_id == frame.sample_id
+    assert tracker.received == (result.detections, None)
+    assert result.detections.geometry is detections.geometry
+    assert detections.sample_id is None
+    assert detections.embeddings is None
 
 
 @pytest.mark.parametrize("empty", (False, True))

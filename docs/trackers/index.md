@@ -67,14 +67,17 @@ each non-`Unused` column once, including optional and configurable inputs.
   them on matched image-track outputs; its association uses box geometry.
   A ReID encoder that requires masks may consume them when generating missing
   embeddings for a box tracker; this does not enable mask association.
-- **3D and calibration:** EagerMot requires `Detections3D` and `CameraModel`
-  on every update alongside canonical 2D `Detections`. Either detection batch
+- **3D and calibration:** EagerMot requires independent 2D and 3D detections
+  and camera calibration on every update. These can be NumPy arrays or
+  canonical `Detections`, `Detections3D`, and `CameraModel`. Either detection batch
   can be explicitly empty. A 3D observation initializes a track; later 2D
-  observations can sustain it. Camera image size supplies dimensions when no
-  frame is passed. Saved-sensor `eval --eval-3d` can omit `detections_2d` and
+  observations can sustain it. Pass `image_size=(height, width)` with a NumPy
+  projection when no frame is supplied; `CameraModel` stores these dimensions.
+  Saved-sensor `eval --eval-3d` can omit `detections_2d` and
   supplies empty image detections; mask scoring still needs predicted masks.
 - **Ego motion:** EagerMot optionally consumes absolute camera-to-world poses
-  through `CameraModel.camera_to_world`. With poses it tracks motion in world
+  through `camera_to_world=` with a NumPy projection, or through
+  `CameraModel.camera_to_world`. With poses it tracks motion in world
   coordinates; without them it uses camera coordinates. Keep pose availability
   consistent throughout a sequence. Calibration projection remains required.
 - **Timing:** Python ByteTrack, BotSort, StrongSort, OcSort, DeepOcSort,
@@ -95,8 +98,10 @@ the tracker. NumPy input returns packed tracks; canonical input returns
 
 Use `Detections.embeddings` and `Detections.masks` for precomputed enrichments;
 packed rows cannot carry them. MafHda therefore needs canonical `Detections`
-with masks. EagerMot also requires canonical structures and returns
-`MultimodalTracks`. A `Frame` contains an RGB CHW Torch tensor, while NumPy
+with masks. EagerMot returns `(image_tracks, spatial_tracks)` arrays for NumPy
+2D detections, or `MultimodalTracks` for canonical 2D detections. See its
+[sensor fusion example](eagermot.md#sensor-fusion-example) for input and output
+layouts. A `Frame` contains an RGB CHW Torch tensor, while NumPy
 images use BGR HWC layout. See the [Python API](../python/index.md#canonical-values)
 for dtypes, shapes, and validation.
 

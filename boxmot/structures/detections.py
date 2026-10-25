@@ -17,12 +17,17 @@ from .masks import MaskBatch
 
 @dataclass(frozen=True, slots=True, eq=False)
 class Detections:
-    """Detection rows and optional row-aligned perception enrichments."""
+    """Detection rows and optional row-aligned perception enrichments.
+
+    ``sample_id`` may be omitted for direct tracking or frame-paired pipelines.
+    Trackers resolve missing identity from the current inputs or update index.
+    Persisted detections require an explicit dataset sample identity.
+    """
 
     geometry: Geometry
     scores: torch.Tensor
     class_ids: torch.Tensor
-    sample_id: str
+    sample_id: str | None = None
     instance_ids: tuple[str, ...] | None = None
     masks: MaskBatch | None = None
     embeddings: torch.Tensor | None = None
@@ -44,7 +49,8 @@ class Detections:
         validate_tensor(self.scores, name="Detections.scores", dtype=torch.float32, ndim=1)
         validate_tensor(self.class_ids, name="Detections.class_ids", dtype=torch.int64, ndim=1)
         validate_finite(self.scores, name="Detections.scores")
-        validate_nonempty_string(self.sample_id, name="Detections.sample_id")
+        if self.sample_id is not None:
+            validate_nonempty_string(self.sample_id, name="Detections.sample_id")
         if self.scores.numel() and (bool((self.scores < 0).any()) or bool((self.scores > 1).any())):
             raise ValueError("Detections.scores must be in the inclusive range [0, 1].")
         if self.class_ids.numel() and bool((self.class_ids < 0).any()):
@@ -134,12 +140,16 @@ class Detections:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class Detections3D:
-    """Independent 3D detector rows; their count need not match 2D detections."""
+    """Independent 3D detector rows; their count need not match 2D detections.
+
+    ``sample_id`` may be omitted; the tracker resolves it together with the
+    paired 2D detections and optional frame.
+    """
 
     geometry: Boxes3D
     scores: torch.Tensor
     class_ids: torch.Tensor
-    sample_id: str
+    sample_id: str | None = None
 
     def __post_init__(self) -> None:
         self.validate()
@@ -153,7 +163,8 @@ class Detections3D:
             raise TypeError("Detections3D.geometry must be Boxes3D.")
         self.geometry.validate()
         validate_scores_and_classes(self.scores, self.class_ids, owner="Detections3D")
-        validate_nonempty_string(self.sample_id, name="Detections3D.sample_id")
+        if self.sample_id is not None:
+            validate_nonempty_string(self.sample_id, name="Detections3D.sample_id")
         if len(self.scores) != len(self) or len(self.class_ids) != len(self):
             raise ValueError("Detections3D geometry, scores, and class IDs must be aligned.")
 

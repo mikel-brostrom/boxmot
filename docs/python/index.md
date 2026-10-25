@@ -34,7 +34,6 @@ detections = Detections(
     ),
     scores=torch.tensor([0.94], dtype=torch.float32),
     class_ids=torch.tensor([0], dtype=torch.int64),
-    sample_id=frame.sample_id,
 )
 ```
 
@@ -43,6 +42,14 @@ and may remain unwrapped across frames. `MaskBatch` stores full-frame
 `bool[N,H,W]` masks. `Detections` can carry row-aligned instance IDs, masks,
 and `float32[N,D]` embeddings.
 
+`sample_id` is optional for `Detections` and `Detections3D`. A tracker resolves it
+from the supplied batches or `Frame`, checking that explicit IDs agree. With no
+ID supplied, it assigns `tracker:0`, `tracker:1`, and so on until `reset()`.
+The input objects stay unchanged; track outputs carry the resolved ID.
+Frame-paired pipelines attach the frame's ID before passing detections to
+components. Persisted observations and direct calls to ReID or segmentor adapters
+still require explicit sample IDs matching their frames.
+
 `select`, `with_masks`, `with_embeddings`, and `with_instance_ids` return new
 immutable values. Use `to_aabb_rows()` or `to_obb_rows()` only when a file or
 wire boundary requires the legacy 6/7- or 8/9-column representation.
@@ -50,9 +57,11 @@ wire boundary requires the legacy 6/7- or 8/9-column representation.
 ## Tracker factory
 
 For calibrated 2D/3D sensor fusion, see [EagerMot](../trackers/eagermot.md).
-Its extended update interface consumes independent `Detections3D` and a
-`CameraModel` and returns `MultimodalTracks` with separate image and spatial
-collections. The image-only interfaces below apply to the other trackers.
+Its extended update interface accepts independent 2D/3D detections and camera
+calibration as NumPy arrays or canonical structures. NumPy 2D detections return
+`(image_tracks, spatial_tracks)` arrays; canonical 2D detections return
+`MultimodalTracks` with separate image and spatial collections. The image-only
+interfaces below apply to the other trackers.
 
 Tracker specifications contain algorithm configuration; pipelines can keep
 appearance models and segmentors as separate reusable components. Every

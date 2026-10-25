@@ -171,7 +171,7 @@ class TrackingPipeline:
         return PipelineResult(detections=detections, tracks=tracks)
 
     def step_detections(self, frame: Frame, detections: Detections) -> PipelineResult:
-        """Advance tracking from caller-supplied detections after required enrichment."""
+        """Bind caller detections to the frame and advance tracking after enrichment."""
         if not isinstance(frame, Frame):
             raise TypeError(f"frame must be a Frame, not {type(frame).__name__}.")
         if not isinstance(detections, Detections):
@@ -186,7 +186,10 @@ class TrackingPipeline:
             # Complete cached payloads need no perception pass. Validate the
             # mutable tensors once here, including for third-party trackers;
             # the public tracker update still owns its own input boundary.
-            detections.validate()
+            if detections.sample_id is None:
+                detections = replace(detections, sample_id=frame.sample_id)
+            else:
+                detections.validate()
             if detections.sample_id != frame.sample_id:
                 raise ValueError(
                     f"Detections have sample_id {detections.sample_id!r}; expected {frame.sample_id!r}."

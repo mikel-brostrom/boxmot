@@ -256,38 +256,7 @@ boxmot eval \
   --tracker botsort
 ```
 
-See the [evaluation guide](docs/guides/evaluation.md) for `--fps` and
-`--calibrate-kf` usage.
-
-Python 2D Kalman trackers can select compatible filter types and noise profiles
-with `tune --select-kf`. Add `--select-cmc` to jointly compare CMC off and
-automatic SOF before tuning tracker parameters. See
-[Kalman calibration](docs/guides/kalman-calibration.md) for examples and saved
-profile reuse.
-
-Centroid association uses `centroid_max_distance` as its distance limit.
-Search profiles declare applicable metrics with `association`; centroid tuning
-searches that radius. Optional Kalman fusion adds a first-pass uncertainty gate. See
-[association settings](docs/config/trackers.md#association-function).
-
-Python tracker tuning also searches applicable motion, confidence, and ReID–IoU
-fusion controls while preserving current runtime defaults. ByteTrack requires
-no ReID features. See [association fusion](docs/config/trackers.md#association-fusion).
-
-For saved KITTI predictions, choose the inputs your tracker needs:
-
-```bash
-boxmot eval --experiment kitti-mots/2d \
-  --data-root ./kitti-mots --tracker ocsort --cache-inputs
-boxmot eval --experiment kitti-mots/full \
-  --data-root ./kitti-mots --tracker eagermot --cache-inputs
-```
-
-Both experiments reference the same `kitti-mots.yaml` inventory. The first
-selects 2D boxes; the second adds masks, 3D boxes,
-calibration, and camera poses. See [KITTI experiments](docs/config/experiments.md#saved-multimodal-kitti-inputs).
-
-Use NumPy detections and BGR images directly:
+Python with axis-aligned boxes (AABB):
 
 ```python
 import numpy as np
@@ -299,12 +268,48 @@ dets = np.array([[100, 200, 300, 400, 0.9, 0]])
 frame = np.zeros((480, 640, 3), dtype=np.uint8)  # BGR image
 tracks = tracker.update(dets, frame)
 print(tracks[:, 4].astype(int))  # track IDs
+```
 
-# OBB: (cx, cy, w, h, angle in radians, confidence, class_id)
-# tracker = OccluBoost(is_obb=True)
-# dets = np.array([[200, 300, 200, 100, np.pi / 6, 0.9, 0]])
-# tracks = tracker.update(dets, frame)
-# print(tracks[:, 5].astype(int))  # track IDs
+Python with oriented boxes (OBB):
+
+```python
+import numpy as np
+
+from boxmot import OccluBoost
+
+tracker = OccluBoost(is_obb=True)
+# cx, cy, width, height, angle in radians, confidence, class_id
+dets = np.array([[200, 300, 200, 100, np.pi / 6, 0.9, 0]])
+frame = np.zeros((480, 640, 3), dtype=np.uint8)  # BGR image
+tracks = tracker.update(dets, frame)
+print(tracks[:, 5].astype(int))  # track IDs
+```
+
+2D/3D sensor fusion with [EagerMot](docs/trackers/eagermot.md):
+
+```python
+import numpy as np
+
+from boxmot import EagerMot
+
+tracker = EagerMot()
+camera = np.array([  # synthetic camera projection
+    [100, 0, 100, 0],
+    [0, 100, 50, 0],
+    [0, 0, 1, 0],
+])
+dets = np.array([[78, 39, 122, 62, 0.95, 0]])
+# 3D: x, y, z, yaw, length, width, height, confidence, class_id
+dets_3d = np.array([[0, 1, 10, 0, 4, 2, 2, 0.9, 0]])
+
+tracks_2d, tracks_3d = tracker.update(
+    dets,
+    detections_3d=dets_3d,
+    camera=camera,
+    image_size=(100, 200),  # height, width
+)
+print(tracks_2d[:, 4].astype(int))  # image track IDs
+print(tracks_3d[:, 7].astype(int))  # 3D track IDs
 ```
 
 ## Contributing

@@ -153,6 +153,8 @@ def test_public_package_exports_only_contracts_and_factory() -> None:
         "timestamp_s",
         "detections_3d",
         "camera",
+        "image_size",
+        "camera_to_world",
     )
     for implementation_name in ("ByteTrack", "BotSort", "StrongSort", "MafHda"):
         assert not hasattr(public_trackers, implementation_name)
@@ -247,8 +249,10 @@ def test_base_tracker_accepts_exact_packed_numpy_layout_for_configured_mode(
     geometry_columns: int,
 ) -> None:
     signature = inspect.signature(BaseTracker.update)
-    assert tuple(signature.parameters) == ("self", "detections", "frame", "timestamp_s", "detections_3d", "camera")
-    for name in ("timestamp_s", "detections_3d", "camera"):
+    assert tuple(signature.parameters) == (
+        "self", "detections", "frame", "timestamp_s", "detections_3d", "camera", "image_size", "camera_to_world"
+    )
+    for name in ("timestamp_s", "detections_3d", "camera", "image_size", "camera_to_world"):
         assert signature.parameters[name].kind is inspect.Parameter.KEYWORD_ONLY
 
     tracker = _RecordingTracker(is_obb=is_obb)

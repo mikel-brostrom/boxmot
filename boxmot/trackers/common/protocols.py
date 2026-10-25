@@ -83,11 +83,28 @@ class Tracker(Protocol):
         detections: Detections,
         frame: Frame | np.ndarray | None = None,
         *,
-        detections_3d: Detections3D,
-        camera: CameraModel,
+        detections_3d: Detections3D | np.ndarray,
+        camera: CameraModel | np.ndarray,
+        image_size: tuple[int, int] | None = None,
+        camera_to_world: np.ndarray | None = None,
         timestamp_s: float | None = None,
     ) -> MultimodalTracks:
         """Advance independent 2D/3D observations through calibrated fusion."""
+        ...
+
+    @overload
+    def update(
+        self,
+        detections: np.ndarray,
+        frame: Frame | np.ndarray | None = None,
+        *,
+        detections_3d: Detections3D | np.ndarray,
+        camera: CameraModel | np.ndarray,
+        image_size: tuple[int, int] | None = None,
+        camera_to_world: np.ndarray | None = None,
+        timestamp_s: float | None = None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Advance sensor fusion and return independent image and spatial rows."""
         ...
 
     @overload
@@ -110,9 +127,11 @@ class Tracker(Protocol):
         frame: Frame | np.ndarray | None = None,
         *,
         timestamp_s: float | None = None,
-        detections_3d: Detections3D | None = None,
-        camera: CameraModel | None = None,
-    ) -> Tracks | np.ndarray | MultimodalTracks:
+        detections_3d: Detections3D | np.ndarray | None = None,
+        camera: CameraModel | np.ndarray | None = None,
+        image_size: tuple[int, int] | None = None,
+        camera_to_world: np.ndarray | None = None,
+    ) -> Tracks | np.ndarray | MultimodalTracks | tuple[np.ndarray, np.ndarray]:
         """Advance with a Frame or uint8 HWC BGR image; preserve the detection representation."""
         ...
 
