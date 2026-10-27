@@ -100,10 +100,14 @@ continue to use the shared typed v2 API.
 
 Build requirements:
 
-- C++17 compiler
+- C++17 compiler and build tools
 - CMake 3.16+
-- OpenCV 4.x
-- Eigen3 3.3+
+- OpenCV 4.x development files and runtime libraries
+- Eigen3 3.3+ development headers
+
+See [Install native dependencies](../../../docs/native/index.md#install-dependencies)
+for platform-specific package commands and runtime library setup. The Python
+`opencv-python` package does not replace the C++ development packages.
 
 ## ABI v2
 

@@ -47,7 +47,7 @@ tuning, research, and ReID workflows.
 - Immutable, keyed Parquet builds with reusable detections, masks, and
   embeddings.
 - Support for both AABB and OBB tracking paths.
-- Optional production-ready native C++ tracker implementations with the same metrics as the Python path, opted into via `--tracker-backend cpp` and embeddable in standalone C++ projects via CMake (see [Native C++ Integration](docs/native/index.md)).
+- Optional production-ready native C++ tracker implementations with the same metrics as the Python path, opted into via `--tracker-backend cpp` and embeddable in standalone C++ projects via CMake (see [Native C++ Integration](docs/native/index.md) and [platform dependency installation](docs/native/index.md#install-dependencies)).
 - A structured Python API for embedding components and pipelines in applications.
 
 ## Installation
