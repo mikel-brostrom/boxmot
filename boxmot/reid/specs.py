@@ -7,7 +7,9 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import Any, Literal, TypeAlias, overload
+from typing import Any, Literal, TypeAlias
+
+from typing_extensions import overload
 
 from boxmot.reid._model_names import ReIDName
 

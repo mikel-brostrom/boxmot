@@ -8,9 +8,9 @@ import importlib.metadata
 import importlib.util
 import subprocess
 from pathlib import Path
-from typing import Literal, get_args, get_origin, get_overloads, get_type_hints
+from typing import Literal, get_args, get_origin, get_type_hints
 
-from typing_extensions import is_typeddict
+from typing_extensions import get_overloads, is_typeddict
 
 EXPECTED_TRACKERS = (
     ("boosttrack", "BoostTrack"),
