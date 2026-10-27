@@ -40,6 +40,11 @@ jobs:
     name: Source tests, docs, and native parity
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      # Match regular CI's numerical thread limits in workers and child processes.
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
     steps:
       # Load release setup actions from this workflow's revision before selecting source.
       - name: Bootstrap release checkout action
@@ -76,10 +81,22 @@ jobs:
             --group test \
             --group docs
 
-      - name: Run the complete test suite
-        run: uv run --no-sync pytest
+      - name: Run Python tests in parallel
+        run: |
+          uv run --no-sync pytest \
+            -n logical --maxprocesses=4 --dist worksteal \
+            -q -ra --durations=30 \
+            --ignore=tests/unit/native \
+            tests
+
+      - name: Run native tests
+        # Native fixtures configure and build targets in shared directories.
+        run: uv run --no-sync pytest -q -ra --durations=30 tests/unit/native
 
       - name: Build strict documentation
+        env:
+          # MkDocs is constrained to <2; hide Material's general 2.0 notice.
+          NO_MKDOCS_2_WARNING: '1'
         run: uv run --no-sync mkdocs build --strict
 
   build:

@@ -66,6 +66,9 @@ jobs:
           .venv/bin/pytest -q tests/unit/docs
 
       - name: Build docs
+        env:
+          # MkDocs is constrained to <2; hide Material's general 2.0 notice.
+          NO_MKDOCS_2_WARNING: '1'
         run: |
           # Avoid an implicit uv sync that replaces the prepared CPU-only env.
           .venv/bin/mkdocs build --strict
