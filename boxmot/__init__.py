@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from boxmot.trackers.common.manifest import _TRACKER_MANIFEST
 
-__version__ = "25.0.0"
+__version__ = "26.0.0"
 
 _EXPORTS = {
     "create_tracker": ("boxmot.trackers.common.factory", "create_tracker"),
