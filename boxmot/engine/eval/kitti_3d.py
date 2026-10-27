@@ -16,10 +16,10 @@ from boxmot.datasets.readers.boxes3d import KittiObjectLabels, TrackingLabels3D
 from boxmot.engine.eval.kitti_object_backend import evaluate_kitti_objects, resolve_kitti_object_backend
 from boxmot.engine.eval.motmetrics import (
     SequenceData,
+    _build_sequence_data,
     _combine_bundles,
     _combine_bundles_class_averaged,
     _eval_bundle,
-    _relabel_ids,
     _summary_from_bundle,
 )
 from boxmot.engine.eval.trackeval_reference import (
@@ -167,18 +167,9 @@ def _sequence_data(
         gt_ids.append(annotations.track_ids[indices])
         tracker_ids.append(np.asarray([row.track_id for row in rows], dtype=np.int64))
         similarities.append(iou3d_matrix(annotations.boxes[indices], boxes))
-    gt_ids, num_gt = _relabel_ids(gt_ids)
-    tracker_ids, num_tracks = _relabel_ids(tracker_ids)
-    return SequenceData(
-        seq=sequence_id,
-        gt_ids=gt_ids,
-        tracker_ids=tracker_ids,
-        similarity_scores=similarities,
-        num_timesteps=frame_count,
-        num_gt_dets=sum(map(len, gt_ids)),
-        num_tracker_dets=sum(map(len, tracker_ids)),
-        num_gt_ids=num_gt,
-        num_tracker_ids=num_tracks,
+    return _build_sequence_data(
+        seq_name=sequence_id,
+        frames=zip(gt_ids, tracker_ids, similarities),
     )
 
 

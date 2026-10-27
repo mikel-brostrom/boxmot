@@ -124,14 +124,22 @@ def test_required_sensor_inputs_are_not_silently_treated_as_empty(missing: str) 
     assert tracker.frame_count == 0 and not tracker._first_frame_processed
 
 
-def test_other_trackers_reject_3d_side_inputs_and_fusion_rejects_packed_rows() -> None:
+def test_other_trackers_reject_3d_side_inputs_and_fusion_accepts_packed_rows() -> None:
     detections, spatial, camera = _inputs()
     with pytest.raises(ValueError, match="does not accept detections_3d"):
         ByteTrack().update(detections, detections_3d=spatial, camera=camera)
     with pytest.raises(ValueError, match="does not accept camera"):
         ByteTrack().update(detections, camera=camera)
-    with pytest.raises(TypeError, match="canonical Detections"):
-        _FusionTracker().update(np.empty((0, 6)), detections_3d=spatial, camera=camera)
+    tracker = _FusionTracker()
+    image_tracks, spatial_tracks = tracker.update(np.empty((0, 6)), detections_3d=spatial, camera=camera)
+    assert image_tracks.shape == (0, 8)
+    assert spatial_tracks.shape == (1, 11)
+    assert spatial_tracks[0, 9] == 2**50
+    assert isinstance(tracker.received[0], Detections)
+    assert tracker.received[0].sample_id == spatial.sample_id
+    with pytest.raises(ValueError, match="shape"):
+        tracker.update(np.empty((0, 7)), detections_3d=spatial, camera=camera)
+    assert tracker.frame_count == 1
 
 
 def test_sensor_identity_dimensions_and_mutable_storage_fail_before_kernel_entry() -> None:

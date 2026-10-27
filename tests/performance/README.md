@@ -20,6 +20,10 @@ The benchmarks are grouped by domain:
 - `trackers/benchmark_fps.py` measures tracker-update throughput with synthetic
   detections. ReID trackers use precomputed embeddings by default so the timing
   isolates tracking; pass `--reid-mode live` to include ReID inference.
+- `trackers/benchmark_botsort.py` preloads real frames, detections, and embeddings
+  before timing default BoT-SORT. It uses one native thread like an evaluation
+  worker, separates input loading from tracking, and records nested component
+  timings in a separate run. Optional profiles are also separate from timings.
 - `reid/benchmark_inference.py` compares ReID runtime latency in isolated worker
   processes and can export missing ONNX/Core ML artifacts.
 - `benchmark_eval.py` times fresh evaluation CLI invocations on an existing
@@ -72,6 +76,26 @@ a time. Output is redirected to logs, so interactive terminal rendering costs
 can differ. Invocation time includes process startup/shutdown and the small
 checksum/JSON-reporting overhead. Profiled timings include instrumentation
 overhead and should not be used to claim speedups.
+
+To distinguish BoT-SORT computation from cached-input loading:
+
+```bash
+uv run --no-sync python -m tests.performance.trackers.benchmark_botsort \
+  --build runs/materializations/BUILD_ID --frames 100 --repeat 3 \
+  --output runs/replay-benchmark/botsort --label before --profile
+uv run --no-sync python -m tests.performance.trackers.benchmark_botsort \
+  --build runs/materializations/BUILD_ID --frames 100 --repeat 3 \
+  --output runs/replay-benchmark/botsort --label after \
+  --compare-to runs/replay-benchmark/botsort/before.json
+```
+
+The default prefixes cover crowded MOT17-04 and smaller MOT17-05; select others
+with `--sequences`. Each sequence is preloaded independently. Account for decoded
+RGB images in RAM when increasing `--frames` (about 600 MiB per 100 HD frames).
+The JSON separates warmup, repeated wall timings, and an instrumented component
+run. Component times are nested: do not add a parent and its child timings.
+The comparison checks exact output hashes; full replay benchmarks additionally
+check evaluation metrics.
 
 To compare replay input strategies without rerunning perception:
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import torch
 
@@ -135,11 +135,15 @@ class PerceptionPipeline:
             raise TypeError("Detector.predict() must return a list of Detections.")
         if len(results) != len(frames):
             raise ValueError(f"Detector returned {len(results)} results for {len(frames)} frames.")
+        results = results.copy()
         capabilities = _detector_capabilities(self.detector)
         for index, (frame, detections) in enumerate(zip(frames, results)):
             if not isinstance(detections, Detections):
                 raise TypeError(f"Detector result {index} is not a Detections object.")
-            detections.validate()
+            if detections.sample_id is None:
+                detections = results[index] = replace(detections, sample_id=frame.sample_id)
+            else:
+                detections.validate()
             if detections.sample_id != frame.sample_id:
                 raise ValueError(
                     f"Detector result {index} has sample_id {detections.sample_id!r}; "
@@ -258,20 +262,32 @@ class PerceptionPipeline:
                 raise TypeError(f"frames[{index}] must be a Frame, not {type(frame).__name__}.")
         return frame_batch
 
+    def _required_payloads(self, requirements: TrackerRequirements) -> tuple[bool, bool]:
+        """Resolve mask and embedding needs without inspecting detection values."""
+        needs_embeddings = self.outputs.embeddings or requirements.embeddings
+        encoder_needs_masks = needs_embeddings and self.reid is not None and _encoder_requirements(self.reid).masks
+        needs_masks = self.outputs.masks or requirements.masks or encoder_needs_masks
+        return needs_masks, needs_embeddings
+
     def enrich(
         self,
         frames: Sequence[Frame],
         detections: Sequence[Detections],
         requirements: TrackerRequirements = TrackerRequirements(),
     ) -> list[Detections]:
-        """Attach requested and tracker-required payloads to existing detections."""
+        """Bind unidentified detections to their frames and attach required payloads."""
         if not isinstance(requirements, TrackerRequirements):
             raise TypeError("requirements must be a TrackerRequirements object.")
         frame_batch = self._validate_frames(frames)
         detection_batch = self._validate_detector_results(frame_batch, list(detections))
-        needs_embeddings = self.outputs.embeddings or requirements.embeddings
-        encoder_needs_masks = needs_embeddings and self.reid is not None and _encoder_requirements(self.reid).masks
-        needs_masks = self.outputs.masks or requirements.masks or encoder_needs_masks
+        needs_masks, needs_embeddings = self._required_payloads(requirements)
+        if not any(
+            (needs_masks and item.masks is None) or (needs_embeddings and item.embeddings is None)
+            for item in detection_batch
+        ):
+            # Nothing calls an external provider or changes these validated
+            # objects, so another full tensor scan would repeat the input check.
+            return detection_batch
         detection_batch = self._attach_masks(frame_batch, detection_batch, required=needs_masks)
         detection_batch = self._attach_embeddings(
             frame_batch,

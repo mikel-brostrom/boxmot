@@ -10,17 +10,40 @@ under `boxmot/trackers/eagermot`.
 
 ## Required inputs
 
-Use the Python tracker API with independent `Detections` and `Detections3D`
-batches plus a `CameraModel` on every update. Both batches share a `sample_id`,
-but their rows and lengths are independent. Pass an explicitly empty batch
-when either detector has no observations. Map both detectors into the same
-class-ID catalog before fusion.
+Use the Python tracker API with independent 2D and 3D detection batches plus
+camera calibration on every update. NumPy inputs use these layouts:
+
+| Input | Shape | Columns |
+| --- | --- | --- |
+| `detections` | `(N, 6)` | `x1, y1, x2, y2, confidence, class_id` |
+| `detections_3d` | `(M, 9)` | `x, y, z, yaw, length, width, height, confidence, class_id` |
+| `camera` | `(3, 4)` | Camera projection matrix |
+
+Pass `image_size=(height, width)` with a NumPy camera matrix, or supply a frame
+from which the tracker can read the dimensions. An optional `camera_to_world`
+NumPy matrix has shape `(4, 4)`. Calibration is still required to associate
+projected 3D boxes with image detections.
+
+The detection batches have independent rows and lengths. Pass `np.empty((0, 6))`
+or `np.empty((0, 9))` when the corresponding detector has no observations. Map
+both detectors into the same class-ID catalog before fusion.
+
+Canonical `Detections`, `Detections3D`, and `CameraModel` inputs are also
+accepted and may be mixed with NumPy inputs. A `CameraModel` already contains
+its image size and optional pose, so do not pass separate `image_size` or
+`camera_to_world` arguments with it.
+
+`sample_id` is optional on both canonical detection batches. The tracker uses an ID supplied
+by either batch or the optional `Frame`; supplied IDs must agree. If all IDs are
+omitted, it assigns `tracker:0`, `tracker:1`, and so on, restarting after `reset()`.
+Both canonical output collections carry the resolved ID. These generated IDs are local to
+the tracking sequence; provide dataset sample IDs when saving observations.
 
 - Image detections use AABB geometry and may be empty. A nonempty 3D observation
   is needed to create a track; 2D observations can then sustain it through depth
   dropouts. Optional masks are retained on image outputs. An optional `Frame`
   supplies sample and dimension checks; RGB pixels and ReID embeddings are unused.
-- `Boxes3D` stores CPU-contiguous `float32[N,7]` values in the order
+- Canonical `Boxes3D` stores CPU-contiguous `float32[N,7]` values in the order
   `(x, y, z, yaw, length, width, height)`. Position is the bottom-face center,
   dimensions are meters, and yaw is radians. Camera axes are x right, y down,
   z forward, with yaw about +y.
@@ -406,46 +429,57 @@ for storage and invalidation behavior.
 
 ## Sensor fusion example
 
-This example supplies one synthetic camera and matching 2D/3D observations.
-Replace them with calibrated observations for each frame in a real sequence.
+This example supplies a synthetic camera, an absolute camera-to-world pose,
+and matching 2D/3D observations. Replace them with calibrated observations and
+the current frame's pose for each update in a real sequence.
 
 ```python
-import torch
+import numpy as np
 
-from boxmot import create_tracker
-from boxmot.structures import Boxes, Boxes3D, CameraModel, Detections, Detections3D
-from boxmot.trackers import TrackerSpec
+from boxmot import EagerMot
 
-tracker = create_tracker(TrackerSpec("eagermot"))
-camera = CameraModel(
-    projection=torch.tensor(
-        [[100, 0, 100, 0], [0, 100, 50, 0], [0, 0, 1, 0]],
-        dtype=torch.float32,
-    ),
-    image_size=(100, 200),
+tracker = EagerMot()
+camera = np.array(
+    [[100, 0, 100, 0], [0, 100, 50, 0], [0, 0, 1, 0]], dtype=float
 )
-detections = Detections(
-    geometry=Boxes(torch.tensor([[78, 39, 122, 62]], dtype=torch.float32)),
-    scores=torch.tensor([0.95], dtype=torch.float32),
-    class_ids=torch.tensor([0], dtype=torch.int64),
-    sample_id="example:0",
-)
-detections_3d = Detections3D(
-    geometry=Boxes3D(torch.tensor([[0, 1, 10, 0, 4, 2, 2]], dtype=torch.float32)),
-    scores=torch.tensor([0.9], dtype=torch.float32),
-    class_ids=torch.tensor([0], dtype=torch.int64),
-    sample_id=detections.sample_id,
-)
+camera_to_world = np.eye(4)
+camera_to_world[0, 3] = 1.0  # synthetic pose: camera at world x = 1 meter
+dets = np.array([[78, 39, 122, 62, 0.95, 0]])
+# 3D: bottom-face center (x, y, z), yaw, length, width, height, confidence, class_id
+dets_3d = np.array([[0, 1, 10, 0, 4, 2, 2, 0.9, 0]])
 
-result = tracker.update(detections, detections_3d=detections_3d, camera=camera)
-print(result.image_tracks.track_ids, result.spatial_tracks.track_ids)
-print(result.spatial_tracks.geometry.values)
+image_tracks, spatial_tracks = tracker.update(
+    dets,
+    detections_3d=dets_3d,
+    camera=camera,
+    image_size=(100, 200),  # height, width; a supplied frame also provides this
+    camera_to_world=camera_to_world,
+)
+print(image_tracks[:, 4].astype(int))    # image track IDs
+print(spatial_tracks[:, 7].astype(int))  # 3D track IDs
+print(spatial_tracks[:, :7])            # tracked 3D boxes
 tracker.reset()
 ```
 
+Pass absolute 4×4 camera-to-world transforms on every update for ego-motion
+compensation. KITTI evaluation reads these from `poses.npy` when the dataset
+declares a `poses` modality. If poses are unavailable, omit `camera_to_world`
+throughout the sequence to track in camera coordinates. Spatial outputs remain
+in the current camera coordinates in either case.
+
 ## Outputs and lifecycle
 
-`update()` returns `MultimodalTracks` with two independent collections:
+NumPy 2D detections make `update()` return `(image_tracks, spatial_tracks)`.
+Both arrays are C-contiguous `float64`, including empty results:
+
+| Output | Shape | Columns |
+| --- | --- | --- |
+| `image_tracks` | `(N, 8)` | `x1, y1, x2, y2, id, confidence, class_id, det_ind` |
+| `spatial_tracks` | `(M, 11)` | `x, y, z, yaw, length, width, height, id, confidence, class_id, det_ind` |
+
+Canonical 2D `Detections` make `update()` return `MultimodalTracks`, even when
+the 3D detections or calibration use NumPy. Both return forms have two independent
+collections:
 
 - `image_tracks` contains confirmed tracks with a current 2D observation.
   Detection indices reference the 2D batch; supplied masks stay row-aligned.
@@ -453,7 +487,7 @@ tracker.reset()
   the current frame, including objects outside the camera image. Detection
   indices reference the 3D batch and are `-1` for updates supported only by 2D.
 
-Join the collections by `track_ids`, not row position. Spatial boxes are
+Join the collections by track ID, not row position. Spatial boxes are
 returned in the current camera coordinate system. To render 3D-only tracks in
 an image, project their box corners with the camera matrix. Prediction-only
 tracks remain internal and are not emitted.

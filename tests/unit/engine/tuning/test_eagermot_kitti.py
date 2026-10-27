@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from contextlib import nullcontext
+from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -47,6 +48,53 @@ def _arguments(data: SimpleNamespace, *, n_trials: int = 2) -> SimpleNamespace:
 def _study(output: Path) -> Any:
     """Load the independently persisted Optuna history from this run's database."""
     return optuna.load_study(study_name=None, storage=f"sqlite:///{(output / 'study.sqlite3').as_uri()}?uri=true")
+
+
+@pytest.mark.parametrize("method", ("dist_2d", "dist_2d_dims", "dist_2d_full", "iou_3d"))
+def test_sensor_search_reuses_method_samplers_without_sharing_trial_profiles(
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+) -> None:
+    """Method-specific dimensions stay isolated when the prepared search is reused."""
+    from boxmot.engine.tuning.backends import optuna_backend
+
+    profiles = load_kitti_profiles()
+    original = deepcopy(profiles)
+    schema = tuner.load_yaml_config("eagermot")
+    key = "kalman.noise.process_velocity_scale"
+    schemas = {
+        class_id: tuner.refine_kalman_schema(schema, profile, ("process_velocity_scale",))
+        for class_id, profile in profiles.items()
+    }
+    sample, baseline = tuner._prepare_sensor_search(
+        schemas, profiles, fixed_parameters=frozenset({"kalman.is_angular"})
+    )
+    assert baseline["car.first_matching_method"] == profiles[1]["first_matching_method"]
+
+    def rebuild(*args: Any, **kwargs: Any) -> None:
+        pytest.fail("Trial sampling must reuse the prepared class/method schema.")
+
+    monkeypatch.setattr(optuna_backend, "yaml_to_optuna_define_space", rebuild)
+    monkeypatch.setattr(tuner, "refine_kalman_schema", rebuild)
+    monkeypatch.setattr(tuner, "_active_sensor_schema", rebuild)
+    values = {
+        f"{name}.{parameter}": value
+        for class_id, name in evaluation.KITTI_CLASSES.items()
+        for parameter, value in profiles[class_id].items()
+    }
+    values.update({f"{name}.first_matching_method": method for name in evaluation.KITTI_CLASSES.values()})
+    trial = optuna.trial.FixedTrial(values)
+    sampled = sample(trial)
+    for class_id, name in evaluation.KITTI_CLASSES.items():
+        assert sampled[class_id]["first_matching_method"] == method
+        assert (f"{name}.iou_3d_threshold" in trial.params) == (method == "iou_3d")
+        assert (f"{name}.distance_threshold" in trial.params) == (method != "iou_3d")
+        assert f"{name}.kalman.is_angular" not in trial.params
+        assert trial.params[f"{name}.{key}"] == profiles[class_id][key]
+    expected = deepcopy(sampled)
+    sampled[1][key] = -1
+    assert sample(optuna.trial.FixedTrial(values)) == expected
+    assert profiles == original
 
 
 @pytest.mark.parametrize("cache_inputs", (False, True))

@@ -80,6 +80,28 @@ def test_unseeded_random_search_preserves_default_ray_sampler() -> None:
     assert param_space["asso_func"].categories == ["iou", "giou", "diou"]
 
 
+def test_seeded_random_search_enforces_its_concurrency_limit(trainable_name: str, tmp_path: Path) -> None:
+    """Ray does not apply TuneConfig's limit to an explicit random generator."""
+    backend = RandomBackend(yaml_cfg=_SCHEMA, opt_metrics=["HOTA"], opt_modes=["max"], seed=0, max_concurrent=2)
+    searcher, space = backend.build(tune)
+    searcher.add_configurations(
+        {
+            "limited": {
+                "run": trainable_name,
+                "config": space,
+                "num_samples": 4,
+                "storage_path": str(tmp_path),
+            }
+        }
+    )
+    first = searcher.next_trial()
+    assert first is not None
+    assert searcher.next_trial() is not None
+    assert searcher.next_trial() is None
+    searcher.on_trial_complete(first.trial_id)
+    assert searcher.next_trial() is not None
+
+
 @pytest.mark.parametrize("seed", (0, 19))
 def test_seed_controls_actual_random_trial_configurations(seed: int, trainable_name: str, tmp_path: Path) -> None:
     """Equal seeds replay the same samples, including the valid zero seed."""
@@ -103,11 +125,15 @@ def test_random_sampler_draws_only_active_children(case_location: str) -> None:
 
     schema = {
         "enabled": {
-            "default": False, "type": "choice", "options": [False, True],
+            "default": False,
+            "type": "choice",
+            "options": [False, True],
             "activates": {
                 "weight": {"default": 0.4, "type": "uniform", "range": [0.1, 0.9]},
                 "nested": {
-                    "default": True, "type": "choice", "options": [False, True],
+                    "default": True,
+                    "type": "choice",
+                    "options": [False, True],
                     "activates": {
                         "nested_weight": {"default": 0.3, "type": "uniform", "range": [0.1, 0.9]},
                     },
@@ -116,17 +142,23 @@ def test_random_sampler_draws_only_active_children(case_location: str) -> None:
         },
     }
     if case_location != "none":
-        schema.update({
-            "mode": {"default": "off", "type": "choice", "options": ["off", "on"]},
-            "case_weight": {
-                "default": 0.2, "depends_on": "mode",
-                "cases": {"on": {"type": "uniform", "range": [0.1, 0.9]}},
-            },
-        })
+        schema.update(
+            {
+                "mode": {"default": "off", "type": "choice", "options": ["off", "on"]},
+                "case_weight": {
+                    "default": 0.2,
+                    "depends_on": "mode",
+                    "cases": {"on": {"type": "uniform", "range": [0.1, 0.9]}},
+                },
+            }
+        )
     if case_location == "child":
-        schema["enabled"]["activates"]["weight"].update({
-            "depends_on": "mode", "cases": {"on": {"range": [0.2, 0.8]}},
-        })
+        schema["enabled"]["activates"]["weight"].update(
+            {
+                "depends_on": "mode",
+                "cases": {"on": {"range": [0.2, 0.8]}},
+            }
+        )
     space = yaml_to_tune_space(schema, tune)
     rng = np.random.RandomState(8)
     seen = set()

@@ -218,12 +218,18 @@ CMake. The service images use Python tracker backends.
 For a normal host installation, native backends are built lazily the first time
 you select `--tracker-backend cpp`.
 
-Install the native build tools before using them:
+Install the native build tools and libraries before using them:
 
-- C++17 compiler
+- C++17 compiler and build tools
 - CMake 3.16+
-- OpenCV 4.x
-- Eigen3 3.3+
+- OpenCV 4.x development files and runtime libraries
+- Eigen3 3.3+ development headers
+
+See [Install native dependencies](../native/index.md#install-dependencies)
+for Debian/Ubuntu, Fedora, macOS, and Windows commands. The Python
+`opencv-python` package does not supply the C++ development files. Keep the
+OpenCV runtime libraries and their dependencies installed even when replaying
+cached detections and embeddings.
 
 Example:
 

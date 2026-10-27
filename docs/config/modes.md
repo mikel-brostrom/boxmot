@@ -35,9 +35,11 @@ components instead receive explicit immutable specs. ReID training defaults rema
 `boxmot/reid/training/configs/defaults.yaml`, while export defaults remain in
 `boxmot/reid/exporters/defaults.yaml`.
 
-`sequence_workers: auto` selects automatic replay parallelism for evaluation
-and tuning: `min(selected_sequences, max(1, logical_cpus - 2))` workers.
+`sequence_workers: auto` selects automatic replay and CMC analysis parallelism
+for evaluation and tuning: `min(selected_sequences, max(1, logical_cpus - 2))` workers.
 A positive integer supplies an explicit cap, bounded by the selected sequence
-count. In tuning, this count applies separately to each trial. See
+count. Automatic CMC uses it when generating missing transforms; compatible
+evidence in `<build>/cmc/<analysis-key>/` is validated and reused across runs.
+In tuning, CMC setup precedes trials; replay uses this count separately for each trial. See
 [sequence parallelism](../modes/eval.md#sequence-parallelism) for visualization
 constraints.

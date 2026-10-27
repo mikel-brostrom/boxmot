@@ -31,7 +31,6 @@ from boxmot.engine.eval.mots_io import prepare_mots_tracks, tracks_to_mots_rows,
 from boxmot.engine.eval.workers import initialize_worker_threads, shutdown_sequence_pool
 from boxmot.engine.materialization.builds import (
     BuildCompatibilityError,
-    load_cached_build,
     resolve_build_path,
     validate_build_compatibility,
 )
@@ -43,6 +42,7 @@ from boxmot.utils.processes import guard_parent_lifetime
 if TYPE_CHECKING:
     import numpy as np
 
+    from boxmot.engine.eval.cmc_replay import CMCReplaySequence
     from boxmot.engine.eval.session import ReplaySession
     from boxmot.trackers.common.mask_guidance import MaskGuidanceConfig
     from boxmot.trackers.common.protocols import TrackerRequirements
@@ -125,6 +125,7 @@ class _SequenceReplayTask:
     report_progress: bool = True
     mask_guidance_weights: str | None = None
     mask_guidance_device: str = "cpu"
+    cmc_transforms: CMCReplaySequence | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,23 +139,32 @@ class _SequenceReplayResult:
     ordinal: int
 
 
-def _frame_for_sample(
-    sample: DatasetSample,
-    placeholder_images: dict[tuple[int, int], torch.Tensor] | None = None,
-) -> Frame:
-    if sample.frame is not None:
-        return sample.frame
-    height, width = sample.image_size
-    image = None if placeholder_images is None else placeholder_images.get(sample.image_size)
+def _placeholder_image(
+    image_size: tuple[int, int],
+    images: dict[tuple[int, int], torch.Tensor] | None = None,
+) -> torch.Tensor:
+    """Reuse frame storage when replay consumers do not require source pixels."""
+    height, width = image_size
+    image = None if images is None else images.get(image_size)
     if image is None:
         # Detector-free replay still needs frame identity and dimensions for
         # pipeline ordering, but a tracker without a pixel requirement never
         # observes these pixels. Reuse one backing tensor per resolution.
         image = torch.empty((3, height, width), dtype=torch.uint8)
-        if placeholder_images is not None:
-            placeholder_images[sample.image_size] = image
+        if images is not None:
+            images[image_size] = image
+    return image
+
+
+def _frame_for_sample(
+    sample: DatasetSample,
+    placeholder_images: dict[tuple[int, int], torch.Tensor] | None = None,
+) -> Frame:
+    """Retain decoded frames or supply frame identity without decoding pixels."""
+    if sample.frame is not None:
+        return sample.frame
     return Frame(
-        image=image,
+        image=_placeholder_image(sample.image_size, placeholder_images),
         sample_id=sample.sample_id,
         sequence_id=sample.sequence_id,
         frame_index=sample.frame_index,
@@ -436,22 +446,25 @@ def _owned_tracker(spec: TrackerSpec, mask_guidance: MaskGuidanceConfig | None =
 
 
 @contextmanager
-def _prefetch_samples(dataset: Iterable[DatasetSample]) -> Iterator[Iterator[DatasetSample]]:
-    """Overlap one cached sample read with tracking without sharing tracker state.
+def _sample_iterator(dataset: Iterable[DatasetSample], *, prefetch: bool) -> Iterator[Iterator[DatasetSample]]:
+    """Own sequence iteration, optionally overlapping one read with tracking.
 
-    Only the producer thread advances the dataset iterator. At most one next
-    sample is outstanding, so decoded images and embeddings remain bounded to
-    the current frame and one prefetched frame. Wait for an active read before
-    closing its generator, including when tracking or serialization raises.
+    With prefetch enabled, only the producer thread advances the dataset
+    iterator, with at most one next sample outstanding. Direct iteration keeps
+    cheap detection-only samples on the consumer thread. Both paths close the
+    iterator on failure; active reads finish before their iterator is closed.
     """
 
     iterator = iter(dataset)
-    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="replay-input")
+    executor = (
+        concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="replay-input") if prefetch else None
+    )
     pending: concurrent.futures.Future[DatasetSample | None] | None = None
     primary_error: BaseException | None = None
 
     def samples() -> Iterator[DatasetSample]:
         nonlocal pending
+        assert executor is not None
         while pending is not None:
             sample = pending.result()
             if sample is None:
@@ -459,18 +472,20 @@ def _prefetch_samples(dataset: Iterable[DatasetSample]) -> Iterator[Iterator[Dat
             pending = executor.submit(next, iterator, None)
             yield sample
 
-    prefetched = samples()
+    selected = samples() if prefetch else iterator
     try:
-        pending = executor.submit(next, iterator, None)
-        yield prefetched
+        if executor is not None:
+            pending = executor.submit(next, iterator, None)
+        yield selected
     except BaseException as exc:
         primary_error = exc
         raise
     finally:
         if pending is not None:
             pending.cancel()
-        executor.shutdown(wait=True, cancel_futures=True)
-        prefetched.close()
+        if executor is not None:
+            executor.shutdown(wait=True, cancel_futures=True)
+            selected.close()
         close = getattr(iterator, "close", None)
         if callable(close):
             try:
@@ -498,24 +513,26 @@ def _replay_sequence_task(
     total = 0
     track_rows = 0
     latest: dict[int, ReplayProgressEvent] = {}
+    report_progress = progress_callback is not None or (task.report_progress and _WORKER_PROGRESS_QUEUE is not None)
 
-    def emit(event: ReplayProgressEvent) -> None:
+    def emit(status: ReplayProgressStatus, detail: str | None = None) -> None:
+        if not report_progress:
+            return
+        event = ReplayProgressEvent(
+            sequence_id=task.sequence_id,
+            status=status,
+            completed=completed,
+            total=max(task.frame_total, total, completed),
+            track_rows=track_rows,
+            detail=detail,
+            ordinal=task.ordinal,
+        )
         if progress_callback is None:
             _emit_worker_progress(event)
         else:
             _publish_progress(event, progress_callback, latest)
 
-    emit(
-        ReplayProgressEvent(
-            sequence_id=task.sequence_id,
-            status="running",
-            completed=0,
-            total=task.frame_total,
-            track_rows=0,
-            detail="loading cached inputs",
-            ordinal=task.ordinal,
-        )
-    )
+    emit("running", "loading cached inputs")
     try:
         with ExitStack() as inputs:
             guidance = None
@@ -531,11 +548,20 @@ def _replay_sequence_task(
             tracker = inputs.enter_context(
                 _owned_tracker(task.tracker_spec) if guidance is None else _owned_tracker(task.tracker_spec, guidance)
             )
+            prepared_cmc = None
+            if task.cmc_transforms is not None:
+                if task.cmc_transforms.sequence_id != task.sequence_id:
+                    raise ValueError("Prepared CMC transforms belong to another replay sequence.")
+                task.cmc_transforms.validate_selection(Path(task.build), task.split)
+                task.cmc_transforms.validate_tracker(task.tracker_spec)
+                task.cmc_transforms.validate_sources()
+                prepared_cmc = tracker.set_prepared_cmc(task.cmc_transforms.warps)
             requirements = tracker.requirements
             needs_masks = requirements.masks or task.output_format == "mots"
+            needs_images = requirements.frame_pixels or frame_callback is not None
             dataset = _worker_inputs(
                 task,
-                load_images=requirements.frame_pixels or frame_callback is not None,
+                load_images=needs_images,
                 load_masks=needs_masks,
                 load_embeddings=requirements.embeddings,
             )
@@ -554,17 +580,7 @@ def _replay_sequence_task(
                     f"Sequence {task.sequence_id!r} changed while replay was starting: "
                     f"expected {task.frame_total} frames, loaded {total}."
                 )
-            emit(
-                ReplayProgressEvent(
-                    sequence_id=task.sequence_id,
-                    status="running",
-                    completed=0,
-                    total=total,
-                    track_rows=0,
-                    detail="streaming cached inputs",
-                    ordinal=task.ordinal,
-                )
-            )
+            emit("running", "streaming cached inputs")
 
             output_path = Path(task.output_path)
             pipeline = TrackingPipeline(
@@ -578,17 +594,23 @@ def _replay_sequence_task(
             placeholder_images: dict[tuple[int, int], torch.Tensor] = {}
             # Prefetch overlaps pixel/payload decoding with tracking. Small
             # detection-only samples are cheaper to consume on this thread.
-            sample_context = (
-                _prefetch_samples(dataset)
-                if requirements.frame_pixels or needs_masks or requirements.embeddings
-                else nullcontext(iter(dataset))
-            )
+            sample_context = _sample_iterator(dataset, prefetch=needs_images or needs_masks or requirements.embeddings)
             with output_path.open("x", encoding="utf-8") as handle, sample_context as samples:
                 for sample in samples:
                     if sample.sequence_id != task.sequence_id:
                         raise RuntimeError(
                             f"Sequence-scoped loader returned {sample.sequence_id!r} for task {task.sequence_id!r}."
                         )
+                    if prepared_cmc is not None:
+                        transforms = task.cmc_transforms
+                        assert transforms is not None
+                        if (
+                            completed >= len(transforms.sample_ids)
+                            or sample.sample_id != transforms.sample_ids[completed]
+                            or sample.frame_index != transforms.frame_indices[completed]
+                        ):
+                            raise ValueError("Prepared CMC transforms do not match the replay frame order.")
+                        prepared_cmc.select_frame(sample.frame_index)
                     frame = _frame_for_sample(sample, placeholder_images)
                     result = pipeline.step_detections(frame, sample.detections)
                     tracks = (
@@ -601,44 +623,17 @@ def _replay_sequence_task(
                         frame_callback(ReplayFrame(sample, result, getattr(tracker, "guidance_masks", None)))
                     completed += 1
                     track_rows += row_count
-                    emit(
-                        ReplayProgressEvent(
-                            sequence_id=task.sequence_id,
-                            status="running",
-                            completed=completed,
-                            total=total,
-                            track_rows=track_rows,
-                            detail=sample.sample_id,
-                            ordinal=task.ordinal,
-                        )
-                    )
+                    emit("running", sample.sample_id)
+                if prepared_cmc is not None:
+                    prepared_cmc.validate_complete()
+                    task.cmc_transforms.validate_sources()
                 handle.flush()
                 os.fsync(handle.fileno())
     except Exception as exc:
-        emit(
-            ReplayProgressEvent(
-                sequence_id=task.sequence_id,
-                status="failed",
-                completed=completed,
-                total=max(task.frame_total, total, completed),
-                track_rows=track_rows,
-                detail=f"{type(exc).__name__}: {exc}",
-                ordinal=task.ordinal,
-            )
-        )
+        emit("failed", f"{type(exc).__name__}: {exc}")
         raise RuntimeError(f"Cached replay failed for sequence {task.sequence_id!r}.") from exc
 
-    emit(
-        ReplayProgressEvent(
-            sequence_id=task.sequence_id,
-            status="completed",
-            completed=completed,
-            total=total,
-            track_rows=track_rows,
-            detail=None,
-            ordinal=task.ordinal,
-        )
-    )
+    emit("completed")
     return _SequenceReplayResult(
         sequence_id=task.sequence_id,
         output_path=task.output_path,
@@ -841,79 +836,39 @@ def _run_spawned_sequence_tasks(
 
 def _replay_with_injected_tracker(
     build_path: Path,
-    tracker_spec: TrackerSpec,
     *,
     split: str | None,
     destination: Path,
     tracker: Tracker,
-    sequence_ids: tuple[str, ...] | None,
+    frame_counts: Mapping[str, int],
     frame_callback: ReplayFrameCallback | None = None,
     progress_callback: ReplayProgressCallback | None = None,
-    sequence_frame_counts: Mapping[str, int] | None = None,
     output_format: str = "mot",
     cache_inputs: bool = False,
 ) -> ReplayResult:
-    """Preserve the caller-owned, in-process tracker path used by tests and embedding clients."""
+    """Stream a validated selection through a caller-owned, in-process tracker."""
 
-    requirements = tracker.requirements
-    needs_masks = requirements.masks or output_format == "mots"
-    if frame_callback is None and not cache_inputs:
-        dataset = load_cached_build(
-            build_path,
-            split=split,
-            load_images=requirements.frame_pixels,
-            load_masks=needs_masks,
-            load_embeddings=requirements.embeddings,
-        )
-        validate_build_compatibility(
-            dataset.manifest,
-            split=split,
-            geometry=tracker_spec.geometry,
-            require_masks=needs_masks,
-            require_embeddings=requirements.embeddings,
-        )
-    else:
-        manifest = DatasetManifest.load(build_path)
-        validate_build_compatibility(
-            manifest,
-            split=split,
-            geometry=tracker_spec.geometry,
-            require_masks=needs_masks,
-            require_embeddings=requirements.embeddings,
-        )
-        if sequence_frame_counts is None:
-            counts = dict(_sequence_frame_counts(build_path, manifest, split=split))
-            selected = _select_sequence_ids(tuple(counts), sequence_ids)
-            sequence_frame_counts = {sequence: counts[sequence] for sequence in selected}
-        dataset = _serial_samples(
-            build_path,
-            tracker,
-            split=split,
-            frame_counts=sequence_frame_counts,
-            output_format=output_format,
-            load_images=frame_callback is not None or requirements.frame_pixels,
-            cache_inputs=cache_inputs,
-        )
+    dataset = _serial_samples(
+        build_path,
+        tracker,
+        split=split,
+        frame_counts=frame_counts,
+        output_format=output_format,
+        load_images=frame_callback is not None or tracker.requirements.frame_pixels,
+        cache_inputs=cache_inputs,
+    )
 
     handles: dict[str, TextIO] = {}
     sequence_paths: dict[str, Path] = {}
     frames = 0
     track_rows = 0
-    selected_sequences = None
-    if sequence_ids is not None:
-        if not isinstance(sequence_ids, tuple):
-            raise TypeError("sequence_ids must be a tuple of sequence identifiers or None")
-        if not sequence_ids:
-            raise ValueError("sequence_ids must not be empty when supplied")
-        selected_sequences = frozenset(_validate_sequence_id(value) for value in sequence_ids)
-    frame_counts = dict(sequence_frame_counts or {})
     ordinals = {sequence: ordinal for ordinal, sequence in enumerate(frame_counts)}
     completed: Counter[str] = Counter()
     sequence_rows: Counter[str] = Counter()
     latest: dict[int, ReplayProgressEvent] = {}
 
     def progress(sequence: str, status: ReplayProgressStatus, detail: str | None = None) -> None:
-        if sequence not in frame_counts:
+        if progress_callback is None:
             return
         _publish_progress(
             ReplayProgressEvent(
@@ -931,7 +886,7 @@ def _replay_with_injected_tracker(
 
     for sequence in frame_counts:
         progress(sequence, "queued")
-    replayed_frames = iter_cached_tracks(dataset, tracker, sequence_ids=selected_sequences, output_format=output_format)
+    replayed_frames = iter_cached_tracks(dataset, tracker, output_format=output_format)
     active_sequence: str | None = None
     try:
         for replayed in replayed_frames:
@@ -971,11 +926,6 @@ def _replay_with_injected_tracker(
         for handle in handles.values():
             handle.close()
 
-    if selected_sequences is not None:
-        missing = sorted(selected_sequences.difference(sequence_paths))
-        if missing:
-            raise ValueError(f"Build does not contain requested sequence(s): {', '.join(missing)}")
-
     return ReplayResult(
         build=build_path,
         output_dir=destination,
@@ -998,13 +948,13 @@ def _serial_samples(
     """Own one sequence at a time for rendering and caller-owned trackers."""
 
     requirements = tracker.requirements
+    options = dict(
+        load_images=load_images,
+        load_masks=requirements.masks or output_format == "mots",
+        load_embeddings=requirements.embeddings,
+    )
     for sequence, expected in frame_counts.items():
         with ExitStack() as inputs:
-            options = dict(
-                load_images=load_images,
-                load_masks=requirements.masks or output_format == "mots",
-                load_embeddings=requirements.embeddings,
-            )
             if cache_inputs:
                 from boxmot.datasets.replay_cache import open_replay_sequence, prepare_replay_sequence
 
@@ -1018,8 +968,13 @@ def _serial_samples(
                     f"Sequence {sequence!r} changed while replay was starting: "
                     f"expected {expected} frames, loaded {len(dataset)}."
                 )
-            with _prefetch_samples(dataset) as samples:
-                yield from samples
+            with _sample_iterator(dataset, prefetch=any(options.values())) as samples:
+                for sample in samples:
+                    if sample.sequence_id != sequence:
+                        raise RuntimeError(
+                            f"Sequence-scoped loader returned {sample.sequence_id!r} for sequence {sequence!r}."
+                        )
+                    yield sample
 
 
 def _replay_with_frame_callback(
@@ -1072,12 +1027,10 @@ def _replay_with_frame_callback(
                 return ReplayResult(build_path, destination, (), 0, 0)
             replayed = _replay_with_injected_tracker(
                 build_path,
-                tracker_spec,
                 split=split,
                 destination=Path(staging_dir),
                 tracker=active_tracker,
-                sequence_ids=selected,
-                sequence_frame_counts=frame_counts,
+                frame_counts=frame_counts,
                 frame_callback=frame_callback,
                 progress_callback=progress_callback,
                 output_format=output_format,
@@ -1120,9 +1073,12 @@ def _validated_tracker_requirements(
     split: str | None,
     output_format: str,
     require_images: bool,
+    cmc_transforms: CMCReplaySequence | None = None,
 ) -> TrackerRequirements:
     """Probe an effective configuration before scheduling replay workers."""
     with _owned_tracker(spec) as probe:
+        if cmc_transforms is not None:
+            probe.set_prepared_cmc(cmc_transforms.warps)
         requirements = probe.requirements
         validate_build_compatibility(
             manifest,
@@ -1159,6 +1115,7 @@ def replay_build(
     mask_guidance_device: str = "cpu",
     mask_guidance_max_objects: int | None = None,
     cmc_policy: SequenceCMCPolicy | None = None,
+    cmc_transforms: tuple[CMCReplaySequence, ...] = (),
 ) -> ReplayResult:
     """Replay keyed detections, isolating each sequence in a spawned process.
 
@@ -1176,6 +1133,8 @@ def replay_build(
     ``cmc_policy`` applies sequence-specific camera-motion settings to fresh
     trackers while preserving the other options in ``tracker_spec``. Source
     pixels are loaded only where required by the effective tracker or rendering.
+    ``cmc_transforms`` reuses source-bound automatic SOF estimates through the
+    same tracker motion path, without decoding images solely for CMC.
 
     ``mask_guidance_weights`` enables the paper-inspired EdgeTAM association cue
     for Python AABB box trackers. Each sequence streams its decoded sample frames
@@ -1189,6 +1148,18 @@ def replay_build(
     _validate_output_format(output_format)
     if not isinstance(tracker_spec, TrackerSpec):
         raise TypeError("tracker_spec must be a TrackerSpec")
+    prepared_by_sequence: dict[str, CMCReplaySequence] = {}
+    if cmc_transforms:
+        from boxmot.engine.eval.cmc_replay import CMCReplaySequence
+
+        if cmc_policy is None:
+            raise ValueError("Prepared CMC transforms require their sequence CMC policy.")
+        for transforms in cmc_transforms:
+            if not isinstance(transforms, CMCReplaySequence):
+                raise TypeError("cmc_transforms must contain CMCReplaySequence objects.")
+            if transforms.sequence_id in prepared_by_sequence:
+                raise ValueError(f"Duplicate prepared CMC sequence: {transforms.sequence_id!r}.")
+            prepared_by_sequence[transforms.sequence_id] = transforms
     if cmc_policy is not None:
         if not isinstance(cmc_policy, SequenceCMCPolicy):
             raise TypeError("cmc_policy must be a SequenceCMCPolicy or None.")
@@ -1259,6 +1230,22 @@ def replay_build(
         (destination / "cmc-policy.json").unlink(missing_ok=True)
         return replayed
     if tracker is not None:
+        manifest = DatasetManifest.load(build_path)
+        requirements = tracker.requirements
+        validate_build_compatibility(
+            manifest,
+            split=split,
+            geometry=tracker_spec.geometry,
+            require_masks=requirements.masks or output_format == "mots",
+            require_embeddings=requirements.embeddings,
+        )
+        available_counts = (
+            dict(_sequence_frame_counts(build_path, manifest, split=split))
+            if sequence_frame_counts is None
+            else _validated_sequence_frame_counts(sequence_frame_counts)
+        )
+        selected = _select_sequence_ids(tuple(available_counts), sequence_ids)
+        frame_counts = {sequence: available_counts[sequence] for sequence in selected}
         staging_context = (
             tempfile.TemporaryDirectory(prefix=".replay-", dir=destination)
             if output_format == "mots"
@@ -1267,11 +1254,11 @@ def replay_build(
         with staging_context as staged_dir:
             replayed = _replay_with_injected_tracker(
                 build_path,
-                tracker_spec,
                 split=split,
                 destination=Path(staged_dir),
                 tracker=tracker,
-                sequence_ids=sequence_ids,
+                frame_counts=frame_counts,
+                progress_callback=progress_callback,
                 output_format=output_format,
                 cache_inputs=cache_inputs,
             )
@@ -1288,13 +1275,13 @@ def replay_build(
 
     manifest = DatasetManifest.load(build_path)
     require_images = mask_guidance_weights is not None or frame_callback is not None
-    probed_specs: list[tuple[TrackerSpec, TrackerRequirements]] = []
+    probed_specs: list[tuple[TrackerSpec, bool, TrackerRequirements]] = []
     if cmc_policy is None:
         # Preserve fail-fast input validation for the ordinary replay path.
         requirements = _validated_tracker_requirements(
             tracker_spec, manifest, split=split, output_format=output_format, require_images=require_images
         )
-        probed_specs.append((tracker_spec, requirements))
+        probed_specs.append((tracker_spec, False, requirements))
     # Evaluation already derived these counts while validating the raw source
     # catalog. Reusing them avoids opening the samples Parquet a second time in
     # the coordinator. Each worker still verifies its sequence count against
@@ -1310,18 +1297,40 @@ def replay_build(
         # Counts supplied by an evaluation workflow may contain only that subset.
         available = tuple(sequence for sequence, _ in _sequence_frame_counts(build_path, manifest, split=None))
         cmc_policy.validate(tracker_spec, available)
+        if prepared_by_sequence.keys() - set(available):
+            raise ValueError("Prepared CMC transforms contain sequences outside the replay build.")
     sequence_specs = {
         sequence: tracker_spec if cmc_policy is None else cmc_policy.apply(tracker_spec, sequence)
         for sequence in selected
     }
+    for sequence, transforms in prepared_by_sequence.items():
+        if sequence not in sequence_specs:
+            continue
+        transforms.validate_selection(build_path, split)
+        transforms.validate_tracker(sequence_specs[sequence])
+        if len(transforms.sample_ids) != frame_counts[sequence]:
+            raise ValueError(f"Prepared CMC frame count differs from replay sequence {sequence!r}.")
     requirements_by_sequence: dict[str | None, TrackerRequirements] = {}
     for sequence, effective_spec in sequence_specs.items() if selected else ((None, tracker_spec),):
-        requirements = next((requirements for spec, requirements in probed_specs if spec == effective_spec), None)
+        transforms = prepared_by_sequence.get(sequence)
+        requirements = next(
+            (
+                requirements
+                for spec, prepared, requirements in probed_specs
+                if spec == effective_spec and prepared == (transforms is not None)
+            ),
+            None,
+        )
         if requirements is None:
             requirements = _validated_tracker_requirements(
-                effective_spec, manifest, split=split, output_format=output_format, require_images=require_images
+                effective_spec,
+                manifest,
+                split=split,
+                output_format=output_format,
+                require_images=require_images,
+                **({"cmc_transforms": transforms} if transforms is not None else {}),
             )
-            probed_specs.append((effective_spec, requirements))
+            probed_specs.append((effective_spec, transforms is not None, requirements))
         requirements_by_sequence[sequence] = requirements
     worker_count = resolve_sequence_workers(len(selected), 1 if frame_callback is not None else workers)
     if session is not None and worker_count != session.workers:
@@ -1371,6 +1380,7 @@ def replay_build(
                 input_cache_path=None if sequence_id not in input_paths else str(input_paths[sequence_id]),
                 mask_guidance_weights=mask_guidance_weights,
                 mask_guidance_device=mask_guidance_device,
+                cmc_transforms=prepared_by_sequence.get(sequence_id),
             )
             for ordinal, sequence_id in enumerate(selected)
         )
@@ -1395,6 +1405,7 @@ def replay_build(
             sequence_paths.append(path)
 
         if cmc_policy is not None:
+            sequence_modes = dict(cmc_policy.sequences)
             provenance = {
                 "build": manifest.build_id,
                 "split": split,
@@ -1410,13 +1421,15 @@ def replay_build(
                 },
                 "sequences": {
                     sequence: {
-                        "use_cmc": dict(cmc_policy.sequences).get(sequence, cmc_policy.default),
+                        "use_cmc": sequence_modes.get(sequence, cmc_policy.default),
                         "cmc_method": cmc_policy.method,
                     }
                     for sequence in sequence_specs
                 },
             }
             policy_path = staging / "cmc-policy.json"
+            if prepared_by_sequence:
+                provenance["prepared_transforms"] = sorted(prepared_by_sequence.keys() & sequence_specs.keys())
             policy_path.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
             os.replace(policy_path, destination / policy_path.name)
 

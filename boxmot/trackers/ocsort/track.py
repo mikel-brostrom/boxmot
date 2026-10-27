@@ -31,6 +31,7 @@ class KalmanBoxTracker(SortBoxTrack):
     """One OC-SORT identity with its filter, observations, and motion direction."""
 
     observation_centric = True
+    _batch_prediction_geometry = True
 
     def __init__(
         self,
@@ -191,9 +192,11 @@ class KalmanBoxTracker(SortBoxTrack):
             self.last_observation = bbox.copy()
             self.observations[self.age] = bbox.copy()
             cutoff = self.age - self.max_obs + 1
-            for observation_age in tuple(self.observations):
-                if observation_age < cutoff:
-                    self.observations.pop(observation_age)
+            while self.observations:
+                observation_age = next(iter(self.observations))
+                if observation_age >= cutoff:
+                    break
+                del self.observations[observation_age]
             self.time_since_update = 0
             self.hits += 1
             self.hit_streak += 1
@@ -220,16 +223,13 @@ class KalmanBoxTracker(SortBoxTrack):
         """Prevent the selected model from extrapolating nonpositive sizes."""
         self.motion_model.prevent_invalid_size(self.kf, dt=dt)
 
-    def _finish_prediction(self) -> np.ndarray:
+    def _finish_prediction(self, box: np.ndarray | None = None) -> np.ndarray:
         """Advance frame counters and record the predicted box."""
         self.age += 1
         if self.time_since_update > 0:
             self.hit_streak = 0
         self.time_since_update += 1
-        if self.is_obb:
-            self.history.append(self.motion_model.to_box(self.kf.x))
-        else:
-            self.history.append(self.motion_model.to_box(self.kf.x))
+        self.history.append(self.motion_model.to_box(self.kf.x) if box is None else box)
         sync_track_meta(self)
         return self.history[-1]
 

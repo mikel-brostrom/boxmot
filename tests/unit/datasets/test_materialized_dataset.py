@@ -329,6 +329,46 @@ def test_sequence_stream_defers_optional_payload_reads_until_iteration(
     assert sample.detections.embeddings is not None
 
 
+@pytest.mark.parametrize(
+    ("load_masks", "load_embeddings"), [(False, False), (True, False), (False, True), (True, True)]
+)
+@pytest.mark.parametrize("load_images", [False, True])
+def test_sequence_stream_replaces_samples_only_for_payload_enrichment(
+    materialized_build, monkeypatch, load_masks: bool, load_embeddings: bool, load_images: bool
+) -> None:
+    """Skip redundant samples without changing payload joins or tensor ownership."""
+    originals = []
+    original_iter = CachedVisionDataset.__iter__
+
+    def record_samples(dataset):
+        for sample in original_iter(dataset):
+            originals.append(sample)
+            yield sample
+
+    monkeypatch.setattr(CachedVisionDataset, "__iter__", record_samples)
+    dataset = CachedVisionDataset._stream_sequence(
+        materialized_build["root"],
+        sequence_id="seq-a",
+        load_masks=load_masks,
+        load_embeddings=load_embeddings,
+        load_images=load_images,
+    )
+    first = list(dataset)[0]
+
+    assert (first is originals[0]) == (not load_masks and not load_embeddings)
+    assert (first.detections.masks is not None) == load_masks
+    assert (first.detections.embeddings is not None) == load_embeddings
+    assert (first.frame is not None) == load_images
+    torch.testing.assert_close(first.detections.geometry.values, originals[0].detections.geometry.values)
+    assert first.detections.instance_ids == originals[0].detections.instance_ids
+
+    expected_boxes = first.detections.geometry.values.clone()
+    first.detections.geometry.values.add_(100)
+    second = list(dataset)[0]
+    assert second is not first
+    torch.testing.assert_close(second.detections.geometry.values, expected_boxes)
+
+
 def test_sequence_stream_key_joins_independently_reordered_payloads(materialized_build) -> None:
     import pyarrow as pa
     import pyarrow.parquet as pq
@@ -622,8 +662,26 @@ def test_loader_decodes_relative_mmot_numpy_image_ref(materialized_build, tmp_pa
     assert sample.frame.image.is_contiguous()
 
 
+@pytest.mark.parametrize("image_size", ((1, 1), (1, 5), (5, 1), (3, 5)))
+def test_image_reader_preserves_all_pixels_from_local_image(tmp_path, image_size) -> None:
+    """Color and layout conversion preserve all pixels, including narrow images."""
+    path = tmp_path / "frame.png"
+    height, width = image_size
+    source = np.arange(height * width * 3, dtype=np.uint8).reshape(height, width, 3)
+    assert cv2.imwrite(str(path), source)
+
+    image = read_rgb_chw_uint8(path.name, tmp_path.as_uri())
+
+    expected = np.stack((source[..., 2], source[..., 1], source[..., 0]))
+    assert np.array_equal(image.numpy(), expected)
+    assert image.dtype is torch.uint8
+    assert image.is_contiguous()
+
+
 def test_image_reader_decodes_selected_local_video_frame(monkeypatch, tmp_path) -> None:
     import boxmot.datasets.readers.images as image_reader
+
+    source = np.arange(2 * 5 * 3, dtype=np.uint8).reshape(2, 5, 3)
 
     class FakeCapture:
         def __init__(self) -> None:
@@ -638,7 +696,7 @@ def test_image_reader_decodes_selected_local_video_frame(monkeypatch, tmp_path) 
             return True
 
         def read(self):
-            return True, np.array([[[1, 2, 3]]], dtype=np.uint8)
+            return True, source
 
         def release(self):
             self.released = True
@@ -650,7 +708,8 @@ def test_image_reader_decodes_selected_local_video_frame(monkeypatch, tmp_path) 
 
     assert capture.seek == (cv2.CAP_PROP_POS_FRAMES, 7)
     assert capture.released is True
-    assert image[:, 0, 0].tolist() == [3, 2, 1]
+    expected = np.stack((source[..., 2], source[..., 1], source[..., 0]))
+    assert np.array_equal(image.numpy(), expected)
     assert image.dtype is torch.uint8
     assert image.is_contiguous()
 

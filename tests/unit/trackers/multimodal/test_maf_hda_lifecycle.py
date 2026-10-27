@@ -7,7 +7,7 @@ import pytest
 import torch
 
 from boxmot import MafHda, MafHdaConfig
-from boxmot.structures import Boxes, Detections, MaskBatch
+from boxmot.structures import Boxes, Detections, MaskBatch, Tracks
 from boxmot.trackers.maf_hda.association import (
     INITIAL_COVARIANCE,
     MAX_COST,
@@ -16,6 +16,7 @@ from boxmot.trackers.maf_hda.association import (
     minmax_affinity,
     predict_covariance,
 )
+from boxmot.trackers.maf_hda.tracker import _Observation
 
 
 def _sample(
@@ -193,6 +194,73 @@ def test_detection_filter_retains_original_row_indices() -> None:
     assert result.detection_indices.tolist() == [1]
     torch.testing.assert_close(result.masks.values[0], detection.masks.values[1])
     assert len(tracker.update(*_sample(1, [[40, 8, 60, 24]], scores=[0.1]))) == 0
+
+
+def test_shared_output_preserves_confirmed_id_order_masks_and_scalar_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reordered and filtered observations retain their IDs and corresponding masks."""
+    tracker = MafHda(MafHdaConfig(min_hits=2, s2ta_mode="motion", t2ta_mode="motion"))
+    packed: list[np.ndarray] = []
+    shared_formatter = tracker.format_outputs
+
+    def record_outputs(tracks, dtype=np.float32, *, boxes=None):
+        """Compare shared packing against the original scalar-row arithmetic."""
+        actual = shared_formatter(tracks, dtype=dtype, boxes=boxes)
+        expected = tracker.format_output_rows([
+            tracker.format_output_row(track.bbox, track.id, track.conf, track.cls, track.det_ind)
+            for track in tracks
+        ])
+        np.testing.assert_array_equal(actual, expected)
+        assert actual.dtype == np.float32
+        packed.append(actual.copy())
+        return actual
+
+    monkeypatch.setattr(tracker, "format_outputs", record_outputs)
+    first = tracker.update(*_sample(0, [[8.25, 8.5, 28.75, 24.5], [60.25, 40.5, 80.75, 64.5]]))
+    assert isinstance(first, Tracks)
+    assert first.geometry.values.shape == (0, 4)
+    assert first.masks.values.shape == (0, 96, 128)
+    assert packed[-1].shape == (0, 8)
+    initial_ids = sorted(track.id for track in tracker._tracks)
+
+    observations, image = _sample(
+        1, [[60.25, 40.5, 80.75, 64.5], [8.25, 8.5, 28.75, 24.5], [40, 8, 55, 24]],
+        scores=[0.91234567, 0.87654321, 0.1],
+    )
+    result = tracker.update(observations, image)
+    assert isinstance(result, Tracks)
+    assert result.track_ids.tolist() == initial_ids
+    assert result.detection_indices.tolist() == [1, 0]
+    torch.testing.assert_close(result.geometry.values, observations.geometry.values[[1, 0]], rtol=0, atol=0)
+    torch.testing.assert_close(result.scores, observations.scores[[1, 0]], rtol=0, atol=0)
+    torch.testing.assert_close(result.masks.values, observations.masks.values[[1, 0]], rtol=0, atol=0)
+    assert packed[-1].shape == (2, 8)
+
+
+def test_shared_output_preserves_raw_geometry_for_custom_row_hooks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An overridden scalar formatter receives the original float64 track box."""
+    received: list[np.ndarray] = []
+
+    class CustomMafHda(MafHda):
+        def format_output_row(self, box, track_id, conf, cls, det_ind, dtype=np.float32):
+            """Inspect geometry before applying the usual float32 row conversion."""
+            received.append(box.copy())
+            row = super().format_output_row(box, track_id, conf, cls, det_ind, dtype=dtype)
+            row[-1] = -1
+            return row
+
+    tracker = CustomMafHda(MafHdaConfig(s2ta_mode="motion", t2ta_mode="motion"))
+    box = np.array([8.123456789, 8.987654321, 28.765432198, 24.345678912], dtype=np.float64)
+    mask = np.zeros((96, 128), dtype=bool)
+    mask[9:24, 9:28] = True
+    observation = _Observation(box, mask, 0.9123456789, 2, 0)
+    monkeypatch.setattr(tracker, "_observations", lambda *_: [observation])
+    rows, output_masks = tracker._track_detections(np.empty((1, 6)), None, masks=mask[None])
+    assert len(received) == 1
+    assert received[0].dtype == np.float64
+    np.testing.assert_array_equal(received[0], box)
+    np.testing.assert_array_equal(rows[0, :4], box.astype(np.float32))
+    assert rows[0, -1] == -1
+    np.testing.assert_array_equal(output_masks, mask[None])
 
 
 def test_gaussian_motion_matches_the_source_covariance_and_likelihood() -> None:

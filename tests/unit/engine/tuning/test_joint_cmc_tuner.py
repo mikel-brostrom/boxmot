@@ -22,6 +22,7 @@ from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_TRACKER_NA
 from boxmot.trackers.common.motion.kalman_filters.profile import calibration_cmc_signature
 from boxmot.trackers.common.motion.models import resolve_motion_model_kind, supported_motion_model_kinds
 from boxmot.trackers.common.specs import TrackerSpec
+from tests.unit.engine.calibration.test_cmc_candidates import _source_build
 from tests.unit.engine.calibration.test_kalman import _data, _load_fixture
 from tests.unit.engine.tuning.test_calibrated_tuner import _SuggestionTrial
 from tests.unit.engine.tuning.test_calibrated_tuner import fake_tuning as fake_tuning
@@ -61,30 +62,53 @@ def test_joint_choice_reaches_every_trial_and_saved_best_without_reanalysis_on_r
         assert baseline["cmc_min_conf"] == mask_threshold
         output_dir.mkdir(parents=True)
         report_path, warps_path = output_dir / "analysis.json", output_dir / "warps.npz"
-        args.build_path.mkdir(parents=True, exist_ok=True)
+        _source_build(args.build_path)
         manifest = args.build_path / "manifest.json"
-        manifest.write_text("{}")
-        np.savez(warps_path, **warps)
+        np.savez(
+            warps_path,
+            seq1_warps=warps["seq1"].astype(np.float32),
+            seq1_frame_indices=np.arange(6, dtype=np.int64),
+        )
         policy = SequenceCMCPolicy(sequences=(("seq1", True),))
+        image_root = str(args.build_path.parent / "cmc-images")
+        references = tuple(f"seq1/{index}.png" for index in range(6))
+        for reference in references:
+            image = Path(image_root) / reference
+            image.parent.mkdir(parents=True, exist_ok=True)
+            image.write_bytes(b"fixture pixels")
         report_path.write_text(
             json.dumps(
                 {
-                    "schema": "boxmot.cmc-analysis/v1",
+                    "schema": cmc.CMC_ANALYSIS_SCHEMA,
                     "status": "complete",
                     "ground_truth_used": False,
                     "build_path": str(args.build_path.resolve()),
                     "manifest_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
+                    "source_signature": cmc.cmc_build_signature(args.build_path),
                     "split": args.split,
                     "tracker": args.tracker,
+                    "backend": args.tracker_backend,
                     "geometry": args.geometry,
+                    "per_class": args.per_class,
                     "rule": CMC_ANALYSIS_RULE,
                     "method": "sof",
                     "opencv_version": cv2.__version__,
                     "settings": cmc.cmc_analysis_settings(baseline),
                     "mask_min_conf": mask_threshold,
+                    "runtime_mask": cmc.cmc_runtime_mask_settings({**baseline, "cmc_min_conf": mask_threshold}),
                     "class_ids": list(args.tracker_class_ids),
+                    "class_names": list(args.tracker_class_names),
                     "policy": policy.to_dict(),
-                    "sequences": {"seq1": {"frames": 6, "enabled": True}},
+                    "sequences": {"seq1": {
+                        "frames": 6, "enabled": True,
+                        "sample_ids": [f"seq1/{index}" for index in range(6)],
+                        "image_refs": references, "source_image_root": image_root,
+                        "image_signature": cmc.cmc_image_signature(references, image_root),
+                        "archive_keys": {
+                            "warps": "seq1_warps", "runtime_warps": "seq1_warps",
+                            "frame_indices": "seq1_frame_indices",
+                        },
+                    }},
                     "total_frames": 6,
                     "warps_sha256": hashlib.sha256(warps_path.read_bytes()).hexdigest(),
                 }

@@ -83,6 +83,43 @@ def test_batch_constraints_and_confidence_broadcast(filter_type):
 
 
 @pytest.mark.parametrize("filter_type", [KalmanFilterXYAH, KalmanFilterXYWH])
+@pytest.mark.parametrize("ndim", [4, 5])
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize("with_floor", [False, True])
+@pytest.mark.parametrize("confidence", [0.0, 0.4])
+def test_scalar_confidence_preserves_broadcast_noise_values_and_dtype(
+    filter_type, ndim, dtype, with_floor, confidence, monkeypatch
+) -> None:
+    """Zero-score shortcuts retain promotion and calibrated confidence floors."""
+    kalman = filter_type(
+        ndim=ndim,
+        noise_config=KalmanNoiseConfig(
+            measurement_noise_scale=1.7,
+            measurement_noise_diagonal=tuple(np.linspace(0.5, 2.0, ndim)),
+            measurement_confidence_floor=tuple(np.linspace(0.1, 0.8, ndim)) if with_floor else (),
+        ),
+    )
+    means = np.arange(6 * 2 * ndim, dtype=dtype).reshape(6, 2 * ndim) + dtype(0.123456789)
+    deviations = kalman._get_multi_measurement_noise_std(means).astype(dtype)
+    original = deviations.copy()
+    # Exercise filters exposing either precision, including float32 providers
+    # that the general float64 confidence path must promote before squaring.
+    monkeypatch.setattr(kalman, "_get_multi_measurement_noise_std", lambda _: deviations)
+    scalar_noise = kalman._multi_measurement_covariance(means, confidence)
+    broadcast_noise = kalman._multi_measurement_covariance(means, np.full(len(means), confidence))
+    assert scalar_noise.dtype == broadcast_noise.dtype
+    np.testing.assert_array_equal(scalar_noise, broadcast_noise)
+    np.testing.assert_array_equal(deviations, original)
+
+
+def test_zero_confidence_shortcut_preserves_complex_scalar_rejection() -> None:
+    """A complex zero must still pass through the real-valued input validation."""
+    kalman = KalmanFilterXYAH()
+    with pytest.raises(TypeError):
+        kalman._multi_measurement_covariance(np.ones((2, 8)), 0j)
+
+
+@pytest.mark.parametrize("filter_type", [KalmanFilterXYAH, KalmanFilterXYWH])
 @pytest.mark.parametrize("count", [0, 1, 23])
 @pytest.mark.parametrize("metric", ["gaussian", "maha"])
 def test_vectorized_obb_gating_matches_scalar_alignment(filter_type, count, metric):

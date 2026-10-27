@@ -55,6 +55,19 @@ embeddings are enabled by default. Model artifacts are resolved and hashed
 before the build ID is established; materialization never changes that semantic
 identity after work begins.
 
+Inference batch sizes, execution devices, worker counts, retries, and writer
+shard sizes do not change content identity or prevent reuse. For example, a
+request using detector batch size 16 can reuse a build produced with batch
+size 2. Model weights, preprocessing, thresholds, geometry, and published
+payloads still distinguish builds. Precision remains part of new build IDs and
+provenance, but a completed embedding build can be reused when only ReID
+precision changes, for example from FP32 to FP16. A matching-precision build is
+preferred when available; otherwise the reused embeddings retain their original
+precision and values. Detector and segmentor precision still must match.
+Execution settings remain recorded in provenance. An interrupted build retains
+its recorded stage batching on resume so completed shard checkpoints continue
+to refer to the same samples.
+
 Use `--device cpu`, `--device mps`, or a CUDA selector such as
 `--device cuda:0` (`--device 0` is equivalent) to override the execution device
 for every perception component in the build. If omitted, each resolved
@@ -81,7 +94,8 @@ looks for a compatible published full-rate materialization and copies only
 the selected detections, embeddings, and masks into the sampled build, without
 loading perception models. Reuse validates source images, capture timestamps,
 ground-truth provenance, component settings and artifacts, geometry, class
-mapping, and availability of every requested payload. If no compatible parent
+mapping, and availability of every requested payload. Deriving a new sampled
+build requires matching ReID precision as well. If no compatible parent
 exists, perception runs only on the selected frames.
 
 Images, detections, embeddings, and evaluation ground truth refer to the same
@@ -144,10 +158,11 @@ also omitted, the existing catalog identity is preserved.
 from C++ compilation output. A build ID resolves only below that root. An
 already complete matching build is validated and reused without mutation.
 BoxMOT checks the selected root for the same source data, experiment, model
-weights, precision, preprocessing, class mapping, stage settings, and published
-outputs. A package release or execution-device change alone does not trigger
-inference again. The reused build keeps its original ID and provenance; its
-publication marker and every saved artifact are validated before reuse.
+weights, preprocessing, class mapping, stage settings, and published outputs.
+A package release, execution-device change, or ReID precision change alone does
+not require new inference when a compatible completed build exists. The reused
+build keeps its original ID and provenance; its publication marker and every
+saved artifact are validated before reuse.
 
 Detector output is cached independently below
 `<selected-build-root>/.cache/detect` (by default,
@@ -207,6 +222,25 @@ another location. Downloaded tracking datasets stay outside the importable
 BoxMOT downloads its configured Hugging Face `per_split` resource before
 cataloging; an existing populated split is reused unchanged. Archive-backed
 datasets still require explicit setup.
+
+## Stored camera transforms
+
+Automatic CMC in `eval` or `tune`, including `tune --select-kf --select-cmc`,
+saves derived camera evidence under `<build>/cmc/<analysis-key>/` on first use.
+Each entry contains `analysis.json`, `warps.npz`, and a checksummed `_SUCCESS`
+marker. Preparation happens when
+the tracker is selected because the estimates depend on its detection mask,
+estimator settings, geometry, classes, and selected sequences.
+
+Later compatible runs validate and reuse these transforms without decoding
+images or repeating sparse optical flow. Source images must remain available
+for validation. Changed inputs or settings require new analysis; independent
+sequences are processed up to the `--sequence-workers` limit.
+
+These derived entries leave the canonical manifest, build ID, detections, and
+embeddings unchanged. Adding camera evidence does not rebuild perception and
+does not require `--cache-inputs`. Explicit CMC policy files still estimate
+motion during replay. See [CMC by sequence](eval.md#cmc-by-sequence).
 
 ## Consume the build
 

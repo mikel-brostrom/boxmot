@@ -41,7 +41,7 @@ def apply_cmc_to_tracks(
     """Apply CMC to tracks and return the estimated warp matrix."""
     if cmc is None:
         return None
-    if img is None:
+    if img is None and getattr(cmc, "requires_frame_pixels", True):
         raise ValueError("img is required when camera-motion compensation is enabled")
 
     warp = cmc.apply(img, cmc_detection_boxes(dets, layout) if mask_boxes is None else mask_boxes)

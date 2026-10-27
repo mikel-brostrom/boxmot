@@ -188,8 +188,8 @@ def test_parent_reads_only_sequence_ids_before_workers_report_progress(monkeypat
     monkeypatch.setattr(replay_module, "_owned_tracker", _owned_tracker)
     monkeypatch.setattr(replay_module, "_run_spawned_sequence_tasks", _run_tasks)
     monkeypatch.setattr(
-        replay_module,
-        "load_cached_build",
+        replay_module.CachedVisionDataset,
+        "_stream_sequence",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("parent eagerly opened the build")),
     )
 

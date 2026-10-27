@@ -24,7 +24,7 @@ from boxmot.datasets.manifest import sha256_file
 from boxmot.detectors import DetectorCapabilities, DetectorSpec
 from boxmot.engine.config.experiments import resolve_experiment_config
 from boxmot.engine.eval.replay import iter_cached_tracks
-from boxmot.engine.materialization import SourceSample, StagePlan, fingerprint
+from boxmot.engine.materialization import BuildPlan, SourceSample, StagePlan, fingerprint
 from boxmot.engine.materialization.catalog import SourceCatalog
 from boxmot.reid import ReIDEncoderSpec
 from boxmot.segmentors import SegmentorSpec
@@ -113,7 +113,7 @@ def _experiment_case(tmp_path: Path) -> tuple[Path, Path, dict]:
     ),
 )
 def test_device_override_updates_component_spec_and_fingerprint_provenance(spec) -> None:
-    original_provenance = {"spec": {"backend": "fixture", "device": "cpu"}, "artifact": None}
+    original_provenance = {"spec": asdict(spec), "artifact": None}
 
     updated, provenance = workflow._with_device(spec, original_provenance, "mps")
 
@@ -123,7 +123,7 @@ def test_device_override_updates_component_spec_and_fingerprint_provenance(spec)
     assert original_provenance["spec"]["device"] == "cpu"
     cpu_stage = StagePlan.create("detect", component=original_provenance)
     mps_stage = StagePlan.create("detect", component=provenance)
-    assert cpu_stage.fingerprint != mps_stage.fingerprint
+    assert cpu_stage.fingerprint == mps_stage.fingerprint
 
 
 @pytest.mark.parametrize(
@@ -786,7 +786,7 @@ def test_materialize_workflow_publishes_loadable_build(monkeypatch, tmp_path) ->
     assert dataset[0].detections.instance_ids == (f"{manifest.build_id}:{sample.sample_id}:0",)
 
 
-def test_process_stages_receive_one_effective_device_and_change_build_identity(monkeypatch, tmp_path) -> None:
+def test_process_stages_receive_one_effective_device_and_preserve_build_identity(monkeypatch, tmp_path) -> None:
     sample = SourceSample(
         sample_id="default:sequence:0",
         split="default",
@@ -885,7 +885,7 @@ def test_process_stages_receive_one_effective_device_and_change_build_identity(m
 
     cpu_plan, _cpu_stages = captured[0]
     mps_plan, mps_stages = captured[1]
-    assert cpu_plan.build_id != mps_plan.build_id
+    assert cpu_plan.build_id == mps_plan.build_id
     assert mps_stages[0].detector.device == "mps"
     assert mps_stages[1].segmentor.device == "mps"
     assert mps_stages[2].encoder.device == "mps"
@@ -946,6 +946,80 @@ def test_workflow_reuses_prior_release_and_device_without_perception(
     assert manifest.metadata["components"]["detector"]["spec"]["device"] == published_device
     assert manifest.metadata["components"]["reid"]["spec"]["device"] == published_device
     assert manifest.counts["samples"] == 19
+    assert manifest.counts["embeddings"] == manifest.counts["instances"] == 18
+
+
+def test_workflow_reuses_fp32_embeddings_for_fp16_profile_without_perception(
+    monkeypatch: pytest.MonkeyPatch,
+    fps_case: SimpleNamespace,  # noqa: F811 - imported pytest fixture
+) -> None:
+    """Changing ReID precision reuses completed outputs without relabeling their provenance."""
+
+    def resolve_reid(reference: dict[str, object]) -> tuple[ReIDEncoderSpec, dict]:
+        spec = ReIDEncoderSpec(
+            "fixture",
+            device="cpu",
+            precision=str(reference["precision"]),
+            options=(("embedding_dim", 2),),
+        )
+        return spec, {"spec": asdict(spec)}
+
+    monkeypatch.setattr(workflow, "resolve_reid_spec", resolve_reid)
+    plans: list[BuildPlan] = []
+    actual_find = workflow.find_matching_build
+
+    def find_matching(plan: BuildPlan, **kwargs: object) -> Path | None:
+        plans.append(plan)
+        return actual_find(plan, **kwargs)
+
+    monkeypatch.setattr(workflow, "find_matching_build", find_matching)
+    fps_case.experiment["reid"]["precision"] = "fp32"
+    output = materialize_fixture(fps_case, None)
+    original_manifest = DatasetManifest.load(output)
+    original_encoder_fingerprint = original_manifest.artifact("embeddings").metadata["encoder_fingerprint"]
+
+    def snapshot() -> dict[str, tuple[bytes, int]]:
+        return {
+            path.relative_to(output).as_posix(): (path.read_bytes(), path.stat().st_mtime_ns)
+            for path in output.rglob("*")
+            if path.is_file()
+        }
+
+    before = snapshot()
+    calls = list(fps_case.detector.seen), list(fps_case.encoder.seen)
+
+    def forbid_perception(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("Completed embeddings must be reused before constructing perception stages or models.")
+
+    for name in ("DetectStage", "EmbedStage", "SegmentStage", "DatasetMaterializer"):
+        monkeypatch.setattr(workflow, name, forbid_perception)
+    monkeypatch.setattr(detect_stage_module, "create_detector", forbid_perception)
+    monkeypatch.setattr(embed_stage_module, "create_reid_encoder", forbid_perception)
+    monkeypatch.setattr(segment_stage_module, "create_segmentor", forbid_perception)
+    monkeypatch.setattr(detect_stage_module, "_WORKER_DETECTORS", {})
+    monkeypatch.setattr(embed_stage_module, "_WORKER_ENCODERS", {})
+
+    fps_case.experiment["reid"]["precision"] = "fp16"
+    reused = materialize_fixture(fps_case, None)
+
+    assert reused == output
+    assert snapshot() == before
+    assert (fps_case.detector.seen, fps_case.encoder.seen) == calls
+    original_plan, requested_plan = plans
+    assert original_plan.output_root == output
+    assert requested_plan.build_id != original_plan.build_id
+    assert not requested_plan.output_root.exists()
+    assert requested_plan.metadata["components"]["reid"]["spec"]["precision"] == "fp16"
+    original_stages = {stage.name: stage for stage in original_plan.stages}
+    requested_stages = {stage.name: stage for stage in requested_plan.stages}
+    assert requested_stages["detect"].fingerprint == original_stages["detect"].fingerprint
+    assert requested_stages["embed"].fingerprint != original_stages["embed"].fingerprint
+    manifest = DatasetManifest.load(reused)
+    assert manifest.build_id == original_manifest.build_id
+    assert manifest.metadata["components"]["reid"]["spec"]["precision"] == "fp32"
+    assert manifest.metadata["component_fingerprints"] == original_manifest.metadata["component_fingerprints"]
+    assert manifest.artifact("embeddings").metadata["encoder_fingerprint"] == original_encoder_fingerprint
+    assert next(stage for stage in manifest.stages if stage.name == "embed").component["spec"]["precision"] == "fp32"
     assert manifest.counts["embeddings"] == manifest.counts["instances"] == 18
 
 

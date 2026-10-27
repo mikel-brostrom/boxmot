@@ -17,7 +17,7 @@ from boxmot.trackers.common.association.matching import linear_assignment
 from boxmot.trackers.common.base import BaseTracker
 from boxmot.trackers.common.constructor import TrackerMetadataOptions, validate_runtime_options
 from boxmot.trackers.common.specs import TrackerCapabilities, TrackerFamily
-from boxmot.trackers.maf_hda.appearance import MaskedKCF
+from boxmot.trackers.maf_hda.appearance import MaskedKCF, _AppearanceScorer
 from boxmot.trackers.maf_hda.association import (
     INITIAL_COVARIANCE,
     MAX_COST,
@@ -140,7 +140,7 @@ class MafHda(BaseTracker):
 
     def _observations(self, dets: np.ndarray, masks: np.ndarray) -> list[_Observation]:
         """Filter and merge source detections without changing caller-owned masks."""
-        batch = self._make_detection_batch(dets, masks=masks)
+        batch = self._make_detection_batch(dets, masks=masks, copy=False)
         observations = [
             _Observation(box.copy(), mask.copy(), float(conf), int(cls), int(index))
             for box, mask, conf, cls, index in zip(batch.boxes, masks, batch.confs, batch.clss, batch.det_inds)
@@ -210,6 +210,7 @@ class MafHda(BaseTracker):
         recovery = candidates is not None
         gate_geometry = self._asso_func_base_name != "centroid"
         mode = self.t2ta_mode if recovery else self.s2ta_mode
+        appearance_scorer = _AppearanceScorer(image) if mode != "motion" else None
         boxes = np.asarray([observation.bbox for observation in observations], dtype=np.float64).reshape(-1, 4)
         for row, track in enumerate(tracks):
             if recovery:
@@ -252,7 +253,9 @@ class MafHda(BaseTracker):
             if mode != "motion" and track.appearance is not None:
                 for col, observation in enumerate(observations):
                     if allowed[row, col] and (not self.appearance_gate or overlap[row, col] >= self.iou_threshold):
-                        appearance[row, col] = track.appearance.score(image, observation.bbox, observation.mask)
+                        appearance[row, col] = appearance_scorer.score(
+                            track.appearance, col, observation.bbox, observation.mask
+                        )
         motion[~allowed] = 0.0
         costs = fusion_cost(
             motion,
@@ -399,13 +402,11 @@ class MafHda(BaseTracker):
         self.active_tracks = sorted(
             (track for track in current if track.hits >= self.min_hits), key=lambda track: track.id
         )
-        rows = [
-            self.format_output_row(track.bbox, track.id, track.conf, track.cls, track.det_ind)
-            for track in self.active_tracks
-        ]
+        boxes = np.asarray([track.bbox for track in self.active_tracks]).reshape(-1, 4)
+        rows = self.format_outputs(self.active_tracks, dtype=np.float32, boxes=boxes)
         output_masks = (
             np.stack([track.mask for track in self.active_tracks])
-            if rows
+            if self.active_tracks
             else np.empty((0, *masks.shape[1:]), dtype=bool)
         )
-        return self.format_output_rows(rows), output_masks
+        return rows, output_masks

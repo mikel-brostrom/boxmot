@@ -14,15 +14,17 @@ from boxmot.datasets.schema import SCHEMA_ID, SCHEMA_VERSION, BoxType
 from boxmot.utils.config import CONFIG_ID_PATTERN
 
 from .executor import ExecutorKind
-from .ids import make_build_id, make_stage_fingerprint
+from .ids import component_content, make_build_id, make_stage_fingerprint
 
 _NAME = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 _EXECUTION_CONFIG_KEYS = frozenset(
     {
+        "batch_size",
         "executor",
         "max_attempts",
         "prefetch",
         "retry_backoff_s",
+        "retries",
         "shard_size",
         "target_shard_rows",
         "workers",
@@ -117,7 +119,6 @@ class StagePlan:
                 config=resolved_config,
                 component={} if component is None else component,
                 upstream=upstream_fingerprints,
-                batch_size=batch_size,
             ),
             depends_on=depends_on,
             batch_size=batch_size,
@@ -192,9 +193,8 @@ class BuildPlan:
                     "name": stage.name,
                     "fingerprint": stage.fingerprint,
                     "depends_on": stage.depends_on,
-                    "batch_size": stage.batch_size,
                     "config": stage.config,
-                    "component": stage.component,
+                    "component": component_content(stage.component),
                 }
                 for stage in stages
             ],

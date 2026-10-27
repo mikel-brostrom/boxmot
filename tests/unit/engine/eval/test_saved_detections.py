@@ -221,6 +221,42 @@ def test_saved_boxes_honor_sequence_selection(monkeypatch, tmp_path: Path) -> No
     assert encoder.calls == 2
 
 
+@pytest.mark.parametrize("cache_inputs", (False, True))
+@pytest.mark.parametrize("failure", (None, "tracking", "encoder_validation"))
+def test_saved_replay_closes_encoder_on_success_and_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, cache_inputs: bool, failure: str | None
+) -> None:
+    """The owning process closes the actual encoder, including behind its cache."""
+
+    class Encoder(_Encoder):
+        def __init__(self) -> None:
+            super().__init__()
+            self.closed = 0
+            self.requirements = EncoderRequirements(masks=failure == "encoder_validation")
+
+        def close(self) -> None:
+            self.closed += 1
+
+    dataset = _dataset(tmp_path)
+    encoder = Encoder()
+    _stub_encoder(monkeypatch, encoder)
+    if failure == "tracking":
+
+        def fail_tracking(*args, **kwargs):
+            raise RuntimeError("tracking failed")
+
+        monkeypatch.setattr(saved_detections.TrackingPipeline, "step_detections", fail_tracking)
+    args = _args(tmp_path, dataset, cache_inputs=cache_inputs)
+    if failure is None:
+        saved_detections.run_saved_detections(args)
+        assert encoder.calls == 2
+    else:
+        error, message = (RuntimeError, "tracking failed") if failure == "tracking" else (ValueError, "requires masks")
+        with pytest.raises(error, match=message):
+            saved_detections.run_saved_detections(args)
+    assert encoder.closed == 1
+
+
 def test_saved_boxes_render_standard_evaluation_panel(monkeypatch, tmp_path: Path, capsys) -> None:
     dataset = _dataset(tmp_path)
     _stub_encoder(monkeypatch, _Encoder())
@@ -329,10 +365,27 @@ def test_saved_boxes_skip_image_pixels_when_features_are_disabled(
     fail = lambda *args: pytest.fail("Disabled CMC/ReID must not load image pixels")
     monkeypatch.setattr(saved_detections, "read_rgb_chw_uint8", fail)
     monkeypatch.setattr(sensor_cache, "read_rgb_chw_uint8", fail)
+    frames = []
+    step_detections = saved_detections.TrackingPipeline.step_detections
+
+    def record_frame(tracking, frame, detections):
+        frames.append(frame)
+        return step_detections(tracking, frame, detections)
+
+    monkeypatch.setattr(saved_detections.TrackingPipeline, "step_detections", record_frame)
     result = saved_detections.run_saved_detections(
         _args(tmp_path, dataset, reid=None, tracker_config=str(profile), cache_inputs=cache_inputs)
     )
     assert result.raw["car"]["HOTA"] == 100
+    assert len(frames) == 3
+    assert all(frame.image is frames[0].image for frame in frames)
+    for index, frame in enumerate(frames):
+        assert frame.image_size == (192, 192)
+        assert frame.sample_id == f"val:0000:{index}"
+        assert frame.sequence_id == "0000"
+        assert frame.frame_index == index
+        assert frame.timestamp_s == index / 10
+        assert frame.source_uri == (tmp_path / f"images/0000/{index:06d}.png").as_uri()
 
 
 def _initialize_stub_saved_worker(progress_queue, spec, encoder_spec, cache_root) -> None:
@@ -399,9 +452,7 @@ def test_saved_worker_failure_marks_run_failed_and_joins_processes(monkeypatch, 
 
 
 @pytest.mark.parametrize("workers", (None, 1, 2))
-def test_saved_preview_warns_when_reducing_worker_count(
-    monkeypatch, tmp_path: Path, workers: int | None
-) -> None:
+def test_saved_preview_warns_when_reducing_worker_count(monkeypatch, tmp_path: Path, workers: int | None) -> None:
     from boxmot.engine.config import runtime
 
     dataset = _dataset(tmp_path, sequences=("0000", "0001"))

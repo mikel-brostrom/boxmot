@@ -1,5 +1,7 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
+from dataclasses import dataclass
+
 import numpy as np
 
 from boxmot.trackers.common.geometry import tlwh2xyah, xywh2tlwh, xywh2xyxy, xyxy2xywh
@@ -11,6 +13,50 @@ from boxmot.trackers.common.motion.models import (
 )
 from boxmot.trackers.common.track_state import BoxTrack
 from boxmot.trackers.common.tracking.track import TrackIdAllocator
+
+
+@dataclass(slots=True, eq=False)
+class _Detection:
+    """One frame's observation, without allocating persistent track state."""
+
+    raw_row: np.ndarray
+    xywh: np.ndarray
+    xyah: np.ndarray | None
+    conf: np.float32
+    cls: np.float32
+    det_ind: np.float32
+    is_obb: bool
+
+    @classmethod
+    def from_rows(cls, rows: np.ndarray, *, is_obb: bool) -> list["_Detection"]:
+        """Prepare owned observations in batches with scalar-track rounding."""
+        if not len(rows):
+            return []
+        values = np.array(rows, dtype=np.float32, copy=True)
+        if is_obb:
+            boxes = values[:, :5]
+            measurements = [None] * len(values)
+        else:
+            boxes = xyxy2xywh(values[:, :4])
+            # Preserve the float32 center round trip used by STrack. Computing
+            # XYAH directly from XYWH can change a subsequent match boundary.
+            measurements = tlwh2xyah(xywh2tlwh(boxes))
+        return [
+            cls(row, box, measurement, row[-3], row[-2], row[-1], is_obb)
+            for row, box, measurement in zip(values, boxes, measurements, strict=True)
+        ]
+
+    @property
+    def xyxy(self) -> np.ndarray:
+        """Expose current geometry to generic association consumers."""
+        return BoxTrack.obb_to_xyxy(self.xywh) if self.is_obb else xywh2xyxy(self.xywh)
+
+    @property
+    def xywha(self) -> np.ndarray:
+        """Expose an oriented observation without sharing its mutable storage."""
+        if self.is_obb:
+            return self.xywh.copy()
+        return np.array([*self.xywh, 0.0], dtype=np.float32)
 
 
 class TrackState(object):
@@ -56,7 +102,7 @@ class STrack(BaseTrack):
         self.cls = det[5]
         self.det_ind = det[6]
 
-    def _measurement_for_update(self, track: "STrack") -> np.ndarray:
+    def _measurement_for_update(self, track: "STrack | _Detection") -> np.ndarray:
         if self.is_obb and self.motion_model.kind is MotionModelKind.XYWH:
             return track.xywh
         if not self.is_obb and self.motion_model.kind is MotionModelKind.XYAH:

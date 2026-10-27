@@ -1,17 +1,20 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
+from collections.abc import Iterable
+
 import numpy as np
 from typing_extensions import Unpack
 
 from boxmot.trackers.bytetrack.config import ByteTrackConfig
-from boxmot.trackers.bytetrack.track import STrack, TrackState
+from boxmot.trackers.bytetrack.track import STrack, TrackState, _Detection
 from boxmot.trackers.common.association import AssociationStage, run_association_stage
 from boxmot.trackers.common.association.matching import apply_motion_fusion, fuse_score
 from boxmot.trackers.common.box.base import BoxTracker
 from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runtime_options
+from boxmot.trackers.common.geometry import xywh2xyxy
 from boxmot.trackers.common.motion.cmc.registry import create_cmc
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
-from boxmot.trackers.common.motion.models import create_motion_model, resolve_motion_model_kind
+from boxmot.trackers.common.motion.models import MotionModelKind, create_motion_model, resolve_motion_model_kind
 from boxmot.trackers.common.tracking.lifecycle import joint_stracks, remove_duplicate_stracks, sub_stracks
 
 
@@ -98,6 +101,50 @@ class ByteTrack(BoxTracker):
         accepted = self.detection_layout.confidences(dets) >= threshold
         return self.detection_layout.boxes(dets[accepted])
 
+    def _association_boxes(self, items: np.ndarray | Iterable[object]) -> np.ndarray:
+        """Convert native detections and XYAH states without per-box allocations."""
+        if isinstance(items, np.ndarray):
+            return super()._association_boxes(items)
+        tracks = list(items)
+        if not tracks:
+            return np.empty((0, self.detection_layout.box_cols), dtype=np.float32)
+        if all(type(track) is _Detection and track.is_obb == self.is_obb for track in tracks):
+            boxes = np.asarray([track.xywh for track in tracks])
+            return boxes if self.is_obb else xywh2xyxy(boxes)
+        if self.is_obb or self.motion_model.kind is not MotionModelKind.XYAH:
+            return super()._association_boxes(tracks)
+        if any(type(track) is not STrack or track.motion_model is not self.motion_model for track in tracks):
+            return super()._association_boxes(tracks)
+        initialized = [track.mean is not None for track in tracks]
+        if all(initialized):
+            if any(track.mean.dtype != tracks[0].mean.dtype for track in tracks):
+                return super()._association_boxes(tracks)
+            boxes = np.asarray([track.mean[:4] for track in tracks])
+            boxes[:, 2] *= boxes[:, 3]
+            return xywh2xyxy(boxes)
+        if not any(initialized):
+            return xywh2xyxy(np.asarray([track.xywh for track in tracks]))
+        # Detection coordinates use float32 arithmetic; initialized states use
+        # float64. Preserve their individual rounding before combining them.
+        return super()._association_boxes(tracks)
+
+    def _batch_output_boxes(self, tracks: list[object]) -> np.ndarray | None:
+        """Reuse native association geometry in the shared output formatter."""
+        if (
+            type(self) is not ByteTrack
+            or any(type(track) is not STrack or track.is_obb != self.is_obb for track in tracks)
+            or any(
+                name in self.__dict__
+                for name in ("_track_box_for_output", "_track_id", "format_output_row", "_association_boxes")
+            )
+        ):
+            return None
+        return self._association_boxes(tracks)
+
+    def _make_detections(self, rows: np.ndarray) -> list[_Detection]:
+        """Allocate only observation data until an unmatched detection is born."""
+        return _Detection.from_rows(rows, is_obb=self.is_obb)
+
     def _track_detections(
         self,
         dets: np.ndarray,
@@ -106,7 +153,7 @@ class ByteTrack(BoxTracker):
         masks: np.ndarray = None,
     ) -> np.ndarray:
         cmc_dets = dets
-        batch = self._make_detection_batch(dets, embs=embs, masks=masks)
+        batch = self._make_detection_batch(dets, embs=embs, masks=masks, copy=False)
         self.frame_count += 1
         activated_starcks = []
         refind_stracks = []
@@ -119,20 +166,7 @@ class ByteTrack(BoxTracker):
         dets_second = second_batch.as_indexed_detections(dtype=dets.dtype)
         dets = high_batch.as_indexed_detections(dtype=dets.dtype)
 
-        if len(dets) > 0:
-            """Detections"""
-            detections = [
-                STrack(
-                    det,
-                    max_obs=self.max_obs,
-                    id_allocator=self.id_allocator,
-                    is_obb=self.is_obb,
-                    motion_model=self.motion_model,
-                )
-                for det in dets
-            ]
-        else:
-            detections = []
+        detections = self._make_detections(dets)
 
         """ Add newly detected tracklets to tracked_stracks"""
         unconfirmed = []
@@ -176,20 +210,7 @@ class ByteTrack(BoxTracker):
 
         """ Step 3: Second association, with low conf detection boxes"""
         # association the untrack to the low conf detections
-        if len(dets_second) > 0:
-            """Detections"""
-            detections_second = [
-                STrack(
-                    det_second,
-                    max_obs=self.max_obs,
-                    id_allocator=self.id_allocator,
-                    is_obb=self.is_obb,
-                    motion_model=self.motion_model,
-                )
-                for det_second in dets_second
-            ]
-        else:
-            detections_second = []
+        detections_second = self._make_detections(dets_second)
         r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
         second_stage = AssociationStage(
             name="bytetrack_low",
@@ -248,9 +269,16 @@ class ByteTrack(BoxTracker):
 
         """ Step 4: Init new stracks"""
         for inew in u_detection:
-            track = detections[inew]
-            if track.conf < self.det_thresh:
+            detection = detections[inew]
+            if detection.conf < self.det_thresh:
                 continue
+            track = STrack(
+                detection.raw_row,
+                max_obs=self.max_obs,
+                id_allocator=self.id_allocator,
+                is_obb=self.is_obb,
+                motion_model=self.motion_model,
+            )
             track.activate(self.kalman_filter, self.frame_count)
             activated_starcks.append(track)
         """ Step 5: Update state"""
@@ -288,7 +316,7 @@ class ByteTrack(BoxTracker):
         output_stracks = [track for track in self.active_tracks if track.is_activated]
         return self.format_outputs(output_stracks, dtype=np.float32)
 
-    def _fused_association_cost(self, tracks: list[STrack], detections: list[STrack]) -> np.ndarray:
+    def _fused_association_cost(self, tracks: list[STrack], detections: list[_Detection]) -> np.ndarray:
         """Build the ByteTrack score-fused geometric distance matrix."""
         costs = self.association_distance(tracks, detections)
         if self.config.fuse_first_associate:
@@ -305,13 +333,13 @@ class ByteTrack(BoxTracker):
             lambda_=self.config.motion_fusion_lambda,
         )
 
-    def _low_association_cost(self, tracks: list[STrack], detections: list[STrack]) -> np.ndarray:
+    def _low_association_cost(self, tracks: list[STrack], detections: list[_Detection]) -> np.ndarray:
         """Condition the low-confidence association pass at its own threshold."""
         return self._condition_association(
             self.association_distance(tracks, detections), tracks, detections, threshold=self.second_match_thresh
         )
 
-    def _unconfirmed_association_cost(self, tracks: list[STrack], detections: list[STrack]) -> np.ndarray:
+    def _unconfirmed_association_cost(self, tracks: list[STrack], detections: list[_Detection]) -> np.ndarray:
         """Condition tentative matches using their configured cost threshold."""
         costs = self.association_distance(tracks, detections)
         if self.config.fuse_unconfirmed_associate:

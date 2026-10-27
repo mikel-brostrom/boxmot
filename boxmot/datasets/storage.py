@@ -104,6 +104,8 @@ def sample_record(
 def instance_records(detections: Detections, *, build_id: str) -> list[dict[str, Any]]:
     """Convert detections to stable, explicitly typed instance rows."""
 
+    if detections.sample_id is None:
+        raise ValueError("Materialized detections require an explicit sample_id.")
     expected_ids = tuple(f"{build_id}:{detections.sample_id}:{index}" for index in range(len(detections)))
     if detections.instance_ids != expected_ids:
         raise ValueError("Detections must carry the canonical build/sample/detection instance IDs before writing.")
@@ -135,6 +137,8 @@ def instance_records(detections: Detections, *, build_id: str) -> list[dict[str,
 def mask_records(detections: Detections) -> list[dict[str, Any]]:
     """Encode row-aligned full-frame masks using stable keys."""
 
+    if detections.sample_id is None:
+        raise ValueError("Materialized detections require an explicit sample_id.")
     if detections.instance_ids is None:
         raise ValueError("Mask rows require stable instance IDs.")
     if detections.masks is None:
@@ -157,6 +161,8 @@ def mask_records(detections: Detections) -> list[dict[str, Any]]:
 def embedding_records(detections: Detections, *, encoder_fingerprint: str) -> list[dict[str, Any]]:
     """Convert row-aligned appearance embeddings to keyed records."""
 
+    if detections.sample_id is None:
+        raise ValueError("Materialized detections require an explicit sample_id.")
     if not encoder_fingerprint:
         raise ValueError("encoder_fingerprint must not be empty.")
     if detections.instance_ids is None:

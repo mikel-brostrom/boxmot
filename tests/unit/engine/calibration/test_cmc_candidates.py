@@ -13,6 +13,8 @@ import pytest
 import torch
 
 from boxmot.datasets.cached import DatasetSample
+from boxmot.datasets.manifest import ArtifactRecord, DatasetManifest, PublishedContent, ShardRecord, StageProvenance
+from boxmot.datasets.schema import SCHEMA_ID
 from boxmot.engine.calibration import cmc
 from boxmot.structures import Boxes, Detections
 from boxmot.trackers.bytetrack.config import ByteTrackConfig
@@ -73,12 +75,37 @@ class _Dataset(list):
     _image_root = "/unused"
 
 
+def _source_build(build: Path) -> None:
+    """Write publication metadata around stub artifacts used by mocked dataset readers."""
+    artifacts = []
+    for name in ("samples", "instances"):
+        directory = build / name
+        directory.mkdir(parents=True, exist_ok=True)
+        shard = directory / "part-00000.parquet"
+        shard.write_bytes(b"fixture artifact")
+        artifacts.append(ArtifactRecord(
+            name=name, path=name, rows=0, sha256="0" * 64, size_bytes=shard.stat().st_size,
+            shards=(ShardRecord(f"{name}/{shard.name}", 0, "0" * 64, shard.stat().st_size),),
+        ))
+    DatasetManifest(
+        build_id="0" * 64, box_type="aabb", artifacts=tuple(artifacts),
+        publish=PublishedContent(image_references=True, masks=False, embeddings=False),
+        stages=(StageProvenance("detect", "0" * 64),), metadata={"source_fingerprint": "0" * 64},
+    ).write(build)
+    (build / "_SUCCESS").write_text(json.dumps({"schema": SCHEMA_ID, "build_id": "0" * 64}))
+
+
 @pytest.fixture
 def prepared_inputs(tmp_path, monkeypatch):
     build = tmp_path / "build"
-    build.mkdir()
-    (build / "manifest.json").write_text("{}")
+    _source_build(build)
     datasets = {sequence: _Dataset(_sample(sequence, index) for index in range(4)) for sequence in ("moving", "static")}
+    for dataset in datasets.values():
+        dataset._image_root = str(tmp_path / "images")
+        for sample in dataset:
+            image = Path(dataset._image_root) / sample.image_ref
+            image.parent.mkdir(parents=True, exist_ok=True)
+            image.write_bytes(b"fixture pixels")
     monkeypatch.setattr(
         cmc.CachedVisionDataset, "_for_sequence", lambda build, *, sequence_id, **kwargs: datasets[sequence_id]
     )
@@ -93,6 +120,7 @@ def prepared_inputs(tmp_path, monkeypatch):
         split="train",
         seq_info={sequence: len(dataset) for sequence, dataset in datasets.items()},
         sequence_names=None,
+        sequence_workers=1,
     )
     return args, datasets
 
@@ -155,11 +183,11 @@ def test_all_kalman_trackers_record_their_identity_and_fixed_mask(
     """Analysis derives the tracker-specific mask once and records portable provenance."""
     args, _ = prepared_inputs
     args.tracker = tracker
-    inputs = []
+    inputs = {}
     original = cmc._DiagnosticSOF.apply
 
     def capture(self, image, boxes):
-        inputs.append(boxes.copy())
+        inputs.setdefault(self, []).append(boxes.copy())
         return original(self, image, boxes)
 
     monkeypatch.setattr(cmc._DiagnosticSOF, "apply", capture)
@@ -172,8 +200,11 @@ def test_all_kalman_trackers_record_their_identity_and_fixed_mask(
     assert result.mask_min_conf == result.report["mask_min_conf"] == threshold
     sample = _sample("moving", 0)
     expected = sample.detections.geometry.values.numpy()[sample.detections.scores.numpy() >= threshold]
-    assert len(inputs) == 8
-    assert all(np.array_equal(mask, expected) for mask in inputs)
+    policy_histories = [
+        history for history in inputs.values() if all(np.array_equal(mask, expected) for mask in history)
+    ]
+    assert len(policy_histories) == 2
+    assert all(len(history) == 4 for history in policy_histories)
 
 
 @pytest.mark.parametrize(
@@ -239,6 +270,34 @@ def test_camera_analysis_restores_threads_after_missing_frame(prepared_inputs, m
     with pytest.raises(ValueError, match="contiguous zero-based"):
         cmc.prepare_cmc_candidates(args, {"min_conf": 0.1}, tmp_path / "camera")
     assert cv2.getNumThreads() == original_threads
+    assert not (tmp_path / "camera" / "analysis.json").exists()
+
+
+def test_camera_source_snapshot_ignores_unpublished_images_and_workflow_outputs(prepared_inputs):
+    """A source epoch describes published artifacts, not every file below the build."""
+    args, _ = prepared_inputs
+    signature = cmc.cmc_build_signature(args.build_path)
+    frames = args.build_path / "frames"
+    frames.mkdir()
+    (frames / "image.png").write_bytes(b"unrelated image")
+    (args.build_path / "metrics.json").write_text("{}")
+    assert cmc.cmc_build_signature(args.build_path) == signature
+    (args.build_path / "instances" / "part-00001.parquet").write_bytes(b"unexpected shard")
+    with pytest.raises(ValueError, match="published shard list"):
+        cmc.cmc_build_signature(args.build_path)
+
+
+def test_camera_analysis_rejects_sources_changed_while_decoding(prepared_inputs, monkeypatch, tmp_path):
+    args, _ = prepared_inputs
+
+    def decode(sample, root):
+        if sample.frame_index == 0:
+            (Path(root) / sample.image_ref).write_bytes(b"changed while decoding")
+        return np.zeros((100, 100, 3), dtype=np.uint8)
+
+    monkeypatch.setattr(cmc, "_bgr_image", decode)
+    with pytest.raises(ValueError, match="source images changed"):
+        cmc.prepare_cmc_candidates(args, {}, tmp_path / "camera")
     assert not (tmp_path / "camera" / "analysis.json").exists()
 
 

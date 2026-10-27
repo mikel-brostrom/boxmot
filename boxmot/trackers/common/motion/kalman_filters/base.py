@@ -452,7 +452,7 @@ class BaseKalmanFilter:
             state, uncertainty = BaseKalmanFilter.predict(self, mean[0], covariance[0], dt=dt)
             return state[None], uncertainty[None]
         std_pos, std_vel = self._get_multi_process_noise_std(mean)
-        sqr = np.square(np.r_[std_pos, std_vel]).T
+        sqr = np.square(np.concatenate((std_pos, std_vel), axis=0)).T
 
         motion_cov = batch.diagonal(sqr)
         motion_mat, motion_cov = self._elapsed_motion(motion_cov, dt)
@@ -461,6 +461,15 @@ class BaseKalmanFilter:
     def _multi_measurement_covariance(self, mean: np.ndarray, confidence: float | np.ndarray) -> np.ndarray:
         """Build independent confidence-scaled measurement covariances."""
         std = self._get_multi_measurement_noise_std(mean)
+        if (
+            not self.noise_config.measurement_confidence_floor
+            and isinstance(confidence, (float, int, np.floating, np.integer))
+            and confidence == 0.0
+            and std.dtype == np.float64
+        ):
+            # The general path promotes deviations through float64 confidence
+            # weights. Only skip those unit weights when that dtype is retained.
+            return self.noise_config.measurement_covariance(batch.diagonal(np.square(std)))
         confidence = np.broadcast_to(np.asarray(confidence, dtype=float), (len(mean),))
         if self.noise_config.measurement_confidence_floor:
             return self.noise_config.measurement_covariance(batch.diagonal(np.square(std)), confidence=confidence)

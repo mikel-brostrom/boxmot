@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from boxmot.engine.eval.evaluator import _output_directory
+from boxmot.engine.eval.evaluator import _output_directory, _resolve_mask_guidance_weights, _tracker_spec
 from boxmot.engine.eval.provenance import mask_guidance_output_path, write_mask_guidance_provenance
 from boxmot.trackers import TrackerSpec
 
@@ -31,21 +31,29 @@ def _args(tmp_path: Path, *, checkpoint: Path | None = None, exist_ok: bool = Tr
     )
 
 
+def _output(args: SimpleNamespace, overrides: dict | None = None) -> Path:
+    """Create output paths from the settings resolved for one evaluation."""
+    spec = _tracker_spec(args, overrides)
+    return _output_directory(
+        args, spec, trial=bool(overrides), mask_guidance_weights=_resolve_mask_guidance_weights(args, spec)
+    )
+
+
 def test_guided_run_never_reuses_ordinary_output_directory_even_with_exist_ok(tmp_path: Path) -> None:
-    ordinary = _output_directory(_args(tmp_path), None)
+    ordinary = _output(_args(tmp_path))
     ordinary_tracks = ordinary / "MOT17-02.txt"
     ordinary_tracks.write_text("ordinary tracking results\n")
     weights = tmp_path / "edgetam.pt"
     weights.write_bytes(b"reference model weights")
 
-    guided = _output_directory(_args(tmp_path, checkpoint=weights), None)
+    guided = _output(_args(tmp_path, checkpoint=weights))
 
     assert ordinary == tmp_path / "runs/mot17/ablation"
     assert guided.parent == ordinary.parent
     assert guided.name.startswith("ablation-bytetrack-edgetam-")
     assert not (guided / ordinary_tracks.name).exists()
     assert ordinary_tracks.read_text() == "ordinary tracking results\n"
-    assert _output_directory(_args(tmp_path), None) == ordinary
+    assert _output(_args(tmp_path)) == ordinary
 
 
 def test_pytorch_guidance_outputs_do_not_require_tflite_modules(tmp_path: Path, monkeypatch) -> None:
@@ -59,7 +67,7 @@ def test_pytorch_guidance_outputs_do_not_require_tflite_modules(tmp_path: Path, 
     args.device = "mps"
     args.mask_guidance_max_objects = 96
 
-    output = _output_directory(args, None)
+    output = _output(args)
     provenance = write_mask_guidance_provenance(
         output,
         checkpoint=weights,
@@ -107,7 +115,7 @@ def test_disabled_guidance_ignores_selected_weights_for_output_identity(monkeypa
     args.edgetam = False
     monkeypatch.setattr(weights, "resolve_edgetam_checkpoint", lambda *_args: pytest.fail("Resolved disabled weights"))
 
-    assert _output_directory(args, None) == _output_directory(_args(tmp_path), None)
+    assert _output(args) == _output(_args(tmp_path))
     assert args.mask_guidance_weights == tmp_path / "missing.pt"
 
 
@@ -116,8 +124,8 @@ def test_guided_runs_preserve_existing_increment_policy(tmp_path: Path) -> None:
     weights.write_bytes(b"model")
     args = _args(tmp_path, checkpoint=weights, exist_ok=False)
 
-    first = _output_directory(args, None)
-    second = _output_directory(args, None)
+    first = _output(args)
+    second = _output(args)
 
     assert first != second
     assert second.name == f"{first.name}2"
@@ -126,9 +134,9 @@ def test_guided_runs_preserve_existing_increment_policy(tmp_path: Path) -> None:
 def test_guided_trial_outputs_are_distinct_from_ordinary_trials(tmp_path: Path) -> None:
     weights = tmp_path / "edgetam.pt"
     weights.write_bytes(b"model")
-    ordinary = _output_directory(_args(tmp_path), {"track_thresh": 0.5})
+    ordinary = _output(_args(tmp_path), {"track_thresh": 0.5})
 
-    guided = _output_directory(_args(tmp_path, checkpoint=weights), {"track_thresh": 0.5})
+    guided = _output(_args(tmp_path, checkpoint=weights), {"track_thresh": 0.5})
 
     assert guided != ordinary
     assert guided.parent.name == ordinary.parent.name == "trials"
@@ -189,7 +197,7 @@ def test_guidance_sidecar_identifies_effective_model_tracker_and_build(tmp_path:
 
 def test_missing_guidance_checkpoint_does_not_allocate_an_output_directory(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="EdgeTAM checkpoint does not exist"):
-        _output_directory(_args(tmp_path, checkpoint=tmp_path / "missing.pt"), None)
+        _output(_args(tmp_path, checkpoint=tmp_path / "missing.pt"))
 
     assert not (tmp_path / "runs").exists()
 

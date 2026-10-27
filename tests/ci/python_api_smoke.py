@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import numpy as np
 import torch
 from click.testing import CliRunner
 
-from boxmot import create_tracker
+from boxmot import EagerMot, create_tracker
 from boxmot.engine.cli import boxmot as boxmot_cli
 from boxmot.structures import Boxes, Boxes3D, CameraModel, Detections, Detections3D, MultimodalTracks
 from boxmot.trackers import TrackerSpec
@@ -19,13 +20,11 @@ def test_eagermot_sensor_fusion_python_api_smoke() -> None:
         geometry=Boxes(torch.tensor([[78, 39, 122, 62]], dtype=torch.float32)),
         scores=torch.tensor([0.95]),
         class_ids=torch.tensor([0]),
-        sample_id="smoke:0",
     )
     spatial = Detections3D(
         geometry=Boxes3D(torch.tensor([[0, 1, 10, 0, 4, 2, 2]], dtype=torch.float32)),
         scores=torch.tensor([0.9]),
         class_ids=torch.tensor([0]),
-        sample_id=detections.sample_id,
     )
     camera = CameraModel(
         projection=torch.tensor([[100, 0, 100, 0], [0, 100, 50, 0], [0, 0, 1, 0]], dtype=torch.float32),
@@ -38,6 +37,27 @@ def test_eagermot_sensor_fusion_python_api_smoke() -> None:
     assert len(result.image_tracks) == len(result.spatial_tracks) == 1
     torch.testing.assert_close(result.image_tracks.track_ids, result.spatial_tracks.track_ids)
     torch.testing.assert_close(result.spatial_tracks.geometry.values, spatial.geometry.values)
+
+
+def test_eagermot_numpy_sensor_fusion_python_api_smoke() -> None:
+    """Exercise public EagerMot construction and fusion with only NumPy inputs."""
+    tracker = EagerMot()
+    detections = np.array([[78, 39, 122, 62, 0.95, 0]])
+    spatial = np.array([[0, 1, 10, 0, 4, 2, 2, 0.9, 0]])
+    camera = np.array([[100, 0, 100, 0], [0, 100, 50, 0], [0, 0, 1, 0]], dtype=float)
+
+    image_tracks, spatial_tracks = tracker.update(
+        detections, detections_3d=spatial, camera=camera, image_size=(100, 200)
+    )
+
+    assert image_tracks.shape == (1, 8)
+    assert spatial_tracks.shape == (1, 11)
+    assert image_tracks.dtype == spatial_tracks.dtype == np.float64
+    assert image_tracks.flags.c_contiguous and spatial_tracks.flags.c_contiguous
+    np.testing.assert_array_equal(image_tracks[:, 4], spatial_tracks[:, 7])
+    np.testing.assert_allclose(spatial_tracks[:, :7], spatial[:, :7])
+    np.testing.assert_array_equal(image_tracks[:, 7], [0])
+    np.testing.assert_array_equal(spatial_tracks[:, 10], [0])
 
 
 def test_python_api_smoke() -> None:

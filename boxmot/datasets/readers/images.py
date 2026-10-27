@@ -145,8 +145,11 @@ def read_rgb_chw_uint8(uri: str, root: str | Path) -> torch.Tensor:
         bgr = cv2.imread(str(path), cv2.IMREAD_COLOR) if frame_index is None else _read_video_frame(path, frame_index)
     if bgr is None:
         raise ImageDecodeError(f"Unable to decode image: {path}")
-    rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-    return torch.from_numpy(rgb).permute(2, 0, 1).contiguous()
+    # Split directly into reversed destination planes, packing RGB CHW in one
+    # allocation instead of separate color conversion and tensor layout copies.
+    rgb_chw = np.empty((3, *bgr.shape[:2]), dtype=np.uint8)
+    cv2.split(bgr, tuple(rgb_chw[::-1]))
+    return torch.from_numpy(rgb_chw)
 
 
 __all__ = (

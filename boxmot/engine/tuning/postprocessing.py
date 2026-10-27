@@ -6,7 +6,7 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
@@ -18,6 +18,9 @@ from boxmot.engine.tuning.search_space import normalize_trial_config
 from boxmot.engine.tuning.setup_report import CMCSetupReport, describe_cmc_setup
 from boxmot.trackers.common.config import nest_tracker_options
 from boxmot.utils import logger as LOGGER
+
+if TYPE_CHECKING:
+    from boxmot.engine.tuning.analysis_data import ParameterSamples, TrialAnalysis
 
 # Metrics that must be summed across classes (not averaged), because they are counts
 METRIC_SUM = frozenset({"IDSW", "IDs"})
@@ -144,6 +147,18 @@ def collect_trial_data(results) -> list:
         except Exception as exc:
             LOGGER.debug(f"Skipping malformed trial result: {exc}")
             continue
+    # Restored ResultGrid iteration follows checkpoint order, which can differ
+    # from submission order. Preserve the first-trial baseline and stable CSVs
+    # only when Ray recorded unambiguous counters for every successful trial.
+    analysis = getattr(results, "_experiment_analysis", None)
+    order = {}
+    for trial in getattr(analysis, "trials", ()):
+        counter = str(getattr(trial, "experiment_tag", "")).partition("_")[0]
+        if counter.isdecimal():
+            order[str(trial.trial_id)] = int(counter)
+    counters = [order.get(str(trial["trial_id"])) for trial in trial_data]
+    if None not in counters and len(set(counters)) == len(counters):
+        trial_data.sort(key=lambda trial: order[str(trial["trial_id"])])
     return trial_data
 
 
@@ -260,15 +275,17 @@ def _format_sample_subset(samples: pd.DataFrame, selected: pd.Index, kind: str) 
     values = samples.loc[samples.index.isin(selected), "value"].tolist()
     if not values:
         return f"0/{len(selected)}; inactive"
-    detail = (
-        f"[{min(values):.4f}, {max(values):.4f}]"
-        if kind == "numeric"
-        else _format_value_counts(values)
-    )
+    detail = f"[{min(values):.4f}, {max(values):.4f}]" if kind == "numeric" else _format_value_counts(values)
     return f"{len(values)}/{len(selected)}; {detail}"
 
 
-def parameter_concentration_markdown(frame: pd.DataFrame, schema: dict) -> str:
+def parameter_concentration_markdown(
+    frame: pd.DataFrame,
+    schema: dict,
+    *,
+    parameters: dict[str, ParameterSamples] | None = None,
+    notes: list[str] | None = None,
+) -> str:
     """Summarize active search observations among the best HOTA trials."""
     from boxmot.engine.tuning.analysis_data import NEAR_BEST_DELTA, analyze_parameters, near_best_mask
 
@@ -282,27 +299,32 @@ def parameter_concentration_markdown(frame: pd.DataFrame, schema: dict) -> str:
         return "\n".join(lines + ["Omitted: no finite HOTA scores are available.", ""])
     top = scored.sort_values("HOTA", ascending=False, kind="stable").head(10).index
     near = scored.index[near_best_mask(scored["HOTA"])]
-    lines.extend([
-        f"Top-{len(top)} and **{len(near)} near-best trials** "
-        f"(within {NEAR_BEST_DELTA:g} absolute HOTA points of {scored['HOTA'].max():.4f}).",
-        "Counts include only active searchable values; inactive defaults are excluded. "
-        "Conditional branches use separate rows and recorded domains.",
-        "",
-    ])
+    lines.extend(
+        [
+            f"Top-{len(top)} and **{len(near)} near-best trials** "
+            f"(within {NEAR_BEST_DELTA:g} absolute HOTA points of {scored['HOTA'].max():.4f}).",
+            "Counts include only active searchable values; inactive defaults are excluded. "
+            "Conditional branches use separate rows and recorded domains.",
+            "",
+        ]
+    )
     if not schema:
         return "\n".join(lines + ["Omitted: the recorded search schema is unavailable.", ""])
-    notes: list[str] = []
-    try:
-        parameters = analyze_parameters(scored, schema, notes=notes)
-    except (KeyError, TypeError, ValueError) as exc:
-        return "\n".join(lines + [f"Omitted: the recorded search schema could not be resolved ({exc}).", ""])
+    notes = list(notes or ())
+    if parameters is None:
+        try:
+            parameters = analyze_parameters(scored, schema, notes=notes)
+        except (KeyError, TypeError, ValueError) as exc:
+            return "\n".join(lines + [f"Omitted: the recorded search schema could not be resolved ({exc}).", ""])
     if not parameters:
         return "\n".join(lines + ["No comparable active searchable parameters are available.", "", *notes, ""])
-    lines.extend([
-        "| Parameter | Branch | Recorded search domain | All active | "
-        f"Top-{len(top)} active; range/counts | Near-best active; range/counts | Near-best concentration |",
-        "| --- | --- | --- | ---: | --- | --- | --- |",
-    ])
+    lines.extend(
+        [
+            "| Parameter | Branch | Recorded search domain | All active | "
+            f"Top-{len(top)} active; range/counts | Near-best active; range/counts | Near-best concentration |",
+            "| --- | --- | --- | ---: | --- | --- | --- |",
+        ]
+    )
     for name, parameter in parameters.items():
         for branch, samples in parameter.samples.groupby("branch", sort=True):
             bounds = parameter.branch_bounds.get(branch, parameter.bounds)
@@ -325,17 +347,19 @@ def parameter_concentration_markdown(frame: pd.DataFrame, schema: dict) -> str:
                 f"| {_format_sample_subset(samples, top, parameter.kind)} "
                 f"| {_format_sample_subset(samples, near, parameter.kind)} | {concentration} |"
             )
-    lines.extend([
-        "",
-        *notes,
-        *([""] if notes else []),
-        "Spread describes sampled values, not parameter importance or convergence. "
-        "Narrow/intermediate/broad mean less than 20%, 20–60%, or more than 60% of the domain; "
-        "near a bound means within 15% of that domain (in log space for log searches). "
-        "Unequal sampling and simultaneous parameter changes limit comparisons. "
-        "These ranges guide the next experiment; they do not establish repeatability or superiority.",
-        "",
-    ])
+    lines.extend(
+        [
+            "",
+            *notes,
+            *([""] if notes else []),
+            "Spread describes sampled values, not parameter importance or convergence. "
+            "Narrow/intermediate/broad mean less than 20%, 20–60%, or more than 60% of the domain; "
+            "near a bound means within 15% of that domain (in log space for log searches). "
+            "Unequal sampling and simultaneous parameter changes limit comparisons. "
+            "These ranges guide the next experiment; they do not establish repeatability or superiority.",
+            "",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -379,18 +403,24 @@ def _refresh_saved_cmc_setup(tune_dir: Path, summary: str) -> str:
     return summary.rstrip() + "\n\n---\n\n" + section
 
 
-def update_analysis_summary(tune_dir: Path) -> Path | None:
-    """Refresh parameter diagnostics and effective CMC, preserving run provenance."""
+def update_analysis_summary(tune_dir: Path, *, analysis: TrialAnalysis | None = None) -> Path | None:
+    """Refresh diagnostics from a shared or saved snapshot, preserving provenance."""
     from boxmot.engine.tuning.analysis_data import load_tune_analysis
 
     tune_dir = Path(tune_dir)
     path = tune_dir / "summary.md"
     if not path.exists():
         return None
-    analysis = load_tune_analysis(tune_dir)
+    if analysis is None:
+        analysis = load_tune_analysis(tune_dir)
     if analysis is None:
         return None
-    section = parameter_concentration_markdown(analysis.trials, analysis.schema)
+    section = parameter_concentration_markdown(
+        analysis.trials,
+        analysis.schema,
+        parameters=analysis.parameters,
+        notes=analysis.parameter_notes,
+    )
     original = path.read_text(encoding="utf-8")
     pattern = re.compile(
         r"^## Parameter (?:Convergence|Concentration)[^\n]*\n.*?(?=^---\s*$|^## |\Z)",
@@ -420,12 +450,19 @@ def generate_summary(
     *,
     base_config: dict | None = None,
     emit_logs: bool = True,
+    analysis: TrialAnalysis | None = None,
 ) -> Path:
     """Generate ``summary.md`` in *tune_dir*."""
-    primary = maximize[0]
+    primary = maximize[0] if maximize else minimize[0]
     is_pareto = bool(minimize)
-    sorted_data = sorted(trial_data, key=lambda t: t["metrics"].get(primary, 0), reverse=True)
-    best = sorted_data[0]
+    best = best_trial_data(trial_data, maximize=maximize, minimize=minimize)
+    if best is None:
+        raise ValueError("Cannot summarize tuning without successful trials.")
+    objective_label = " | ".join(
+        f"{direction} {', '.join(metrics)}"
+        for direction, metrics in (("maximize", maximize), ("minimize", minimize))
+        if metrics
+    )
 
     hotas = [t["metrics"].get("HOTA", 0) for t in trial_data]
     hotas_arr = np.array(hotas)
@@ -445,10 +482,7 @@ def generate_summary(
     if build_path:
         lines.append(f"- **Build:** {_format_markdown_value(Path(build_path))}")
     lines.append(f"- **Completed trials:** {len(trial_data)}")
-    if is_pareto:
-        lines.append(f"- **Optimize:** maximize {', '.join(maximize)} | minimize {', '.join(minimize)}")
-    else:
-        lines.append(f"- **Optimize:** maximize {', '.join(maximize)}")
+    lines.append(f"- **Optimize:** {objective_label}")
     lines.append(f"- **Date:** {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     lines.append("")
 
@@ -474,11 +508,10 @@ def generate_summary(
     if is_pareto:
         metrics_for_pareto = [t["metrics"] for t in trial_data]
         pareto = find_pareto_front(metrics_for_pareto, maximize, minimize)
-        pareto_sorted = sorted(pareto, key=lambda m: m.get(primary, 0), reverse=True)
+        pareto_sorted = sorted(pareto, key=lambda m: m.get(primary, 0), reverse=bool(maximize))
 
         lines.append("---\n")
-        opt_label = f"maximize {', '.join(maximize)} | minimize {', '.join(minimize)}"
-        lines.append(f"## Pareto Front ({opt_label})\n")
+        lines.append(f"## Pareto Front ({objective_label})\n")
         display_cols = list(
             dict.fromkeys(maximize + minimize + [c for c in ALL_TUNE_METRICS if c not in maximize + minimize])
         )
@@ -490,12 +523,22 @@ def generate_summary(
         lines.append(f"\n{len(pareto)} Pareto-optimal trial(s) out of {len(trial_data)}.\n")
 
     # Parameter concentration: use the run's schema and conditional activity.
-    frame = pd.DataFrame([
-        {**normalize_trial_config(trial["config"]), **trial["metrics"], "trial_id": trial["trial_id"]}
-        for trial in trial_data
-    ])
-    schema = _summary_search_schema(tune_dir, yaml_cfg)
-    lines.extend(["---\n", parameter_concentration_markdown(frame, schema)])
+    if analysis is None:
+        frame = pd.DataFrame(
+            [
+                {**normalize_trial_config(trial["config"]), **trial["metrics"], "trial_id": trial["trial_id"]}
+                for trial in trial_data
+            ]
+        )
+        concentration = parameter_concentration_markdown(frame, _summary_search_schema(tune_dir, yaml_cfg))
+    else:
+        concentration = parameter_concentration_markdown(
+            analysis.trials,
+            analysis.schema,
+            parameters=analysis.parameters,
+            notes=analysis.parameter_notes,
+        )
+    lines.extend(["---\n", concentration])
 
     # HOTA Distribution
     lines.append("\n---\n")
@@ -548,11 +591,17 @@ def save_all_results(
             try:
                 yaml_path = trial_dir / f"{tracker_name}_{td['trial_id']}.yaml"
                 report = describe_cmc_setup(
-                    {**normalize_trial_config(base_config), **td["config"]}, args=args, tune_dir=tune_dir,
+                    {**normalize_trial_config(base_config), **td["config"]},
+                    args=args,
+                    tune_dir=tune_dir,
                 )
                 write_trial_yaml(
-                    yaml_cfg, td["config"], yaml_path, base_config=base_config,
-                    tracker_name=tracker_name, cmc_report=report,
+                    yaml_cfg,
+                    td["config"],
+                    yaml_path,
+                    base_config=base_config,
+                    tracker_name=tracker_name,
+                    cmc_report=report,
                 )
             except OSError as exc:
                 LOGGER.debug(f"Failed to write trial YAML for {td['trial_id']}: {exc}")
@@ -574,17 +623,34 @@ def save_all_results(
     best_yaml_path = tune_dir / "best.yaml"
     try:
         report = describe_cmc_setup(
-            {**normalize_trial_config(base_config), **best["config"]}, args=args, tune_dir=tune_dir,
+            {**normalize_trial_config(base_config), **best["config"]},
+            args=args,
+            tune_dir=tune_dir,
         )
         write_trial_yaml(
-            yaml_cfg, best["config"], best_yaml_path, base_config=base_config,
-            tracker_name=tracker_name, cmc_report=report,
+            yaml_cfg,
+            best["config"],
+            best_yaml_path,
+            base_config=base_config,
+            tracker_name=tracker_name,
+            cmc_report=report,
         )
         if emit_logs:
             LOGGER.info(f"[bold]Best config ({best['trial_id']}):[/bold] [cyan]{best_yaml_path}[/cyan]")
     except OSError as exc:
         LOGGER.warning(f"Failed to write best config YAML: {exc}")
         best_yaml_path = None
+
+    # Export reusable configs before optional analysis, then share the resolved
+    # parameter samples across reports. Summary can fall back to collected trials.
+    analysis = None
+    if csv_path is not None:
+        from boxmot.engine.tuning.analysis_data import load_tune_analysis
+
+        try:
+            analysis = load_tune_analysis(tune_dir, fallback_schema=yaml_cfg)
+        except Exception as exc:
+            LOGGER.warning(f"Failed to load tuning analysis: {exc}")
 
     # summary.md
     summary_path = None
@@ -599,6 +665,7 @@ def save_all_results(
             args,
             base_config=base_config,
             emit_logs=emit_logs,
+            analysis=analysis,
         )
     except Exception as exc:
         LOGGER.warning(f"Failed to generate summary: {exc}")
@@ -607,7 +674,8 @@ def save_all_results(
     try:
         from boxmot.engine.tuning.analysis import generate_tune_analysis
 
-        generate_tune_analysis(tune_dir, tracker_name=tracker_name, n_trials=len(trial_data))
+        if analysis is not None:
+            generate_tune_analysis(tune_dir, tracker_name=tracker_name, n_trials=len(trial_data), data=analysis)
     except Exception as exc:
         LOGGER.debug(f"Analysis plot generation skipped: {exc}")
 

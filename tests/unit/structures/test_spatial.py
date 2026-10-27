@@ -60,6 +60,30 @@ def test_spatial_detections_are_frozen_independent_rows_with_preserved_metadata(
     assert boxes.values[1, 2] < 0  # Being behind the camera does not invalidate 3D geometry.
 
 
+def test_spatial_detections_allow_omitted_sample_id_through_selection() -> None:
+    """Independent spatial batches can leave sample identity to the tracker."""
+    detections = Detections3D(_boxes(), torch.tensor([0.9, 0.8]), torch.tensor([3, 4]))
+    reordered = detections.select(torch.tensor([1, 0]))
+    empty = detections.select(torch.tensor([False, False]))
+
+    assert detections.sample_id is reordered.sample_id is empty.sample_id is None
+    assert reordered.class_ids.tolist() == [4, 3]
+    assert empty.geometry.values.shape == (0, 7)
+
+
+@pytest.mark.parametrize("sample_id,error", [("", ValueError), ("  ", ValueError), (1, TypeError)])
+def test_spatial_detections_reject_invalid_explicit_sample_ids(sample_id: object, error: type[Exception]) -> None:
+    """Only omission relaxes identity validation; malformed explicit IDs still fail."""
+    with pytest.raises(error, match="sample_id"):
+        Detections3D(_boxes(), torch.tensor([0.9, 0.8]), torch.tensor([3, 4]), sample_id)  # type: ignore[arg-type]
+
+
+def test_spatial_track_outputs_still_require_sample_identity() -> None:
+    """Only input detections may omit the sample ID."""
+    with pytest.raises(TypeError, match="sample_id"):
+        replace(_spatial_tracks(), sample_id=None)
+
+
 @pytest.mark.parametrize("column", (4, 5, 6))
 def test_spatial_boxes_reject_nonpositive_dimensions_even_after_tensor_mutation(column: int) -> None:
     boxes = _boxes()

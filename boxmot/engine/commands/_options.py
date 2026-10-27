@@ -143,9 +143,10 @@ def _core_option_decorators(defaults: Any, *, half_help: str) -> dict[str, Calla
             type=click.IntRange(min=1),
             default=defaults.sequence_workers,
             help=(
-                "Maximum sequence worker processes. Default: 1 for EdgeTAM evaluation/tuning; "
+                "Maximum sequence worker processes for replay and uncached automatic CMC analysis. "
+                "Default: 1 for EdgeTAM evaluation/tuning; "
                 "otherwise min(sequences, CPU cores - 2), at least 1. "
-                "During tuning, this limit applies per trial."
+                "During tuning, replay uses this limit per trial; CMC setup precedes trials."
             ),
         ),
         "cache_inputs": click.option(
@@ -500,7 +501,10 @@ def cmc_policy_option(func: Callable) -> Callable:
         "--cmc-policy",
         type=str,
         default=None,
-        help="CMC policy: auto analyzes sequences during setup (Python 2D Kalman trackers), off disables CMC, or YAML.",
+        help=(
+            "CMC policy: auto reuses stored transforms or analyzes sequences during setup "
+            "(Python 2D Kalman trackers), off disables CMC, or YAML."
+        ),
     )(func)
 
 

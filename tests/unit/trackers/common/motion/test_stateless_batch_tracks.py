@@ -74,6 +74,7 @@ def test_boxtrack_batch_correction_preserves_metadata_and_history(track_type, is
             geometry = [65.0 + index, 45.0, 30.0, 20.0, 3.1]
         track = track_type(np.asarray([*geometry, 0.8, 0, index]), max_obs=10, id_allocator=allocator, is_obb=is_obb)
         track.activate(filters[index % 2], frame_id=1)
+        track.mean[-1] = 0.6
         if reactivate:
             track.mark_lost()
         tracks.append(track)
@@ -82,7 +83,12 @@ def test_boxtrack_batch_correction_preserves_metadata_and_history(track_type, is
             track_type(np.asarray([*geometry, 0.9, 1, index + 7]), max_obs=10, id_allocator=allocator, is_obb=is_obb)
         )
     scalar_tracks = deepcopy(tracks)
+    source_means = [track.mean for track in tracks]
+    original_means = [mean.copy() for mean in source_means]
     track_type.multi_predict(tracks, dt=0.8)
+    for original, source, track in zip(original_means, source_means, tracks):
+        np.testing.assert_array_equal(source, original)
+        assert not np.shares_memory(source, track.mean)
     track_type.multi_update(zip(tracks, detections), frame_id=5, reactivate=reactivate)
     for actual, expected, detection in zip(tracks, scalar_tracks, detections):
         expected.predict(dt=0.8)

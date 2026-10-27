@@ -84,9 +84,8 @@ def MhDist_similarity(
     mahalanobis_distance[mask] = limit
     mahalanobis_distance = limit - mahalanobis_distance
 
-    mahalanobis_distance = np.exp(mahalanobis_distance / softmax_temp) / np.exp(
-        mahalanobis_distance / softmax_temp
-    ).sum(0).reshape((1, -1))
+    exponentials = np.exp(mahalanobis_distance / softmax_temp)
+    mahalanobis_distance = exponentials / exponentials.sum(0).reshape((1, -1))
     mahalanobis_distance = np.where(mask, 0, mahalanobis_distance)
     return mahalanobis_distance
 
@@ -169,14 +168,13 @@ def linear_assignment(
         if gate_before_assignment or force_assignment
         else match(cost_matrix, threshold)
     )
-    unmatched_detections = []
-    for d, _det in enumerate(detections):
-        if d not in matched_indices[:, 0]:
-            unmatched_detections.append(d)
-    unmatched_trackers = []
-    for t, _trk in enumerate(trackers):
-        if t not in matched_indices[:, 1]:
-            unmatched_trackers.append(t)
+    unmatched_detection_mask = np.ones(len(detections), dtype=bool)
+    unmatched_tracker_mask = np.ones(len(trackers), dtype=bool)
+    if len(matched_indices):
+        unmatched_detection_mask[matched_indices[:, 0]] = False
+        unmatched_tracker_mask[matched_indices[:, 1]] = False
+    unmatched_detections = np.flatnonzero(unmatched_detection_mask).tolist()
+    unmatched_trackers = np.flatnonzero(unmatched_tracker_mask).tolist()
 
     matches = []
     for m in matched_indices:

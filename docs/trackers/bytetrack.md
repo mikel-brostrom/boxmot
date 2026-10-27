@@ -135,7 +135,8 @@ The tracker integration was checked against both association variants in
 [McBytePlusPlus at revision `be1bbc0`](https://github.com/tstanczyk95/McBytePlusPlus/tree/be1bbc03f18e33e93e0a359bbcbfdfc4dc4ab6b9).
 The reference applies masks after confidence fusion in the high-confidence and
 confirmation passes, and directly to IoU costs in the low-confidence pass.
-BoxMOT follows that order and uses the same LAPJV assignment solver. Default
+BoxMOT follows that order and uses LAPJV assignment through the native C++
+[`lapcpp`](https://pypi.org/project/lapcpp/) package. Default
 coverage `0.90`, fill `0.05`, and stage thresholds `0.9`, `0.5`, and `0.7`
 also agree. BoxMOT continues to honor configured `match_thresh`.
 

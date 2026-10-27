@@ -69,14 +69,23 @@ automatic sparse optical flow (SOF) for every eligible filter and noise recipe.
 It fits each candidate under its own camera behavior and fixes the winning
 camera strategy throughout tracker tuning.
 
-Automatic CMC analyzes source images per sequence. It enables SOF where the
-accepted camera transforms show sustained motion. Analysis runs once during
-setup; trials reuse its sequence decisions and compute CMC while tracking.
+Automatic CMC enables SOF where accepted camera transforms show sustained
+motion. Setup first checks `<build>/cmc/<analysis-key>/` for compatible evidence
+from an earlier evaluation or tuning run. On a miss, it analyzes source images,
+processing independent sequences in parallel up to `--sequence-workers` while
+retaining frame order. It stores `analysis.json` and `warps.npz` for later runs
+without changing the canonical build or rerunning perception.
+
+Reuse validates source files, frame identities, tracker masking, estimator
+settings, and class and sequence selections. Source images must remain
+available, although reuse skips decoding and sparse optical flow. Trials share
+the validated transforms and skip image decoding when CMC is the only component
+needing pixels. This storage also applies to joint `--select-cmc` selection.
 Selection without `--select-cmc` keeps CMC off. Other workflows keep their
 usual tracker settings.
 
-A saved automatic strategy analyzes each evaluation run's current sequences;
-it does not reuse training-sequence decisions for new inputs. See
+A saved automatic strategy prepares or reuses evidence for each evaluation
+run's current inputs. New inputs receive their own sequence decisions. See
 [CMC by sequence](../modes/eval.md#cmc-by-sequence).
 
 ## Outputs and resume
@@ -88,9 +97,14 @@ Selection writes the following under the tuning run:
 | `kf-tuning/filters.json` | Filter-profile bank and artifact signatures. |
 | `kf-tuning/<type>/<profile>.yaml` | Reusable selected noise recipes. |
 | `kf-tuning/selection.json` | Fold scores, winning filter/profile, and selected configuration path. |
-| `kf-tuning/cmc/analysis.json`, `kf-tuning/cmc/warps.npz` | Joint selection's camera evidence. |
+| `kf-tuning/cmc/analysis.json`, `kf-tuning/cmc/warps.npz` | Run copies of joint selection's stored camera evidence. |
 | `kf-tuning/cmc-policy.yaml` | Winning decisions for the fitting sequences. |
 | `best.yaml` | Winning tracker settings, selected KF, and camera strategy. |
+
+Camera analysis uses the `boxmot.cmc-analysis/v2` schema. Its archive stores
+both policy transforms and transforms matching the tracker's runtime masks,
+with source and frame provenance checked before reuse. Older camera evidence
+requires fresh selection before resuming a joint CMC/KF tuning run.
 
 Reuse the final result with:
 

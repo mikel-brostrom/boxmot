@@ -3,8 +3,8 @@
 from collections.abc import Sequence
 from typing import Any, Literal
 
-import lap
 import numpy as np
+from lapcpp import lapjv
 from scipy.spatial.distance import cdist
 
 from boxmot.trackers.common.association.iou import AssociationFunction
@@ -30,31 +30,39 @@ chi2inv95 = {
 
 
 def solve_assignment(cost_matrix: np.ndarray, cost_limit: float | None = None) -> np.ndarray:
-    """Return ``(row, column)`` pairs from the shared LAP solver."""
+    """Return LAP pairs, allowing finite costs equal to an explicit limit."""
     cost_matrix = np.asarray(cost_matrix)
     if cost_matrix.size == 0:
         return np.empty((0, 2), dtype=int)
 
     kwargs = {"extend_cost": True}
-    finite = np.isfinite(cost_matrix)
-    if not finite.any():
+    eligible = np.isfinite(cost_matrix)
+    if cost_limit is not None:
+        # Keep the caller's cutoff in double precision even for float32 costs.
+        eligible &= cost_matrix <= np.float64(cost_limit)
+    if not eligible.any():
         return np.empty((0, 2), dtype=int)
-    if not finite.all():
-        cost_matrix = np.where(finite, cost_matrix, np.inf)
-    if cost_limit is None and not finite.all():
+    if not eligible.all():
+        cost_matrix = np.where(eligible, cost_matrix, np.inf)
+    if cost_limit is None and not eligible.all():
         # Permit unmatched rows rather than forcing forbidden edges, which can
         # steal a column from an otherwise eligible match.
-        values = cost_matrix[finite]
+        values = cost_matrix[eligible]
         cost_limit = float(values.max() + np.ptp(values) + max(1.0, np.abs(values).max()))
     if cost_limit is not None:
-        kwargs["cost_limit"] = cost_limit
-    _, row_to_col, _ = lap.lapjv(cost_matrix, **kwargs)
-    assigned_rows = np.flatnonzero(row_to_col >= 0)
-    matches = np.column_stack((assigned_rows, row_to_col[assigned_rows])).astype(int, copy=False)
-    return matches[finite[matches[:, 0], matches[:, 1]]]
+        # LAP can prefer rejection at equality. Raise its penalty in the
+        # working precision; two steps survive cost_limit / 2 even at zero.
+        # The original eligibility mask still forbids every above-limit edge.
+        dtype = np.float32 if cost_matrix.dtype == np.float32 else np.float64
+        limit = dtype(cost_limit)
+        kwargs["cost_limit"] = np.nextafter(np.nextafter(limit, dtype(np.inf)), dtype(np.inf))
+
+    matches = lapjv(cost_matrix, return_cost=False, output="pairs", **kwargs).astype(int, copy=False)
+    return matches[eligible[matches[:, 0], matches[:, 1]]]
 
 
-def linear_assignment(cost_matrix, thresh):
+def linear_assignment(cost_matrix: np.ndarray, thresh: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Solve matches and return the remaining indices in their original order."""
     if cost_matrix.size == 0:
         return (
             np.empty((0, 2), dtype=int),
@@ -62,37 +70,42 @@ def linear_assignment(cost_matrix, thresh):
             np.arange(cost_matrix.shape[1], dtype=int),
         )
     matches = solve_assignment(cost_matrix, cost_limit=thresh)
-    unmatched_a = np.setdiff1d(np.arange(cost_matrix.shape[0]), matches[:, 0])
-    unmatched_b = np.setdiff1d(np.arange(cost_matrix.shape[1]), matches[:, 1])
-    return matches, unmatched_a, unmatched_b
+    unmatched_a = np.ones(cost_matrix.shape[0], dtype=bool)
+    unmatched_b = np.ones(cost_matrix.shape[1], dtype=bool)
+    unmatched_a[matches[:, 0]] = False
+    unmatched_b[matches[:, 1]] = False
+    return matches, np.flatnonzero(unmatched_a), np.flatnonzero(unmatched_b)
 
 
-def iou_distance(atracks, btracks, is_obb: bool = False):
-    """
-    Compute cost based on IoU
-    :type atracks: list[STrack]
-    :type btracks: list[STrack]
+def _iou_track_boxes(tracks: Sequence[Any], *, is_obb: bool) -> np.ndarray | list[np.ndarray]:
+    """Use native batched geometry when it preserves the track's scalar hooks."""
+    track_type = type(tracks[0])
+    batch_geometry = getattr(track_type, "batch_geometry", None)
+    if batch_geometry is not None and all(type(track) is track_type for track in tracks):
+        boxes = batch_geometry(tracks, is_obb=is_obb)
+        if boxes is not None:
+            return boxes
+    geometry_attr = "xywha" if is_obb else "xyxy"
+    return [getattr(track, geometry_attr) for track in tracks]
 
-    :rtype cost_matrix np.ndarray
-    """
 
-    if (len(atracks) > 0 and isinstance(atracks[0], np.ndarray)) or (
-        len(btracks) > 0 and isinstance(btracks[0], np.ndarray)
-    ):
+def iou_distance(
+    atracks: Sequence[Any] | np.ndarray,
+    btracks: Sequence[Any] | np.ndarray,
+    is_obb: bool = False,
+) -> np.ndarray:
+    """Return pairwise ``1 - IoU`` for box rows or native track geometry."""
+    if not len(atracks) or not len(btracks):
+        return np.zeros((len(atracks), len(btracks)), dtype=np.float32)
+
+    if isinstance(atracks[0], np.ndarray) or isinstance(btracks[0], np.ndarray):
         atlbrs = atracks
         btlbrs = btracks
     else:
-        is_obb = is_obb or any(getattr(track, "is_obb", False) for track in atracks + btracks)
-        if is_obb:
-            atlbrs = [track.xywha for track in atracks]
-            btlbrs = [track.xywha for track in btracks]
-        else:
-            atlbrs = [track.xyxy for track in atracks]
-            btlbrs = [track.xyxy for track in btracks]
+        is_obb = is_obb or any(getattr(track, "is_obb", False) for tracks in (atracks, btracks) for track in tracks)
+        atlbrs = _iou_track_boxes(atracks, is_obb=is_obb)
+        btlbrs = _iou_track_boxes(btracks, is_obb=is_obb)
 
-    ious = np.zeros((len(atlbrs), len(btlbrs)), dtype=np.float32)
-    if ious.size == 0:
-        return ious
     _ious = (
         AssociationFunction.iou_batch_obb(atlbrs, btlbrs) if is_obb else AssociationFunction.iou_batch(atlbrs, btlbrs)
     )
@@ -102,26 +115,64 @@ def iou_distance(atracks, btracks, is_obb: bool = False):
     return cost_matrix
 
 
-def feature_distance(features_a, features_b, metric="cosine"):
-    """Compute a non-negative pairwise distance matrix for feature arrays."""
+def feature_distance(
+    features_a,
+    features_b,
+    metric="cosine",
+    *,
+    candidate_mask: np.ndarray | None = None,
+) -> np.ndarray:
+    """Compute non-negative distances, leaving excluded candidates at infinity.
+
+    Wide cosine features with a sparse geometric gate can avoid most pairwise
+    dot products. Retain SciPy's per-pair arithmetic and use its dense operation
+    for small workloads, dense gates, and metrics with batch-derived statistics.
+    """
     features_a = np.asarray(features_a, dtype=np.float32)
     features_b = np.asarray(features_b, dtype=np.float32)
+    shape = (len(features_a), len(features_b))
+    if candidate_mask is not None:
+        candidate_mask = np.asarray(candidate_mask)
+        if candidate_mask.dtype != np.bool_ or candidate_mask.shape != shape:
+            raise ValueError("candidate_mask must be a boolean matrix matching the feature pair dimensions.")
     if len(features_a) == 0 or len(features_b) == 0:
-        return np.zeros((len(features_a), len(features_b)), dtype=np.float32)
-    return np.maximum(0.0, cdist(features_a, features_b, metric))
+        return np.zeros(shape, dtype=np.float32)
+    if candidate_mask is not None:
+        if features_a.ndim != 2 or features_b.ndim != 2 or features_a.shape[1] != features_b.shape[1]:
+            raise ValueError("Feature arrays must be matrices with equal embedding dimensions.")
+        candidates = np.count_nonzero(candidate_mask)
+        if not candidates:
+            return np.full(shape, np.inf)
+        # Per-row dispatch costs more than a small dense cdist. Restrict it to
+        # gates retaining at most 1/8 of pairs and skipping >=64K feature values
+        # per track. These affect dispatch only, never numerical thresholds.
+        skipped_values = (candidate_mask.size - candidates) * features_b.shape[1]
+        if metric == "cosine" and skipped_values >= 65_536 * len(features_a) and candidates * 8 <= candidate_mask.size:
+            distances = np.full(shape, np.inf)
+            for row in np.flatnonzero(candidate_mask.any(axis=1)):
+                columns = np.flatnonzero(candidate_mask[row])
+                distances[row, columns] = np.maximum(
+                    0.0, cdist(features_a[row:row + 1], features_b[columns], metric)[0],
+                )
+            return distances
+    distances = np.maximum(0.0, cdist(features_a, features_b, metric))
+    if candidate_mask is not None:
+        distances[~candidate_mask] = np.inf
+    return distances
 
 
-def embedding_distance(tracks, detections, metric="cosine"):
-    """
-    :param tracks: list[STrack]
-    :param detections: list[BaseTrack]
-    :param metric:
-    :return: cost_matrix np.ndarray
-    """
+def embedding_distance(
+    tracks,
+    detections,
+    metric="cosine",
+    *,
+    candidate_mask: np.ndarray | None = None,
+) -> np.ndarray:
+    """Compare smoothed track and detection features within optional candidates."""
 
     det_features = np.asarray([track.curr_feat for track in detections], dtype=np.float32)
     track_features = np.asarray([track.smooth_feat for track in tracks], dtype=np.float32)
-    return feature_distance(track_features, det_features, metric)
+    return feature_distance(track_features, det_features, metric, candidate_mask=candidate_mask)
 
 
 def fuse_score(cost_matrix: np.ndarray, detections: Sequence[Any] | np.ndarray) -> np.ndarray:
@@ -181,9 +232,7 @@ def motion_gating_threshold(track: Any, *, only_position: bool = False) -> float
     return chi2inv95[dimensions]
 
 
-def motion_gating_distance(
-    track: Any, detection_boxes: np.ndarray, *, only_position: bool = False
-) -> np.ndarray:
+def motion_gating_distance(track: Any, detection_boxes: np.ndarray, *, only_position: bool = False) -> np.ndarray:
     """Return squared Mahalanobis distances using a track's selected filter.
 
     Boxes are canonical ``xyxy`` or ``xywha`` rows, without metadata. The
@@ -216,9 +265,7 @@ def motion_gating_distance(
         angle_index = model.angle_measurement_index
         residuals[:, angle_index] = normalize_angle(residuals[:, angle_index])
     indices = [0, 1] if only_position else list(model.geometry_measurement_indices)
-    return BaseKalmanFilter._gating_from_residuals(
-        residuals[:, indices], uncertainty[np.ix_(indices, indices)], "maha"
-    )
+    return BaseKalmanFilter._gating_from_residuals(residuals[:, indices], uncertainty[np.ix_(indices, indices)], "maha")
 
 
 def fuse_motion(

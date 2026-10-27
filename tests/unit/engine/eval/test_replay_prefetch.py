@@ -74,7 +74,7 @@ def test_prefetch_preserves_order_with_only_one_sample_ahead() -> None:
     source = _ObservedIterator(iter(expected))
     consumer_thread = threading.get_ident()
 
-    with replay_module._prefetch_samples(source) as samples:
+    with replay_module._sample_iterator(source, prefetch=True) as samples:
         assert next(samples) is expected[0]
         assert source.second_ready.wait(timeout=5)
         # The second sample can load during tracking of the first. A third
@@ -87,16 +87,18 @@ def test_prefetch_preserves_order_with_only_one_sample_ahead() -> None:
     assert source.close_count == 1
 
 
-def test_prefetch_closes_an_empty_iterator() -> None:
+@pytest.mark.parametrize("prefetch", [False, True])
+def test_sample_iterator_closes_an_empty_iterator(prefetch: bool) -> None:
     source = _ObservedIterator(iter(()))
 
-    with replay_module._prefetch_samples(source) as samples:
+    with replay_module._sample_iterator(source, prefetch=prefetch) as samples:
         assert list(samples) == []
 
     assert source.close_count == 1
 
 
-def test_prefetch_propagates_dataset_read_errors_and_closes() -> None:
+@pytest.mark.parametrize("prefetch", [False, True])
+def test_sample_iterator_propagates_dataset_read_errors_and_closes(prefetch: bool) -> None:
     first = _sample(0)
     failure = OSError("cached image could not be decoded")
 
@@ -106,12 +108,32 @@ def test_prefetch_propagates_dataset_read_errors_and_closes() -> None:
 
     source = _ObservedIterator(failing_samples())
     with pytest.raises(OSError) as caught:
-        with replay_module._prefetch_samples(source) as samples:
+        with replay_module._sample_iterator(source, prefetch=prefetch) as samples:
             assert next(samples) is first
             next(samples)
 
     assert caught.value is failure
     assert source.close_count == 1
+
+
+@pytest.mark.parametrize("prefetch", [False, True])
+def test_sample_iterator_preserves_consumer_failure_when_cleanup_also_fails(prefetch: bool) -> None:
+    failure = RuntimeError("tracker failed")
+
+    class FailingClose(_ObservedIterator):
+        def close(self) -> None:
+            super().close()
+            raise OSError("cleanup failed")
+
+    source = FailingClose(iter([_sample(0), _sample(1)]))
+    with pytest.raises(RuntimeError) as caught:
+        with replay_module._sample_iterator(source, prefetch=prefetch) as samples:
+            next(samples)
+            raise failure
+
+    assert caught.value is failure
+    assert source.close_count == 1
+    assert failure.__notes__ == ["Cached input cleanup also failed: cleanup failed"]
 
 
 def test_prefetch_waits_for_active_read_before_closing_after_consumer_failure() -> None:
@@ -132,7 +154,7 @@ def test_prefetch_waits_for_active_read_before_closing_after_consumer_failure() 
 
     def consume() -> None:
         try:
-            with replay_module._prefetch_samples(source) as samples:
+            with replay_module._sample_iterator(source, prefetch=True) as samples:
                 assert next(samples) is first
                 assert reading_second.wait(timeout=5)
                 consumer_exiting.set()
@@ -156,8 +178,10 @@ def test_prefetch_waits_for_active_read_before_closing_after_consumer_failure() 
     assert source.close_count == 1
 
 
-@pytest.mark.parametrize("needs_pixels", [False, True])
-def test_sequence_replay_prefetch_keeps_tracker_on_worker_thread(tmp_path, monkeypatch, needs_pixels: bool) -> None:
+@pytest.mark.parametrize(("needs_pixels", "render"), [(False, False), (True, False), (False, True)])
+def test_sequence_replay_prefetch_keeps_tracker_on_worker_thread(
+    tmp_path, monkeypatch, needs_pixels: bool, render: bool
+) -> None:
     source = _ObservedIterator(iter([_sample(0), _sample(1)]))
     consumer_thread = threading.get_ident()
     tracker_threads: list[int] = []
@@ -201,6 +225,11 @@ def test_sequence_replay_prefetch_keeps_tracker_on_worker_thread(tmp_path, monke
     )
     monkeypatch.setattr(replay_module, "validate_build_compatibility", lambda *args, **kwargs: None)
     monkeypatch.setattr(replay_module, "_WORKER_PROGRESS_QUEUE", None)
+    monkeypatch.setattr(
+        replay_module,
+        "ReplayProgressEvent",
+        lambda *args, **kwargs: pytest.fail("unobserved progress must not allocate events"),
+    )
 
     result = replay_module._replay_sequence_task(
         replay_module._SequenceReplayTask(
@@ -211,10 +240,11 @@ def test_sequence_replay_prefetch_keeps_tracker_on_worker_thread(tmp_path, monke
             frame_total=2,
             output_path=str(tmp_path / "sequence.txt"),
             ordinal=0,
-        )
+        ),
+        frame_callback=(lambda _frame: None) if render else None,
     )
 
     assert result.frames == 2
     assert tracker_threads == [consumer_thread, consumer_thread]
-    assert (consumer_thread not in source.producer_threads) == needs_pixels
-    assert source.close_count == int(needs_pixels)
+    assert (consumer_thread not in source.producer_threads) == (needs_pixels or render)
+    assert source.close_count == 1

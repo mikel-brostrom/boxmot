@@ -28,7 +28,7 @@ def capture_plot_warnings(caplog: pytest.LogCaptureFixture) -> Iterator[None]:
 def analysis_path(tmp_path: Path) -> Path:
     """Include moving, static, unavailable, and measured-zero camera evidence."""
     report = {
-        "schema": "boxmot.cmc-analysis/v1",
+        "schema": "boxmot.cmc-analysis/v2",
         "tracker": "bytetrack",
         "method": "sof",
         "rule": "sof-motion-v1",

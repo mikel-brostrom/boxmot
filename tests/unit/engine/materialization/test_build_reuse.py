@@ -223,7 +223,7 @@ def test_matching_build_reuses_all_outputs_across_devices(
     requested, _ = _plan_with_version(root, __version__, monkeypatch, device=requested_device)
     before = _snapshot(output)
     assert previous.build_id != requested.build_id
-    assert all(first.fingerprint != second.fingerprint for first, second in zip(previous.stages, requested.stages))
+    assert all(first.fingerprint == second.fingerprint for first, second in zip(previous.stages, requested.stages))
     assert previous.metadata["component_fingerprints"] != requested.metadata["component_fingerprints"]
 
     assert builds_module.find_matching_build(requested) == output
@@ -236,8 +236,11 @@ def test_matching_build_reuses_all_outputs_across_devices(
     assert manifest.metadata["components"]["reid"]["spec"]["device"] == published_device
 
 
-@pytest.mark.parametrize("component", ["detector", "reid"])
-@pytest.mark.parametrize("field", ["precision", "preprocessing", "model"])
+@pytest.mark.parametrize(
+    ("component", "field"),
+    [("detector", "precision"), ("detector", "preprocessing"), ("detector", "model"),
+     ("reid", "preprocessing"), ("reid", "model")],
+)
 def test_cross_device_reuse_preserves_model_and_numerical_contract(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, component: str, field: str
 ) -> None:
@@ -256,6 +259,85 @@ def test_cross_device_reuse_preserves_model_and_numerical_contract(
         changed_component=component,
         changed_field=field,
     )
+
+    assert builds_module.find_matching_build(requested) is None
+
+
+@pytest.mark.parametrize("published_half", [False, True])
+def test_matching_build_reuses_embeddings_across_precision_without_rewriting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, published_half: bool
+) -> None:
+    """Reusing a completed embedding build retains its actual inference provenance."""
+
+    root = tmp_path / "materializations"
+    half = {"changed_component": "reid", "changed_field": "precision"}
+    previous, encoder_fingerprint = _plan_with_version(
+        root, "0.1.0", monkeypatch, device="cuda:0", **(half if published_half else {})
+    )
+    output = _run_derived_build(
+        previous, _samples(tmp_path), CountingDetector(), CountingEncoder(1.0), encoder_fingerprint, use_cache=False
+    )
+    requested, _ = _plan_with_version(
+        root, __version__, monkeypatch, device="cpu", **({} if published_half else half)
+    )
+    before = _snapshot(output)
+
+    assert previous.build_id != requested.build_id
+    assert previous.stages[1].fingerprint != requested.stages[1].fingerprint
+    assert builds_module.find_matching_build(requested) == output
+
+    assert _snapshot(output) == before
+    assert not requested.output_root.exists()
+    assert not requested.staging_root.exists()
+    manifest = DatasetManifest.load(output)
+    assert manifest.metadata["components"]["reid"]["spec"]["precision"] == ("fp16" if published_half else "fp32")
+    assert manifest.artifact("embeddings").metadata["encoder_fingerprint"] == encoder_fingerprint
+
+
+def test_matching_build_prefers_requested_embedding_precision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A matching precision wins even when a compatible alternative is visited first."""
+
+    root = tmp_path / "materializations"
+    samples = _samples(tmp_path)
+    outputs = []
+    for half in (False, True):
+        plan, encoder_fingerprint = _plan_with_version(
+            root, "0.1.0", monkeypatch, device="cpu",
+            **({"changed_component": "reid", "changed_field": "precision"} if half else {}),
+        )
+        outputs.append(_run_derived_build(
+            plan, samples, CountingDetector(), CountingEncoder(1.0), encoder_fingerprint, use_cache=False
+        ))
+    requested, _ = _plan_with_version(
+        root, __version__, monkeypatch, device="cpu", changed_component="reid", changed_field="precision"
+    )
+    monkeypatch.setattr(builds_module, "_published_build_candidates", lambda _plan: iter(outputs))
+
+    assert builds_module.find_matching_build(requested) == outputs[1]
+
+
+def test_precision_reuse_rejects_inconsistent_component_fingerprint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ignoring precision must not repair a stale or tampered recorded component hash."""
+
+    root = tmp_path / "materializations"
+    previous, encoder_fingerprint = _plan_with_version(root, "0.1.0", monkeypatch, device="cpu")
+    _run_derived_build(
+        previous, _samples(tmp_path), CountingDetector(), CountingEncoder(1.0), encoder_fingerprint, use_cache=False
+    )
+    requested, _ = _plan_with_version(
+        root, __version__, monkeypatch, device="cpu", changed_component="reid", changed_field="precision"
+    )
+    requested = replace(requested, metadata={
+        **requested.metadata,
+        "component_fingerprints": {
+            **requested.metadata["component_fingerprints"],
+            "reid": encoder_fingerprint,
+        },
+    })
 
     assert builds_module.find_matching_build(requested) is None
 
@@ -287,7 +369,6 @@ def test_existing_exact_output_remains_authoritative(
         "reid",
         "stage_config",
         "stage_fingerprint",
-        "batch_size",
         "stage_inputs",
     ],
 )
@@ -313,8 +394,6 @@ def test_matching_build_rejects_changed_perception_contract(published_case: Publ
             stage = replace(stage, config={**stage.config, "class_id_map": {"2": 1}})
         elif change == "stage_fingerprint":
             stage = replace(stage, fingerprint=fingerprint("different-preprocessing"))
-        elif change == "batch_size":
-            stage = replace(stage, batch_size=stage.batch_size + 1)
         else:
             stage = replace(stage, depends_on=())
         stages[index] = stage
@@ -410,3 +489,10 @@ def test_matching_build_does_not_search_outside_explicit_root(
     assert builds_module.find_matching_build(requested) is None
     shutil.copytree(case.output, selected / case.output.name)
     assert builds_module.find_matching_build(requested) == selected / case.output.name
+
+
+def test_matching_build_reuses_different_inference_batches(published_case: PublishedCase) -> None:
+    """Batching is not part of the published detector/embedding content contract."""
+    case = published_case
+    requested = replace(case.requested, stages=tuple(replace(stage, batch_size=16) for stage in case.requested.stages))
+    assert builds_module.find_matching_build(requested) == case.output

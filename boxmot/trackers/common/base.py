@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import replace
 from numbers import Real
 from typing import overload
 
@@ -12,6 +13,7 @@ from boxmot.reid.protocols import AppearanceEncoder
 from boxmot.reid.specs import ReIDConfig
 from boxmot.structures import (
     Boxes,
+    Boxes3D,
     CameraModel,
     Detections,
     Detections3D,
@@ -26,17 +28,20 @@ from boxmot.trackers.common.appearance.live import _REID_OPTION_UNSET, LiveReIDM
 from boxmot.trackers.common.association.iou import AssociationFunction
 from boxmot.trackers.common.detections import _DetectionBatch
 from boxmot.trackers.common.detections.layout import get_detection_layout
-from boxmot.trackers.common.geometry.obb import align_obb_measurement
+from boxmot.trackers.common.geometry.obb import align_obb_measurement, align_obb_measurements
 from boxmot.trackers.common.input import (
     frame_image_size,
     pack_numpy_track_rows,
     parse_numpy_detection_rows,
+    parse_numpy_detection_rows_3d,
     prepare_frame,
+    resolve_sample_id,
 )
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
 from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_TRACKER_NAMES, KalmanNoiseConfig
 from boxmot.trackers.common.motion.tracker import TrackerMotionMixin
 from boxmot.trackers.common.protocols import TrackerRequirements
+from boxmot.trackers.common.spatial import pack_numpy_multimodal_tracks, prepare_camera
 from boxmot.trackers.common.tracking import outputs as output_utils
 from boxmot.trackers.common.tracking.classes import ClassCatalog
 from boxmot.trackers.common.tracking.display import TrackDisplayMixin
@@ -226,6 +231,7 @@ class BaseTracker(
         self.asso_func = self._build_association_function(width=None, height=None)
         self.id_allocator = TrackIdAllocator()
         self.frame_count = 0
+        self._sample_index = 0
         self.active_tracks = []
         self.class_track_states = None
         self._first_frame_processed = False
@@ -326,10 +332,25 @@ class BaseTracker(
         detections: Detections,
         frame: Frame | np.ndarray | None = None,
         *,
-        detections_3d: Detections3D,
-        camera: CameraModel,
+        detections_3d: Detections3D | np.ndarray,
+        camera: CameraModel | np.ndarray,
+        image_size: tuple[int, int] | None = None,
+        camera_to_world: np.ndarray | None = None,
         timestamp_s: float | None = None,
     ) -> MultimodalTracks: ...
+
+    @overload
+    def update(
+        self,
+        detections: np.ndarray,
+        frame: Frame | np.ndarray | None = None,
+        *,
+        detections_3d: Detections3D | np.ndarray,
+        camera: CameraModel | np.ndarray,
+        image_size: tuple[int, int] | None = None,
+        camera_to_world: np.ndarray | None = None,
+        timestamp_s: float | None = None,
+    ) -> tuple[np.ndarray, np.ndarray]: ...
 
     @overload
     def update(
@@ -347,17 +368,24 @@ class BaseTracker(
         frame: Frame | np.ndarray | None = None,
         *,
         timestamp_s: float | None = None,
-        detections_3d: Detections3D | None = None,
-        camera: CameraModel | None = None,
-    ) -> Tracks | np.ndarray | MultimodalTracks:
+        detections_3d: Detections3D | np.ndarray | None = None,
+        camera: CameraModel | np.ndarray | None = None,
+        image_size: tuple[int, int] | None = None,
+        camera_to_world: np.ndarray | None = None,
+    ) -> Tracks | np.ndarray | MultimodalTracks | tuple[np.ndarray, np.ndarray]:
         """Advance one sequence with an optional Frame or uint8 HWC BGR image.
 
         The detection representation determines the output representation.
+        Omitted detection sample IDs inherit a supplied input ID or use
+        ``tracker:<update index>`` within the current sequence.
         With ``variable_dt=True``, derive elapsed seconds from
         ``Frame.timestamp_s`` or the capture timestamp argument. Fixed-step
         prediction is the default even when timestamp metadata is present.
         Calibrated 2D/3D trackers additionally require explicit independent
-        ``detections_3d`` and ``camera`` inputs and return ``MultimodalTracks``.
+        ``detections_3d`` and ``camera`` inputs. Canonical detections return
+        ``MultimodalTracks``; packed NumPy detections return independent image
+        and spatial track arrays. A NumPy camera projection requires
+        ``image_size`` or a frame and accepts an optional ``camera_to_world``.
         """
         timestamp_s, dt = self._resolve_timing(frame, timestamp_s)
         frame = prepare_frame(frame)
@@ -366,17 +394,23 @@ class BaseTracker(
         if (
             detections_3d is not None
             or camera is not None
+            or image_size is not None
+            or camera_to_world is not None
             or self.requirements.detections_3d
             or self.requirements.camera
         ):
-            return self._update_multimodal(
+            tracks = self._update_multimodal(
                 detections=detections,
                 detections_3d=detections_3d,
                 camera=camera,
+                image_size=image_size,
+                camera_to_world=camera_to_world,
                 frame=frame,
                 timestamp_s=timestamp_s,
                 dt=dt,
             )
+            self._sample_index += 1
+            return tracks
 
         numpy_input = type(detections) is np.ndarray
         canonical_detections = detections if isinstance(detections, Detections) else None
@@ -385,12 +419,14 @@ class BaseTracker(
             detections.validate()
             self._validate_geometry(detections.geometry)
             self._validate_detection_inputs(detections)
-            if isinstance(frame, Frame) and frame.sample_id != detections.sample_id:
-                raise ValueError(
-                    "Frame and detections must identify the same sample, "
-                    f"got {frame.sample_id!r} and {detections.sample_id!r}."
-                )
-            sample_id = detections.sample_id
+            sample_id = resolve_sample_id(
+                detections.sample_id,
+                frame.sample_id if isinstance(frame, Frame) else None,
+                frame_index=self._sample_index,
+            )
+            if detections.sample_id is None:
+                detections = replace(detections, sample_id=sample_id)
+                canonical_detections = detections
             geometry = detections.geometry.values.detach().numpy()
             scores = detections.scores.detach().numpy()
             class_ids = detections.class_ids.detach().numpy()
@@ -446,18 +482,21 @@ class BaseTracker(
             numpy_output=numpy_input,
         )
         self._last_timestamp_s = timestamp_s
+        self._sample_index += 1
         return tracks
 
     def _update_multimodal(
         self,
         *,
         detections: Detections | np.ndarray,
-        detections_3d: Detections3D | None,
-        camera: CameraModel | None,
+        detections_3d: Detections3D | np.ndarray | None,
+        camera: CameraModel | np.ndarray | None,
+        image_size: tuple[int, int] | None,
+        camera_to_world: np.ndarray | None,
         frame: Frame | np.ndarray | None,
         timestamp_s: float | None,
         dt: float | None,
-    ) -> MultimodalTracks:
+    ) -> MultimodalTracks | tuple[np.ndarray, np.ndarray]:
         """Validate independent sensor inputs before invoking a canonical kernel."""
         capabilities = getattr(self, "capabilities", None)
         requirements = self.requirements
@@ -466,25 +505,53 @@ class BaseTracker(
                 raise ValueError(f"{self.__class__.__name__} does not accept {name}.")
             if value is None and getattr(requirements, name):
                 raise ValueError(f"{self.__class__.__name__} requires {name} on every update.")
+        for name, value, capability in (
+            ("image_size", image_size, "accepts_camera"),
+            ("camera_to_world", camera_to_world, "accepts_ego_motion"),
+        ):
+            if value is not None and not getattr(capabilities, capability, False):
+                raise ValueError(f"{self.__class__.__name__} does not accept {name}.")
+        numpy_output = type(detections) is np.ndarray
         if not isinstance(detections, Detections):
-            raise TypeError("Calibrated 2D/3D tracking requires canonical Detections, not packed NumPy rows.")
+            rows = parse_numpy_detection_rows(detections, is_obb=self.is_obb)
+            geometry_type = OrientedBoxes if self.is_obb else Boxes
+            detections = Detections(
+                geometry=geometry_type(torch.tensor(rows.geometry)),
+                scores=torch.tensor(rows.scores),
+                class_ids=torch.from_numpy(rows.class_ids),
+            )
         if not isinstance(detections_3d, Detections3D):
-            raise TypeError("Calibrated 2D/3D tracking requires Detections3D, including explicit empty batches.")
-        if not isinstance(camera, CameraModel):
-            raise TypeError("Calibrated 2D/3D tracking requires a CameraModel.")
+            if detections_3d is None:
+                raise TypeError("Calibrated 2D/3D tracking requires detections_3d, including explicit empty batches.")
+            rows_3d = parse_numpy_detection_rows_3d(detections_3d)
+            detections_3d = Detections3D(
+                geometry=Boxes3D(torch.tensor(rows_3d.geometry)),
+                scores=torch.tensor(rows_3d.scores),
+                class_ids=torch.from_numpy(rows_3d.class_ids),
+            )
+        if camera is None:
+            raise TypeError("Calibrated 2D/3D tracking requires camera calibration.")
+        camera = prepare_camera(camera, frame=frame, image_size=image_size, camera_to_world=camera_to_world)
         detections.validate()
         detections_3d.validate()
-        camera.validate()
+        if numpy_output and bool((detections_3d.class_ids > 2**53).any()):
+            raise ValueError("Packed class IDs must be within the exact float64 integer range; use Detections input.")
         self._validate_geometry(detections.geometry)
         self._validate_detection_inputs(detections)
         if camera.camera_to_world is not None and not capabilities.accepts_ego_motion:
             raise ValueError(f"{self.__class__.__name__} does not accept ego motion.")
         if camera.camera_to_world is None and requirements.ego_motion:
             raise ValueError(f"{self.__class__.__name__} requires ego motion on every update.")
-        if detections.sample_id != detections_3d.sample_id:
-            raise ValueError("2D and 3D detections must identify the same sample.")
-        if isinstance(frame, Frame) and frame.sample_id != detections.sample_id:
-            raise ValueError("Frame and detections must identify the same sample.")
+        sample_id = resolve_sample_id(
+            detections.sample_id,
+            detections_3d.sample_id,
+            frame.sample_id if isinstance(frame, Frame) else None,
+            frame_index=self._sample_index,
+        )
+        if detections.sample_id is None:
+            detections = replace(detections, sample_id=sample_id)
+        if detections_3d.sample_id is None:
+            detections_3d = replace(detections_3d, sample_id=sample_id)
         if frame is not None and frame_image_size(frame) != camera.image_size:
             raise ValueError("CameraModel.image_size must match the frame spatial size.")
         if requirements.frame and frame is None:
@@ -521,8 +588,9 @@ class BaseTracker(
             self.class_catalog.validate_ids(result.class_ids.tolist())
         if output.image_tracks.masks is not None and output.image_tracks.masks.image_size != camera.image_size:
             raise ValueError("Multimodal tracker output masks must match CameraModel.image_size.")
+        tracks = pack_numpy_multimodal_tracks(output) if numpy_output else output
         self._last_timestamp_s = timestamp_s
-        return output
+        return tracks
 
     def _track_multimodal(
         self,
@@ -548,9 +616,10 @@ class BaseTracker(
         numpy_output: bool,
     ) -> Tracks | np.ndarray:
         """Invoke one NumPy kernel update and return its requested public representation."""
-        self.class_catalog.validate_ids(class_ids.tolist())
+        class_id_values = class_ids.tolist()
+        self.class_catalog.validate_ids(class_id_values)
         kernel_class_ids = np.asarray(
-            [self._encode_kernel_class_id(int(value)) for value in class_ids.tolist()],
+            [self._encode_kernel_class_id(value) for value in class_id_values],
             dtype=np.float32,
         )
         dets = np.column_stack((geometry, scores, kernel_class_ids)).astype(np.float32, copy=False)
@@ -596,14 +665,31 @@ class BaseTracker(
 
         track_ids = integer_column(self.detection_layout.schema.track_id_index, "track IDs")
         geometry_columns = self.detection_layout.box_cols
-        geometry_array = np.ascontiguousarray(raw[:, :geometry_columns], dtype=np.float32)
+        geometry_array = raw[:, :geometry_columns]
         if self.is_obb:
-            geometry_array = geometry_array.copy()
-            for index, track_id in enumerate(track_ids.tolist()):
+            # Own the aligned geometry once, then evaluate equivalent forms
+            # together. Cache rows stay independent of the public result.
+            geometry_array = geometry_array.copy(order="C")
+            track_id_values = track_ids.tolist()
+            matched_indices = []
+            references = []
+            for index, track_id in enumerate(track_id_values):
                 previous = self._obb_output_by_track_id.get(track_id)
                 if previous is not None:
+                    matched_indices.append(index)
+                    references.append(previous)
+            if len(matched_indices) > 4:
+                geometry_array[matched_indices] = align_obb_measurements(
+                    geometry_array[matched_indices], np.asarray(references),
+                )
+            else:
+                # A few scalar rows cost less than setting up candidate arrays.
+                for index, previous in zip(matched_indices, references, strict=True):
                     geometry_array[index] = align_obb_measurement(geometry_array[index], previous)
+            for index, track_id in enumerate(track_id_values):
                 self._obb_output_by_track_id[track_id] = geometry_array[index].copy()
+        elif not numpy_output:
+            geometry_array = np.ascontiguousarray(geometry_array)
 
         raw_class_ids = integer_column(self.detection_layout.schema.track_class_index, "class IDs")
         decoded_class_ids = np.asarray(
@@ -617,10 +703,7 @@ class BaseTracker(
         if detection_indices.size and np.any(detection_indices >= len(scores)):
             raise ValueError(f"{self.__class__.__name__} kernel returned a detection index outside the current batch.")
         self._observe_track_outputs(geometry, track_ids, detection_indices)
-        track_scores = np.ascontiguousarray(
-            raw[:, self.detection_layout.schema.track_conf_index],
-            dtype=np.float32,
-        )
+        track_scores = raw[:, self.detection_layout.schema.track_conf_index]
 
         if numpy_output:
             return pack_numpy_track_rows(
@@ -660,7 +743,7 @@ class BaseTracker(
         return Tracks(
             geometry=geometry,
             track_ids=torch.from_numpy(track_ids),
-            scores=torch.from_numpy(track_scores),
+            scores=torch.from_numpy(np.ascontiguousarray(track_scores)),
             class_ids=torch.from_numpy(decoded_class_ids),
             detection_indices=torch.from_numpy(detection_indices),
             sample_id=sample_id,
@@ -784,6 +867,13 @@ class BaseTracker(
         if not values:
             return np.empty((0, geometry_cols), dtype=np.float32)
 
+        item_type = type(values[0])
+        batch_geometry = getattr(item_type, "batch_geometry", None)
+        if batch_geometry is not None and all(type(item) is item_type for item in values):
+            geometry = batch_geometry(values, is_obb=self.is_obb)
+            if geometry is not None:
+                return self._association_boxes(np.asarray(geometry))
+
         geometry_attr = "xywha" if self.is_obb else "xyxy"
         rows = []
         for item in values:
@@ -823,13 +913,16 @@ class BaseTracker(
         dets: np.ndarray,
         embs: np.ndarray | None = None,
         masks: np.ndarray | None = None,
+        *,
+        copy: bool = True,
     ) -> _DetectionBatch:
-        """Convert raw detections to a canonical detection batch."""
+        """Parse detections, optionally borrowing arrays until selection copies them."""
         return _DetectionBatch.from_layout(
             dets,
             self.detection_layout,
             embs=embs,
             masks=masks,
+            copy=copy,
         )
 
     def configure_class_catalog(
@@ -846,6 +939,7 @@ class BaseTracker(
     def _reset_common_state(self) -> None:
         """Reset sequence-local state while keeping tracker configuration."""
         self.frame_count = 0
+        self._sample_index = 0
         self._prediction_dt = None
         self._last_timestamp_s = None
         self.active_tracks = []

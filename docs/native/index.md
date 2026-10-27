@@ -93,6 +93,105 @@ mode; use `reset()` for a new sequence, not to change its mode.
 
 ## Building
 
+### Install dependencies
+
+Install these native dependencies before selecting `--tracker-backend cpp`:
+
+- A C++17 compiler and its build tools (GCC, Clang, or MSVC).
+- CMake 3.16+.
+- OpenCV **4.x development files and runtime libraries**, including `core`
+  and `imgproc`. BotSort and OccluBoost also need `calib3d` and `video`; the
+  separate native ReID backend needs `dnn`.
+- Eigen3 3.3+ development headers.
+
+The Python `opencv-python` package provides `cv2`; it does not replace the C++
+development packages. Installing CMake alone does not install OpenCV or Eigen.
+ONNX Runtime is optional for native ReID and is not required by native trackers.
+
+Use your platform's development packages so the package manager also installs
+their runtime dependencies. Package names vary by system; the examples below
+avoid release-specific shared-library names.
+
+=== "Debian / Ubuntu"
+
+    ```bash
+    sudo apt update
+    sudo apt install --no-install-recommends build-essential cmake libopencv-dev libeigen3-dev
+    ```
+
+=== "Fedora"
+
+    ```bash
+    sudo dnf install gcc-c++ make cmake opencv-devel eigen3-devel
+    ```
+
+=== "macOS"
+
+    Install the Xcode Command Line Tools if needed, then use Homebrew's
+    [OpenCV 4 formula](https://formulae.brew.sh/formula/opencv@4):
+
+    ```bash
+    xcode-select --install
+    brew install cmake opencv@4 eigen
+    export CMAKE_PREFIX_PATH="$(brew --prefix opencv@4):$(brew --prefix eigen)${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
+    ```
+
+=== "Windows"
+
+    Install Visual Studio Build Tools with **Desktop development with C++**,
+    CMake, and [vcpkg](https://learn.microsoft.com/en-us/vcpkg/get_started/get-started).
+    In a Developer PowerShell, install the libraries for your Python
+    architecture; this example uses 64-bit x86:
+
+    ```powershell
+    vcpkg install "opencv4[calib3d,dnn]:x64-windows" eigen3:x64-windows
+    ```
+
+    Configure each native build directory with the
+    [vcpkg CMake toolchain](https://learn.microsoft.com/en-us/vcpkg/users/buildsystems/cmake-integration).
+    With `VCPKG_ROOT` set to your vcpkg installation, for example:
+
+    ```powershell
+    cmake -S boxmot/native/cpp/trackers/botsort -B build/native/botsort `
+      "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+      -DVCPKG_TARGET_TRIPLET=x64-windows
+    cmake --build build/native/botsort --config Release --target botsort_capi
+    ```
+
+    Keep vcpkg's default `VCPKG_APPLOCAL_DEPS=ON` so dependent DLLs are
+    copied beside the tracker DLL.
+
+For other systems, install equivalent packages providing the versions and
+modules above. For custom installations, use `CMAKE_PREFIX_PATH` or pass
+`-DOpenCV_DIR=...` and `-DEigen3_DIR=...` to CMake, pointing to the directories
+containing their package configuration files.
+
+### Runtime libraries
+
+Keep the OpenCV runtime libraries and their dependencies installed when running
+the tracker, including when replaying cached detections and embeddings. A
+missing `libopencv_*.so`, `.dylib`, or `.dll` means the runtime loader cannot
+find a library required by the compiled backend. Dependencies can include
+other OpenCV modules such as `features2d` or `dnn`, plus BLAS/LAPACK or TBB,
+depending on how your OpenCV package was built.
+
+Use the same OpenCV installation for building and running. For a custom Linux
+installation, its library directories must be in the loader's search path
+(for example, `LD_LIBRARY_PATH`); on macOS, use valid install names and runtime
+search paths. On Windows, deploy the required DLLs beside the tracker DLL, or
+register their directory with
+[`os.add_dll_directory()`](https://docs.python.org/3/library/os.html#os.add_dll_directory)
+before constructing a tracker in Python and retain the returned handle while
+using it. Register the directory in each Python worker process that loads the
+tracker. Adding a directory to `PATH` alone does not reliably resolve ctypes
+dependencies on modern Python.
+
+If you change OpenCV installations, reconfigure the affected
+`build/native/<tracker>/` directory against the new installation and rebuild;
+an existing library may still reference the previous OpenCV version or path.
+
+### Build the libraries
+
 In a source or editable install, BoxMOT resolves or builds the matching
 `<tracker>_capi` shared library. Prebuild all registered native libraries with:
 
@@ -106,8 +205,7 @@ Build a subset with repeated tracker selectors:
 boxmot build --tracker bytetrack --tracker ocsort
 ```
 
-The native tree requires CMake 3.16+, a C++17 compiler, OpenCV 4.x, and Eigen
-3.3+. Per-tracker CMake builds remain available:
+Per-tracker CMake builds remain available:
 
 ```bash
 cmake -S boxmot/native/cpp/trackers/bytetrack \

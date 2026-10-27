@@ -150,6 +150,36 @@ def test_analysis_rejects_missing_or_invalid_scores(tmp_path: Path) -> None:
     assert generate_tune_analysis(tmp_path) is None
 
 
+def test_regeneration_shares_loaded_trials_between_plots_and_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One snapshot keeps both reports consistent without rereading trial files."""
+    from boxmot.engine.tuning import analysis, analysis_data
+    from boxmot.engine.tuning.postprocessing import update_analysis_summary
+
+    _write_run(tmp_path)
+    (tmp_path / "summary.md").write_text("# Existing run\n")
+    data = load_tune_analysis(tmp_path)
+    assert data is not None
+    (tmp_path / "results.csv").unlink()
+
+    def unexpected_reload(*_args, **_kwargs) -> None:
+        pytest.fail("Reports must reuse the loaded tuning evidence")
+
+    monkeypatch.setattr(analysis, "load_tune_analysis", unexpected_reload)
+    monkeypatch.setattr(analysis_data, "load_tune_analysis", unexpected_reload)
+    monkeypatch.setattr(analysis_data, "analyze_parameters", unexpected_reload)
+    snapshots = []
+    for name in ("_overview", "_numeric_panels", "_categorical_panels", "_candidate_panel"):
+        monkeypatch.setattr(analysis, name, lambda data, *_args: snapshots.append(data))
+
+    assert generate_tune_analysis(tmp_path, data=data) == tmp_path / "analysis.png"
+    assert update_analysis_summary(tmp_path, analysis=data) == tmp_path / "summary.md"
+    assert len(snapshots) == 4 and all(snapshot is data for snapshot in snapshots)
+    assert "threshold" in (tmp_path / "summary.md").read_text()
+
+
 def test_categories_without_joint_observations_omit_interaction(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -175,16 +205,20 @@ def test_categorical_comparisons_are_separate_for_each_active_branch(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Off defaults must not join gate/blend samples or combine their outcomes."""
-    frame = pd.DataFrame({
-        "trial_id": list("abcdefghi"),
-        "HOTA": [99, 98, 97, 61, 62, 63, 71, 72, 73],
-        "motion_fusion": ["off"] * 3 + ["blend"] * 3 + ["gate"] * 3,
-        "policy": ["fast"] * 3 + ["fast", "slow", "fast"] + ["position", "full", "position"],
-    })
+    frame = pd.DataFrame(
+        {
+            "trial_id": list("abcdefghi"),
+            "HOTA": [99, 98, 97, 61, 62, 63, 71, 72, 73],
+            "motion_fusion": ["off"] * 3 + ["blend"] * 3 + ["gate"] * 3,
+            "policy": ["fast"] * 3 + ["fast", "slow", "fast"] + ["position", "full", "position"],
+        }
+    )
     schema = {
         "motion_fusion": {"type": "choice", "options": ["off", "blend", "gate"], "default": "off"},
         "policy": {
-            "type": "choice", "options": ["fast", "slow"], "default": "fast",
+            "type": "choice",
+            "options": ["fast", "slow"],
+            "default": "fast",
             "depends_on": "motion_fusion",
             "cases": {"off": {"default": "fast"}, "gate": {"options": ["position", "full"]}},
         },
@@ -210,17 +244,22 @@ def test_numeric_correlations_use_each_branch_not_pooled_trials(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Opposite within-branch trends must remain visible after excluding off defaults."""
-    frame = pd.DataFrame({
-        "trial_id": [str(index) for index in range(36)],
-        "HOTA": [90] * 12 + list(range(50, 62)) + list(range(80, 68, -1)),
-        "mode": ["off"] * 12 + ["a"] * 12 + ["b"] * 12,
-        "weight": [0.98] * 12 + list(np.linspace(0, 1, 12)) * 2,
-    })
+    frame = pd.DataFrame(
+        {
+            "trial_id": [str(index) for index in range(36)],
+            "HOTA": [90] * 12 + list(range(50, 62)) + list(range(80, 68, -1)),
+            "mode": ["off"] * 12 + ["a"] * 12 + ["b"] * 12,
+            "weight": [0.98] * 12 + list(np.linspace(0, 1, 12)) * 2,
+        }
+    )
     schema = {
         "mode": {"type": "choice", "default": "off", "options": ["off", "a", "b"]},
         "weight": {
-            "type": "uniform", "range": [0, 1], "default": 0.98,
-            "depends_on": "mode", "cases": {"off": {"default": 0.98}},
+            "type": "uniform",
+            "range": [0, 1],
+            "default": 0.98,
+            "depends_on": "mode",
+            "cases": {"off": {"default": 0.98}},
         },
     }
     frame.to_csv(tmp_path / "results.csv", index=False)
@@ -233,7 +272,8 @@ def test_numeric_correlations_use_each_branch_not_pooled_trials(
     axis = figures[0].axes[0]
     assert "active n=24" in axis.get_title()
     assert [label.get_text() for label in axis.get_legend().get_texts()] == [
-        "mode=a: n=12; Spearman ρ=+1.00", "mode=b: n=12; Spearman ρ=-1.00",
+        "mode=a: n=12; Spearman ρ=+1.00",
+        "mode=b: n=12; Spearman ρ=-1.00",
     ]
     np.testing.assert_allclose(axis.collections[0].get_offsets(), frame.loc[12:23, ["weight", "HOTA"]])
     np.testing.assert_allclose(axis.collections[1].get_offsets(), frame.loc[24:35, ["weight", "HOTA"]])

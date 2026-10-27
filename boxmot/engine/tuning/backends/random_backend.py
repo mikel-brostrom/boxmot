@@ -19,4 +19,4 @@ class RandomBackend(BaseTuneBackend):
 
         from ray.tune.search.basic_variant import BasicVariantGenerator
 
-        return BasicVariantGenerator(random_state=self.seed), param_space
+        return BasicVariantGenerator(random_state=self.seed, max_concurrent=self.max_concurrent), param_space

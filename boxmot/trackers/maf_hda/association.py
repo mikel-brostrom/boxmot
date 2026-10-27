@@ -139,17 +139,18 @@ def mask_merge_groups(masks: list[np.ndarray], classes: list[int], threshold: fl
             index = parents[index]
         return index
 
-    for i, first in enumerate(masks):
-        for j in range(i + 1, len(masks)):
-            if classes[i] != classes[j]:
-                continue
-            a, b = supports[i], supports[j]
-            x1, y1, x2, y2 = max(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), min(a[3], b[3])
-            if x2 <= x1 or y2 <= y1:
-                continue
-            intersection = int(np.count_nonzero(first[y1:y2, x1:x2] & masks[j][y1:y2, x1:x2]))
-            if intersection / (areas[i] + areas[j] - intersection) >= threshold:
-                parents[root(j)] = root(i)
+    boxes = np.asarray(supports, dtype=int).reshape(-1, 4)
+    labels = np.asarray(classes)
+    candidates = labels[:, None] == labels[None, :]
+    candidates &= (boxes[:, None, 0] < boxes[None, :, 2]) & (boxes[None, :, 0] < boxes[:, None, 2])
+    candidates &= (boxes[:, None, 1] < boxes[None, :, 3]) & (boxes[None, :, 1] < boxes[:, None, 3])
+    rows, columns = np.nonzero(np.triu(candidates, k=1))
+    for i, j in zip(rows, columns, strict=True):
+        a, b = supports[i], supports[j]
+        x1, y1, x2, y2 = max(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), min(a[3], b[3])
+        intersection = int(np.count_nonzero(masks[i][y1:y2, x1:x2] & masks[j][y1:y2, x1:x2]))
+        if intersection / (areas[i] + areas[j] - intersection) >= threshold:
+            parents[root(j)] = root(i)
     groups: dict[int, list[int]] = {}
     for index in range(len(masks)):
         groups.setdefault(root(index), []).append(index)

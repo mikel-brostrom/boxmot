@@ -34,6 +34,7 @@ from boxmot.engine.eval.replay import (
     _drain_progress_queue,
     _emit_worker_progress,
     _initialize_replay_worker,
+    _placeholder_image,
     _publish_progress,
     _write_rows,
     tracks_to_mot_rows,
@@ -80,11 +81,13 @@ class _SavedSequenceResult:
 _WORKER_TRACKING: TrackingPipeline | None = None
 
 
-def _create_saved_encoder(spec: ReIDEncoderSpec | None, cache_root: Path | None) -> Any:
+def _create_saved_encoder(spec: ReIDEncoderSpec | None, cache_root: Path | None, *, resources: ExitStack) -> Any:
     """Build one private encoder per process, optionally backed by saved embeddings."""
     if spec is None:
         return None
     encoder = create_reid_encoder(spec)
+    if callable(getattr(encoder, "close", None)):
+        resources.callback(encoder.close)
     if encoder.requirements.masks:
         raise ValueError("The selected ReID encoder requires masks; this dataset declares only 2D boxes.")
     if cache_root is not None:
@@ -109,9 +112,7 @@ def _initialize_saved_worker(
     tracker = create_tracker(spec)
     if callable(getattr(tracker, "close", None)):
         resources.callback(tracker.close)
-    encoder = _create_saved_encoder(encoder_spec, cache_root)
-    if callable(getattr(encoder, "close", None)):
-        resources.callback(encoder.close)
+    encoder = _create_saved_encoder(encoder_spec, cache_root, resources=resources)
     _WORKER_TRACKING = TrackingPipeline(detector=None, tracker=tracker, reid=encoder)
 
 
@@ -125,6 +126,7 @@ def _replay_saved_sequence(
     """Track one sequence identically in serial and spawned execution."""
     name = task.source.sequence_id
     completed = 0
+    placeholder_images: dict[tuple[int, int], torch.Tensor] = {}
 
     def emit(status: str, detail: str | None = None) -> None:
         if progress_callback is not None:
@@ -143,7 +145,7 @@ def _replay_saved_sequence(
                         else read_rgb_chw_uint8(path.as_uri(), task.dataset.root)
                     )
                 else:
-                    image = torch.zeros((3, *sample.image_size), dtype=torch.uint8)
+                    image = _placeholder_image(sample.image_size, placeholder_images)
                 frame = Frame(
                     image=image,
                     sample_id=sample.detections.sample_id,
@@ -336,7 +338,7 @@ def run_saved_detections(args: Any, *, pipeline: Any | None = None) -> Validatio
                 encoder_spec = replace(encoder_spec, device=str(args.device))
             reid_provenance = {**reid_provenance, "spec": asdict(encoder_spec)}
         cache_root = dataset.root / ".boxmot" / "replay_cache" / "embeddings" if cache_inputs else None
-        encoder = _create_saved_encoder(encoder_spec, cache_root) if workers == 1 else None
+        encoder = _create_saved_encoder(encoder_spec, cache_root, resources=resources) if workers == 1 else None
 
         tracking_dataset = _tracking_inputs(dataset)
         show, save = bool(getattr(args, "show", False)), bool(getattr(args, "save", False))
