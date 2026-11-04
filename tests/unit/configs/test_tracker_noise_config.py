@@ -9,7 +9,15 @@ from pathlib import Path
 import pytest
 import yaml
 
-from boxmot import AbnormalMotionSuppressionConfig, KalmanConfig, KalmanNoiseConfig, OcSort, create_tracker
+from boxmot import (
+    AbnormalMotionSuppressionConfig,
+    EagerMot,
+    KalmanConfig,
+    KalmanNoiseConfig,
+    MafHda,
+    OcSort,
+    create_tracker,
+)
 from boxmot.trackers import TrackerSpec
 from boxmot.trackers.common.config import (
     flatten_tracker_options,
@@ -35,14 +43,22 @@ def test_grouped_runtime_yaml_merges_fields_without_resetting_prior_overrides(tm
     assert tracker.kalman_noise_config.measurement_noise_scale == 2.5
 
 
-def test_direct_factory_and_yaml_configs_create_the_same_noise(tmp_path: Path) -> None:
+@pytest.mark.parametrize("name,tracker_class", [("ocsort", OcSort), ("maf_hda", MafHda), ("eagermot", EagerMot)])
+@pytest.mark.parametrize("variable_dt", [False, True])
+def test_direct_factory_and_yaml_configs_create_the_same_noise(
+    name: str, tracker_class: type[OcSort | MafHda | EagerMot], variable_dt: bool, tmp_path: Path
+) -> None:
+    """Trackers preserve noise settings and their selected time units."""
     noise = KalmanNoiseConfig(process_position_scale=1.3, measurement_noise_scale=2.5)
-    direct = OcSort(kalman=KalmanConfig(noise=noise, variable_dt=True))
-    factory = create_tracker("ocsort", kalman=KalmanConfig(noise=noise, variable_dt=True))
+    config = KalmanConfig(noise=noise, variable_dt=variable_dt)
+    direct = tracker_class(kalman=config)
+    factory = create_tracker(name, kalman=config)
     profile = tmp_path / "calibrated.yaml"
-    profile.write_text(yaml.safe_dump(nest_tracker_options({"kalman": KalmanConfig(noise=noise, variable_dt=True)})))
-    loaded = create_tracker("ocsort", options=load_tracker_config("ocsort", profile))
-    assert direct.kalman_noise_config == factory.kalman_noise_config == loaded.kalman_noise_config
+    profile.write_text(yaml.safe_dump(nest_tracker_options({"kalman": config})))
+    loaded = create_tracker(name, options=load_tracker_config(name, profile))
+    assert direct.variable_dt == factory.variable_dt == loaded.variable_dt == variable_dt
+    expected_noise = noise.resolve(variable_dt=variable_dt)
+    assert direct.kalman_noise_config == factory.kalman_noise_config == loaded.kalman_noise_config == expected_noise
     assert noise.time_unit is None  # Resolution must not mutate reusable user settings.
     with pytest.raises(FrozenInstanceError):
         noise.measurement_noise_scale = 9.0
@@ -106,10 +122,10 @@ def test_saved_units_cannot_be_reinterpreted_by_factory() -> None:
         create_tracker("ocsort", kalman=KalmanConfig(noise=noise, variable_dt=True))
 
 
-@pytest.mark.parametrize("name", ["sfsort", "maf_hda"])
-def test_non_kalman_factory_rejects_explicit_noise(name: str) -> None:
+def test_non_kalman_factory_rejects_explicit_noise() -> None:
+    """SFSORT has no Gaussian motion state and rejects explicit Kalman settings."""
     with pytest.raises((TypeError, ValueError), match="[Kk]alman"):
-        create_tracker(name, kalman=KalmanConfig())
+        create_tracker("sfsort", kalman=KalmanConfig())
 
 
 def test_native_factory_rejects_nondefault_noise_before_loading_bindings() -> None:
@@ -139,7 +155,8 @@ def test_factory_binds_single_class_calibration_to_its_declared_class() -> None:
         ("ocsort", KalmanConfig(adaptive_kf=False)),
         ("botsort", KalmanConfig(is_angular=False)),
         ("eagermot", KalmanConfig(ams=AbnormalMotionSuppressionConfig(enabled=False))),
-        ("eagermot", KalmanConfig(variable_dt=True)),
+        ("eagermot", KalmanConfig(type="xyah")),
+        ("maf_hda", KalmanConfig(type="xyah")),
     ],
 )
 def test_grouped_config_rejects_unsupported_filter_policies(name: str, config: KalmanConfig) -> None:
@@ -148,7 +165,7 @@ def test_grouped_config_rejects_unsupported_filter_policies(name: str, config: K
 
 
 def test_grouped_policy_yaml_and_direct_constructor_preserve_defaults(tmp_path: Path) -> None:
-    from boxmot import EagerMot, OccluBoost
+    from boxmot import OccluBoost
 
     assert OccluBoost().kalman_config.ams == AbnormalMotionSuppressionConfig()
     config = KalmanConfig(
