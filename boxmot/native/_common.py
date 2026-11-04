@@ -52,8 +52,21 @@ def run_build_step(
     :func:`set_build_status_fn`), captures stdout/stderr line-by-line and
     forwards each line to the callback so it appears inside the active Rich
     workflow panel. When no callback is active, falls back to the legacy
-    behaviour of streaming output to the terminal.
+    behaviour of streaming output to the terminal. Raises ``RuntimeError``
+    with native setup instructions when the CMake executable is unavailable.
     """
+    if shutil.which(cmd[0]) is None:
+        raise RuntimeError(
+            f"CMake executable {cmd[0]!r} was not found on PATH.\n"
+            "Native builds require CMake 3.16+, a C++17 compiler, OpenCV 4.x development files, "
+            "and Eigen3 3.3+ headers.\n"
+            "On Debian/Ubuntu/Pop!_OS, run:\n"
+            "  sudo apt update\n"
+            "  sudo apt install --no-install-recommends build-essential cmake libopencv-dev libeigen3-dev\n"
+            "Setup instructions for all platforms: "
+            "https://mikel-brostrom.github.io/boxmot/native/#install-dependencies"
+        )
+
     if status_fn is None:
         status_fn = get_build_status_fn()
 

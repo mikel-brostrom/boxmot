@@ -46,6 +46,10 @@ authored detector, ReID profile, and dataset settings. For `eval` and `tune`,
 clear the experiment before choosing dataset and component selectors directly;
 the normal CLI rules for matching a catalog experiment still apply.
 
+Selecting `cpp` for the tracker backend can compile its native library on first
+use. Install the [native build dependencies](../native/index.md#install-dependencies)
+before running it. Select `python` to use the Python tracker backend.
+
 | Key | Action |
 | --- | --- |
 | Up / Down / Tab | Select a field |

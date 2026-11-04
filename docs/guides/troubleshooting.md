@@ -158,6 +158,14 @@ The Python `opencv-python` package does not supply C++ headers. See
 [native dependency installation](../native/index.md#install-dependencies) for
 platform commands and `boxmot build --tracker NAME` for an explicit build.
 
+If setup reports that `cmake` is missing, install those dependencies and ensure
+the `cmake` executable is on `PATH` in the terminal running BoxMOT. Verify a
+ByteTrack build before retrying the command or `boxmot ui`:
+
+```bash
+boxmot build --tracker bytetrack
+```
+
 ## Experiment workflows
 
 ### `eval` says the build is incompatible

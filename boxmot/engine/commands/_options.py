@@ -479,7 +479,8 @@ def tracker_backend_option(*, default: str) -> Callable:
         show_default=True,
         help=(
             "Tracker implementation backend. Native 'cpp' is available for "
-            "botsort, bytetrack, occluboost, ocsort, and sfsort."
+            "botsort, bytetrack, occluboost, ocsort, and sfsort. "
+            "Building native libraries requires CMake, a C++17 compiler, OpenCV development files, and Eigen3."
         ),
     )
 
