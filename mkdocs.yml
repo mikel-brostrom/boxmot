@@ -7,6 +7,7 @@ edit_uri: blob/master/docs/
 theme:
   name: material
   logo: logo/logo_white.png
+  favicon: logo/favicon.png
   icon:
     repo: fontawesome/brands/github
   palette:
