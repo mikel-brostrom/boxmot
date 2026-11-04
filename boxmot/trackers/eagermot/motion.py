@@ -11,6 +11,7 @@ from collections.abc import Sequence
 import numpy as np
 
 from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
+from boxmot.trackers.common.motion.kalman_filters.timing import elapsed_motion, validate_dt
 from boxmot.trackers.eagermot.geometry import yaw_difference
 
 
@@ -18,8 +19,9 @@ class Kalman3D:
     """Filter ``[x, y, z, yaw, l, w, h]`` bottom-center, y-down boxes.
 
     State appends ``[vx, vy, vz]``, and optionally yaw velocity when
-    ``is_angular=True``. Prediction advances exactly one frame. Covariance
-    scales multiply the released source priors; defaults preserve their values.
+    ``is_angular=True``. Prediction uses one frame or an explicit elapsed
+    interval. Covariance scales multiply the released source priors; defaults
+    preserve their values.
     """
 
     def __init__(
@@ -32,10 +34,9 @@ class Kalman3D:
         self.noise_config = noise_config if noise_config is not None else KalmanNoiseConfig()
         if not isinstance(self.noise_config, KalmanNoiseConfig):
             raise TypeError("noise_config must be KalmanNoiseConfig.")
-        if self.noise_config.time_unit == "seconds":
-            raise ValueError("Kalman3D requires kalman.noise.time_unit='frames'; prediction advances one frame.")
-        self.noise_config = self.noise_config.resolve()
+        self.noise_config = self.noise_config.resolve(variable_dt=self.noise_config.time_unit == "seconds")
         dimensions = 11 if is_angular else 10
+        self.noise_config.validate_layout(dimensions, 7)
         self.state = np.zeros(dimensions, dtype=np.float64)
         self.state[:7] = measurement
         self.covariance = self.noise_config.initial_covariance(
@@ -45,9 +46,8 @@ class Kalman3D:
         self._transition[:3, 7:10] = np.eye(3)
         if is_angular:
             self._transition[3, 10] = 1.0
-        self._process_noise = self.noise_config.process_covariance(
-            np.diag([1.0] * 7 + [0.01] * (dimensions - 7)), velocity_start=7
-        )
+        self._process_prior = np.diag([1.0] * 7 + [0.01] * (dimensions - 7))
+        self._process_noise = self.noise_config.process_covariance(self._process_prior, velocity_start=7)
         self._measurement_noise = self.noise_config.measurement_covariance(np.eye(7) * 0.01)
 
     @staticmethod
@@ -63,10 +63,23 @@ class Kalman3D:
         """Return the current seven box coordinates as an independent array."""
         return self.state[:7].copy()
 
-    def predict(self) -> np.ndarray:
-        """Advance one frame, including frames with no incoming 3D measurements."""
-        self.state = self._transition @ self.state
-        self.covariance = self._transition @ self.covariance @ self._transition.T + self._process_noise
+    def _motion(self, dt: float | None) -> tuple[np.ndarray, np.ndarray]:
+        """Resolve one interval without mutating state or calibrated priors."""
+        dt = validate_dt(dt)
+        if dt is None:
+            if self.noise_config.time_unit == "seconds":
+                raise ValueError(
+                    "A Kalman filter configured in seconds requires an explicit measured dt for prediction."
+                )
+            return self._transition, self._process_noise
+        density = self.noise_config.process_covariance(self._process_prior, velocity_start=7, continuous=True)
+        return elapsed_motion(self._transition, density, dt)
+
+    def predict(self, *, dt: float | None = None) -> np.ndarray:
+        """Advance one interval, including updates without incoming 3D measurements."""
+        transition, noise = self._motion(dt)
+        self.state = transition @ self.state
+        self.covariance = transition @ self.covariance @ transition.T + noise
         return self.box
 
     def update(self, box: np.ndarray) -> np.ndarray:
@@ -92,24 +105,26 @@ class Kalman3D:
         return list(groups.values())
 
     @staticmethod
-    def multi_predict(filters: Sequence[Kalman3D]) -> np.ndarray:
+    def multi_predict(filters: Sequence[Kalman3D], *, dt: float | None = None) -> np.ndarray:
         """Advance independent filters using batched matrix operations.
 
         Angular and linear states may be mixed. Each filter retains its own
         transition, covariance, and process noise; the returned boxes follow
         input order and do not alias the updated states.
         """
+        dt = validate_dt(dt)
+        motions = [model._motion(dt) for model in filters]
         boxes = np.empty((len(filters), 7), dtype=np.float64)
         for indices in Kalman3D._groups(filters):
             if len(indices) == 1:
                 index = indices[0]
-                boxes[index] = filters[index].predict()
+                boxes[index] = filters[index].predict(dt=dt)
                 continue
             models = [filters[index] for index in indices]
             states = np.stack([model.state for model in models])
             covariances = np.stack([model.covariance for model in models])
-            transitions = np.stack([model._transition for model in models])
-            process_noise = np.stack([model._process_noise for model in models])
+            transitions = np.stack([motions[index][0] for index in indices])
+            process_noise = np.stack([motions[index][1] for index in indices])
             states = (transitions @ states[..., None])[..., 0]
             covariances = transitions @ covariances @ transitions.swapaxes(-1, -2) + process_noise
             boxes[indices] = states[:, :7]

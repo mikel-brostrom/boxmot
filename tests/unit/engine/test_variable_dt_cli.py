@@ -43,6 +43,34 @@ def test_cli_timing_flags_preserve_optional_override(monkeypatch, mode, flag, ex
     assert captured["args"].variable_dt is expected
 
 
+@pytest.mark.parametrize("mode", ["eval", "tune"])
+@pytest.mark.parametrize("backend", ["python", "cpp"])
+def test_sfsort_variable_timing_fails_before_workflow(monkeypatch, mode, backend) -> None:
+    def unexpected_workflow(*args):
+        pytest.fail("SFSORT variable timing must fail before loading models or replay data")
+
+    monkeypatch.setattr(_support, "_run_engine_workflow", unexpected_workflow)
+    argv = [mode, "--tracker", "sfsort", "--tracker-backend", backend, "--variable-dt"]
+    argv += ["--experiment", "mot17/ablation-yolox-lmbn.yaml", "--build", "fixture-build"]
+    result = CliRunner().invoke(boxmot, argv)
+    assert result.exit_code == 2
+    assert "sfsort" in result.output
+    assert "does not support kalman" in result.output
+
+
+@pytest.mark.parametrize("backend", ["python", "cpp"])
+def test_live_sfsort_variable_timing_fails_before_detector_loading(monkeypatch, backend) -> None:
+    from boxmot.engine.tracking import workflow
+
+    def unexpected_detector(*args):
+        pytest.fail("SFSORT variable timing must fail before loading perception")
+
+    monkeypatch.setattr(workflow, "create_detector", unexpected_detector)
+    args = SimpleNamespace(tracker="sfsort", tracker_backend=backend, variable_dt=True)
+    with pytest.raises(ValueError, match="sfsort.*does not support kalman"):
+        workflow.run_track(args)
+
+
 def test_tune_cli_preserves_repeated_selected_kf_scales(monkeypatch):
     captured = {}
     monkeypatch.setattr(_support, "_run_engine_workflow", lambda module, args: captured.setdefault("args", args))
@@ -146,6 +174,23 @@ def test_builtin_timing_and_kf_noise_are_fixed_default_only(tracker):
         assert parameter not in default_tune_config(schema)
 
 
+@pytest.mark.parametrize("tracker", ["maf_hda", "eagermot"])
+def test_additional_trackers_keep_timing_out_of_search_space(tracker):
+    schema = flatten_yaml_config(load_yaml_config(tracker))
+    assert schema["kalman.variable_dt"] == {"default": False}
+    assert load_tracker_defaults(tracker)["kalman.noise.time_unit"] is None
+    assert "kalman.variable_dt" not in default_tune_config(schema)
+
+
+def test_sfsort_defaults_and_saved_runtime_options_have_no_kalman_settings() -> None:
+    from boxmot.engine.config.trackers import resolve_tracker_options
+
+    schema = flatten_yaml_config(load_yaml_config("sfsort"))
+    runtime = resolve_tracker_options(SimpleNamespace(tracker="sfsort"), include_defaults=True, stamp_timing=True)
+    assert not any(key.startswith("kalman.") for key in schema)
+    assert not any(key.startswith("kalman.") for key in runtime)
+
+
 def test_search_backends_skip_fixed_timing_mode():
     schema = {
         "kalman.variable_dt": {"default": True},
@@ -182,8 +227,9 @@ def test_saved_runtime_config_and_trial_identity_include_timing(tmp_path):
 
 
 @pytest.mark.parametrize("requested, saved", [(True, False), (False, True)])
-def test_tune_resume_rejects_changed_timing_mode(requested, saved):
-    tuner = Tuner(SimpleNamespace(tracker="bytetrack", variable_dt=requested))
+@pytest.mark.parametrize("tracker", ["bytetrack", "maf_hda"])
+def test_tune_resume_rejects_changed_timing_mode(requested, saved, tracker):
+    tuner = Tuner(SimpleNamespace(tracker=tracker, variable_dt=requested))
     with pytest.raises(ValueError, match="same kalman.variable_dt"):
         tuner._validate_resumed_timing(
             [

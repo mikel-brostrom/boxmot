@@ -8,6 +8,23 @@ fails. BoxMOT integrates the
 [authors' Python implementation](https://github.com/aleksandrkim61/EagerMOT)
 under `boxmot/trackers/eagermot`.
 
+## Tasks and variants
+
+| Task | Default variant | Other variants |
+| --- | --- | --- |
+| [2D/3D fusion](../tasks/fusion.md) | [Calibrated fusion without ego poses](../tasks/fusion.md#variants) | [Fusion with ego-motion compensation](../tasks/fusion.md#variants) |
+
+The camera input selects the variant. Supply `camera_to_world` on every
+update for ego-motion compensation, or omit it throughout the sequence.
+
+For irregular capture intervals, enable `KalmanConfig(variable_dt=True)` and
+supply `timestamp_s=` or `Frame.timestamp_s` on every update. The 3D filter uses
+elapsed seconds for position, optional yaw velocity, and process covariance.
+Timestamps must increase strictly, including on updates with empty detections.
+Fixed-step tracking remains the default, and lifetime limits still count updates.
+The 3D noise calibration workflow currently requires fixed-step timing.
+See [capture timing](../python/index.md#elapsed-time).
+
 ## Required inputs
 
 Use the Python tracker API with independent 2D and 3D detection batches plus
@@ -19,10 +36,11 @@ camera calibration on every update. NumPy inputs use these layouts:
 | `detections_3d` | `(M, 9)` | `x, y, z, yaw, length, width, height, confidence, class_id` |
 | `camera` | `(3, 4)` | Camera projection matrix |
 
-Pass `image_size=(height, width)` with a NumPy camera matrix, or supply a frame
-from which the tracker can read the dimensions. An optional `camera_to_world`
-NumPy matrix has shape `(4, 4)`. Calibration is still required to associate
-projected 3D boxes with image detections.
+Supply a frame with a NumPy camera matrix so the tracker can read the image
+dimensions. For tracking without a frame, pass a `CameraModel` with
+`image_size=(height, width)`. An optional `camera_to_world` NumPy matrix has
+shape `(4, 4)`. Calibration is still required to associate projected 3D boxes
+with image detections.
 
 The detection batches have independent rows and lengths. Pass `np.empty((0, 6))`
 or `np.empty((0, 9))` when the corresponding detector has no observations. Map
@@ -30,8 +48,8 @@ both detectors into the same class-ID catalog before fusion.
 
 Canonical `Detections`, `Detections3D`, and `CameraModel` inputs are also
 accepted and may be mixed with NumPy inputs. A `CameraModel` already contains
-its image size and optional pose, so do not pass separate `image_size` or
-`camera_to_world` arguments with it.
+its image size and optional pose, so do not pass a separate `camera_to_world`
+argument with it.
 
 `sample_id` is optional on both canonical detection batches. The tracker uses an ID supplied
 by either batch or the optional `Frame`; supplied IDs must agree. If all IDs are
@@ -95,8 +113,9 @@ ego-motion data is available. Every declared input must still exist. Masks remai
 optional for the Python tracker API.
 It supports one camera per sequence, with fixed calibration and synchronized
 sensor observations. Set dataset `fps` to your recording rate; it controls
-timestamps and saved video playback speed. EagerMOT still advances one motion
-step per image. Initial class profiles use the KITTI presets, so tune on your training
+timestamps and saved video playback speed. EagerMOT uses fixed motion steps by
+default; `--variable-dt` uses the interval between capture timestamps instead.
+Initial class profiles use the KITTI presets, so tune on your training
 sequences and evaluate the saved `best.yaml` on held-out recordings.
 
 ## Evaluate downloaded KITTI predictions
@@ -398,8 +417,9 @@ profile, including a changed `kalman.is_angular` state layout, fails before repl
 Optuna starts; the fitted scales stay fixed by default. Select a scale explicitly,
 such as `--tune-kf measurement_noise_scale`, to search around each class's fitted
 value. Each class's `kalman.is_angular` setting stays fixed, and the grouped settings are
-included in `best.yaml`. Prediction still
-advances one frame per image; variable-time prediction is unsupported.
+included in `best.yaml`. Evaluation and tuning can use capture timestamps with
+`--variable-dt`. The 3D Kalman calibration workflow requires fixed-step mode
+and rejects variable timing.
 Loading profiles with `--class-config` also keeps their `kalman.is_angular` choices
 fixed. Tuning without either flag can search the angular-motion choice.
 
@@ -435,15 +455,22 @@ the current frame's pose for each update in a real sequence.
 
 ```python
 import numpy as np
+import torch
 
 from boxmot import EagerMot
+from boxmot.structures import CameraModel
 
 tracker = EagerMot()
-camera = np.array(
-    [[100, 0, 100, 0], [0, 100, 50, 0], [0, 0, 1, 0]], dtype=float
+projection = torch.tensor(
+    [[100, 0, 100, 0], [0, 100, 50, 0], [0, 0, 1, 0]], dtype=torch.float32
 )
-camera_to_world = np.eye(4)
+camera_to_world = torch.eye(4, dtype=torch.float32)
 camera_to_world[0, 3] = 1.0  # synthetic pose: camera at world x = 1 meter
+camera = CameraModel(
+    projection=projection,
+    image_size=(100, 200),  # height, width
+    camera_to_world=camera_to_world,
+)
 dets = np.array([[78, 39, 122, 62, 0.95, 0]])
 # 3D: bottom-face center (x, y, z), yaw, length, width, height, confidence, class_id
 dets_3d = np.array([[0, 1, 10, 0, 4, 2, 2, 0.9, 0]])
@@ -452,8 +479,6 @@ image_tracks, spatial_tracks = tracker.update(
     dets,
     detections_3d=dets_3d,
     camera=camera,
-    image_size=(100, 200),  # height, width; a supplied frame also provides this
-    camera_to_world=camera_to_world,
 )
 print(image_tracks[:, 4].astype(int))    # image track IDs
 print(spatial_tracks[:, 7].astype(int))  # 3D track IDs
@@ -463,9 +488,10 @@ tracker.reset()
 
 Pass absolute 4×4 camera-to-world transforms on every update for ego-motion
 compensation. KITTI evaluation reads these from `poses.npy` when the dataset
-declares a `poses` modality. If poses are unavailable, omit `camera_to_world`
-throughout the sequence to track in camera coordinates. Spatial outputs remain
-in the current camera coordinates in either case.
+declares a `poses` modality. If poses are unavailable, omit
+`CameraModel.camera_to_world` throughout the sequence to track in camera
+coordinates. Spatial outputs remain in the current camera coordinates in
+either case.
 
 ## Outputs and lifecycle
 
@@ -507,8 +533,11 @@ confidence.
 
 ## Configuration and scope
 
-`boxmot/configs/trackers/eagermot.yaml` uses scalar defaults from the upstream
-KITTI car preset. `first_matching_method` selects the 3D association metric;
+`EagerMotConfig` owns algorithm defaults based on the upstream KITTI car
+preset. `boxmot/configs/trackers/eagermot.yaml` adds the search ranges used
+during tuning. The saved-sensor runner loads separate car and pedestrian
+profiles, so its defaults differ from constructing one `EagerMot()` directly.
+`first_matching_method` selects the 3D association metric;
 `distance_threshold` is a positive maximum distance, while
 `iou_3d_threshold` applies to 3D IoU matching. `fusion_iou_threshold` controls
 2D/3D observation fusion and `iou_threshold` controls second-stage image

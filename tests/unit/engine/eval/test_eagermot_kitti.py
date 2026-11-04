@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -77,10 +78,15 @@ def _arguments(data: SimpleNamespace) -> list[str]:
 
 
 @pytest.mark.parametrize("cache_inputs", (False, True))
-def test_cli_evaluates_actual_sensor_inputs_and_preserves_previous_results(tmp_path: Path, cache_inputs: bool) -> None:
+@pytest.mark.parametrize("variable_dt", (False, True))
+def test_cli_evaluates_actual_sensor_inputs_and_preserves_previous_results(
+    tmp_path: Path, cache_inputs: bool, variable_dt: bool
+) -> None:
     data = _fixture(tmp_path)
     previous_threads = torch.get_num_threads()
     arguments = [*_arguments(data), "--cache-inputs" if cache_inputs else "--no-cache-inputs"]
+    if variable_dt:
+        arguments.append("--variable-dt")
     invocation = CliRunner().invoke(boxmot, arguments)
     assert invocation.exit_code == 0, (invocation.output, invocation.exception)
     assert torch.get_num_threads() == previous_threads
@@ -99,6 +105,11 @@ def test_cli_evaluates_actual_sensor_inputs_and_preserves_previous_results(tmp_p
     manifest = json.loads((output / "run.json").read_text())
     assert manifest["status"] == "complete"
     assert manifest["cache_inputs"] is cache_inputs
+    assert all(profile["kalman.variable_dt"] is variable_dt for profile in manifest["tracker_profiles"].values())
+    assert all(
+        profile["kalman.noise.time_unit"] == ("seconds" if variable_dt else "frames")
+        for profile in manifest["tracker_profiles"].values()
+    )
     assert manifest["split"] == "val"
     assert manifest["sequences"] == {"0002": 3}
     assert manifest["dataset_config"] == str(data.dataset.resolve())
@@ -141,6 +152,55 @@ def test_class_replay_retains_empty_frame_and_original_detection_indices(tmp_pat
     torch.testing.assert_close(recovered.track_ids, first.track_ids)
     assert recovered.detection_indices.tolist() == [1, 0]
     assert all(tracker.frame_count == 3 for tracker in trackers.values())
+
+
+def test_sensor_replay_passes_irregular_timestamps_through_empty_observations(tmp_path: Path) -> None:
+    """Both independent class trackers receive the sequence's capture clock."""
+    data = _fixture(tmp_path)
+    sequence = MultimodalSequence(
+        data.sequence_inputs(),
+        classes={"car": {"id": 1, "evaluation": "target"}, "pedestrian": {"id": 2, "evaluation": "target"}},
+        fps=10.0,
+        split="val",
+    )
+    trackers = {
+        class_id: _create_kitti_tracker(profile)
+        for class_id, profile in load_kitti_profiles(variable_dt=True).items()
+    }
+    _track_frame(replace(sequence[0], timestamp_s=10.0), trackers)
+    initial_x = {}
+    for class_id, tracker in trackers.items():
+        motion = tracker._tracks[0].motion
+        initial_x[class_id] = float(motion.state[0])
+        motion.state[7] = 2.0
+
+    _track_frame(replace(sequence[1], timestamp_s=10.25), trackers)
+
+    for class_id, tracker in trackers.items():
+        assert tracker._prediction_dt == pytest.approx(0.25)
+        assert tracker._tracks[0].motion.state[0] == pytest.approx(initial_x[class_id] + 0.5)
+        assert tracker.frame_count == 2
+    _track_frame(replace(sequence[1], timestamp_s=10.65), trackers)
+    for class_id, tracker in trackers.items():
+        assert tracker._prediction_dt == pytest.approx(0.4)
+        assert tracker._tracks[0].motion.state[0] == pytest.approx(initial_x[class_id] + 1.3)
+
+
+def test_class_profiles_resolve_timing_and_preserve_explicit_noise_units(tmp_path: Path) -> None:
+    """Fresh defaults adopt the selected clock; authored units must agree with it."""
+    path = tmp_path / "timed.yaml"
+    path.write_text("car: {kalman: {variable_dt: true}}\npedestrian: {}\n", encoding="utf-8")
+    authored = load_kitti_profiles(path)
+    assert authored[1]["kalman.variable_dt"] is True
+    assert authored[1]["kalman.noise.time_unit"] == "seconds"
+    assert authored[2]["kalman.variable_dt"] is False
+    overridden = load_kitti_profiles(path, variable_dt=True)
+    assert all(profile["kalman.variable_dt"] for profile in overridden.values())
+    assert all(profile["kalman.noise.time_unit"] == "seconds" for profile in overridden.values())
+    assert KITTI_PROFILES[1]["kalman.variable_dt"] is False
+    path.write_text("car: {kalman: {noise: {time_unit: frames}}}\npedestrian: {}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="conflicts with variable_dt"):
+        load_kitti_profiles(path, variable_dt=True)
 
 
 @pytest.mark.parametrize(

@@ -35,6 +35,7 @@ class _FakeLibrary:
         detection_indices,
         embeddings,
         image,
+        dt=0.0,
     ):
         self.last_embeddings = embeddings
         return empty_native_batch(geometry.shape[1])

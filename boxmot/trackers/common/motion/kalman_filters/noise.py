@@ -16,7 +16,7 @@ KALMAN_TRACKER_NAMES = frozenset(
         "hybridsort", "occluboost", "ocsort", "strongsort",
     }
 )
-KALMAN_NOISE_TRACKER_NAMES = KALMAN_TRACKER_NAMES | {"eagermot"}
+KALMAN_NOISE_TRACKER_NAMES = KALMAN_TRACKER_NAMES | {"eagermot", "maf_hda"}
 KALMAN_NOISE_OPTIONS = (
     "kalman.noise.process_position_scale",
     "kalman.noise.process_velocity_scale",
@@ -239,14 +239,21 @@ class KalmanNoiseConfig:
     def is_default(self) -> bool:
         """Return whether all existing covariance values are preserved."""
         return (
+            self.has_default_scaling
+            and self.time_unit in (None, "frames")
+            and self.reference_dt_s == DEFAULT_REFERENCE_DT_S
+        )
+
+    @property
+    def has_default_scaling(self) -> bool:
+        """Return whether covariance tuning is absent, independently of time units."""
+        return (
             self.process_position_scale == 1.0
             and self.process_velocity_scale == 1.0
             and self.measurement_noise_scale == 1.0
             and self.initial_position_scale == 1.0
             and self.initial_velocity_scale == 1.0
             and not any(getattr(self, option.removeprefix("kalman.noise.")) for option in KALMAN_VECTOR_OPTIONS)
-            and self.time_unit in (None, "frames")
-            and self.reference_dt_s == DEFAULT_REFERENCE_DT_S
             and not self.by_class
         )
 
@@ -421,13 +428,9 @@ def normalize_kalman_options(
         if isinstance(nested, KalmanNoiseConfig)
         else KalmanNoiseConfig.from_mapping(values if nested is None else nested)
     ).resolve(variable_dt=variable_dt)
-    if variable_dt and backend != "python":
-        raise ValueError("The native tracker backend does not support variable_dt=True; use the Python backend.")
-    if tracker_name is not None and tracker_name not in KALMAN_TRACKER_NAMES and variable_dt:
-        raise ValueError(f"Tracker {tracker_name!r} does not support variable_dt.")
     declared = "kalman.noise" in options or bool(values)
-    if declared and tracker_name is not None and tracker_name not in KALMAN_NOISE_TRACKER_NAMES:
+    if (declared or variable_dt) and tracker_name is not None and tracker_name not in KALMAN_NOISE_TRACKER_NAMES:
         raise ValueError(f"Tracker {tracker_name!r} does not support kalman.noise settings.")
-    if not config.is_default and backend != "python":
+    if not config.has_default_scaling and backend != "python":
         raise ValueError("Kalman noise scaling requires a Python Kalman tracker.")
     return config

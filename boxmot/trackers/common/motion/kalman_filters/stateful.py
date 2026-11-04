@@ -52,7 +52,8 @@ def predict_many(
     """Predict independent matrix-state filters using batched linear algebra.
 
     Q and F may be shared matrices or sequences of per-filter overrides.
-    Explicit matrices are already discrete, matching ``predict_state``.
+    Explicit matrices are already discrete and do not enable measured-time
+    replay without dt, matching ``predict_state``.
     History bookkeeping stays instance-local, including measured-time replay.
     """
     filters = list(filters)
@@ -73,7 +74,7 @@ def predict_many(
             transition, integrated = kf._elapsed_motion(noise, interval, motion_mat=kf.F)
         transition = supplied_f if supplied_f is not None else (kf.F if interval is None else transition)
         noise = noise if supplied_q is not None else integrated
-        if interval is not None or supplied_f is not None or supplied_q is not None:
+        if interval is not None:
             kf._time_aware = True
             if kf._unrecorded_prediction:
                 kf._prediction_history_overflowed = True

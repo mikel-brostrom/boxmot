@@ -251,6 +251,12 @@ def test_native_enabled_cmc_rejects_unavailable_estimators(name: str, method: st
 
 
 @pytest.mark.parametrize("name", _NATIVE_TRACKERS)
-def test_native_trackers_do_not_claim_variable_frame_time(name: str) -> None:
-    with pytest.raises(ValueError, match="kalman.variable_dt"):
-        _NATIVE_TRACKERS[name]({"kalman.variable_dt": True}, library=_Library())
+def test_native_trackers_require_timestamps_when_variable_frame_time_is_enabled(name: str) -> None:
+    tracker = _NATIVE_TRACKERS[name]({"kalman.variable_dt": True}, library=_Library())
+    try:
+        assert tracker.supports_variable_dt
+        assert tracker.requirements.timestamp
+        with pytest.raises(ValueError, match="requires timestamp_s"):
+            tracker.validate_timing()
+    finally:
+        tracker.close()

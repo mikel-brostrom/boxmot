@@ -16,7 +16,7 @@ from boxmot.engine.calibration.kalman_fit import apply_global_noise_fallback, fi
 from boxmot.trackers.common.config import flatten_tracker_options, nest_tracker_options
 from boxmot.trackers.common.motion.kalman_filters.config import normalize_kalman_config
 from boxmot.trackers.common.motion.kalman_filters.fitting import MIN_COVARIANCE_SCALE
-from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_TRACKER_NAMES
+from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_TRACKER_NAMES
 from boxmot.trackers.common.motion.kalman_filters.profile import calibration_profile_signature
 
 if TYPE_CHECKING:
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 def validate_kf_calibration(tracker_name: str, backend: str = "python") -> None:
     """Reject unsupported filters before materialization; no search dependency."""
-    if backend != "python" or tracker_name not in KALMAN_NOISE_TRACKER_NAMES:
+    if backend != "python" or tracker_name not in KALMAN_TRACKER_NAMES | {"eagermot"}:
         raise ValueError("--calibrate-kf requires a Python tracker with a Kalman filter.")
 
 

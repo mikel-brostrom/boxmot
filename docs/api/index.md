@@ -7,7 +7,8 @@ exact arguments, result types, or source documentation. Start with
 ## Command line
 
 The [CLI reference](../usage/index.md) explains the command grammar and links
-to the generated option table on every mode page.
+to the generated option table on every mode page. Native library compilation
+has its own [build command reference](../native/index.md#build-command-reference).
 
 ## Python
 

@@ -25,7 +25,7 @@
 
   ---
 
-  [Docs](docs/index.md) • [Installation](docs/getting-started/installation.md) • [Modes](docs/modes/index.md) • [API Reference](docs/python/index.md) • [Trackers](docs/trackers/index.md) • [Contributing](CONTRIBUTING.md)
+  [Docs](docs/index.md) • [Installation](docs/getting-started/installation.md) • [Modes](docs/modes/index.md) • [API Reference](docs/python/index.md) • [Trackers](docs/trackers/index.md) • [Datasets](docs/datasets/index.md) • [Contributing](CONTRIBUTING.md)
 
   <img width="640"
        src="https://github.com/mikel-brostrom/boxmot/releases/download/v12.0.0/output_640.gif"
@@ -42,12 +42,12 @@ tuning, research, and ReID workflows.
 
 - One interface for `track`, `materialize`, `materialize --time-variant`, `eval`,
   `tune`, `research`, `train-reid`, `eval-reid`, `compare-reid`, `export`,
-  `export-edgetam`, `install`, and native `build` workflows.
+  `install`, and native `build` workflows.
 - Swappable components with explicit capabilities and requirements.
 - Immutable, keyed Parquet builds with reusable detections, masks, and
   embeddings.
 - Support for both AABB and OBB tracking paths.
-- Optional production-ready native C++ tracker implementations with the same metrics as the Python path, opted into via `--tracker-backend cpp` and embeddable in standalone C++ projects via CMake (see [Native C++ Integration](docs/native/index.md) and [platform dependency installation](docs/native/index.md#install-dependencies)).
+- Optional native C++ tracker implementations selected with `--tracker-backend cpp`, with shared detection/output contracts and documented backend differences. They are also embeddable in standalone C++ projects through CMake (see [Native C++ Integration](docs/native/index.md) and [platform dependency installation](docs/native/index.md#install-dependencies)).
 - A structured Python API for embedding components and pipelines in applications.
 
 ## Installation
@@ -55,15 +55,15 @@ tuning, research, and ReID workflows.
 BoxMOT supports Python `3.10` through `3.13`.
 
 ```bash
-pip install boxmot
+pip install boxmot "ultralytics>=8.4.58"
 boxmot --help
 ```
 
-The default package uses the standard PyPI PyTorch build. Source checkouts and
-CI can explicitly select the lockfile-backed `cpu` or `cu130` profile. For
-those profiles and mode-specific extras such as `yolo`, `service`, `evolve`,
-`research`, `onnx`, `openvino`, and `tflite`, see the
-[installation guide](docs/getting-started/installation.md).
+This installs BoxMOT and the Ultralytics detector backend used below. For
+tracking existing detections through the Python API, `pip install boxmot` is
+enough. See [Installation](docs/getting-started/installation.md) for optional
+workflows and [PyTorch and source setup](docs/getting-started/pytorch.md) for
+CPU/CUDA profiles and YOLOX.
 
 ## Benchmark Results
 
@@ -238,6 +238,20 @@ Related guides:
 
 ## Minimal Usage
 
+The [mode guides](https://mikel-brostrom.github.io/boxmot/modes/) provide
+toggleable **CLI** and **Python** examples for tracking, materialization,
+evaluation, tuning, research, ReID training, and export. Python workflow
+functions accept settings directly as keyword arguments.
+
+Select a command, detector, ReID model, tracker, and other settings interactively:
+
+```bash
+boxmot ui
+```
+
+The [terminal UI](docs/modes/ui.md) previews the command before you run it and
+enables an interactive dashboard for workflows that report live progress.
+
 CLI:
 
 ```bash
@@ -255,6 +269,12 @@ boxmot eval \
   --reid lmbn-n-duke \
   --tracker botsort
 ```
+
+Python trackers except SFSORT, plus native ByteTrack, BotSort, OcSort, and
+OccluBoost, support opt-in capture timing with `--variable-dt` or
+`KalmanConfig(variable_dt=True)`. The Python API requires a timestamp on every
+update. SFSORT uses fixed steps on both backends. See
+[elapsed-time tracking](https://mikel-brostrom.github.io/boxmot/python/#elapsed-time).
 
 Python with axis-aligned boxes (AABB):
 
@@ -289,17 +309,24 @@ print(tracks[:, 5].astype(int))  # track IDs
 
 ```python
 import numpy as np
+import torch
 
 from boxmot import EagerMot
+from boxmot.structures import CameraModel
 
 tracker = EagerMot()
-camera = np.array([  # synthetic camera projection
+projection = torch.tensor([  # synthetic camera projection
     [100, 0, 100, 0],
     [0, 100, 50, 0],
     [0, 0, 1, 0],
-])
-camera_to_world = np.eye(4)
+], dtype=torch.float32)
+camera_to_world = torch.eye(4, dtype=torch.float32)
 camera_to_world[0, 3] = 1.0  # synthetic pose: camera at world x = 1 meter
+camera = CameraModel(
+    projection=projection,
+    image_size=(100, 200),  # height, width
+    camera_to_world=camera_to_world,
+)
 dets = np.array([[78, 39, 122, 62, 0.95, 0]])
 # 3D in camera coordinates: x, y, z, yaw, length, width, height, confidence, class_id
 dets_3d = np.array([[0, 1, 10, 0, 4, 2, 2, 0.9, 0]])
@@ -308,8 +335,6 @@ tracks_2d, tracks_3d = tracker.update(
     dets,
     detections_3d=dets_3d,
     camera=camera,
-    image_size=(100, 200),  # height, width
-    camera_to_world=camera_to_world,
 )
 print(tracks_2d[:, 4].astype(int))  # image track IDs
 print(tracks_3d[:, 7].astype(int))  # 3D track IDs
@@ -318,7 +343,9 @@ print(tracks_3d[:, 7].astype(int))  # 3D track IDs
 Replace the synthetic pose with the current frame's absolute 4×4 camera-to-world
 transform on every update. KITTI evaluation loads these from `poses.npy` when
 the dataset declares a `poses` modality. If poses are unavailable, omit
-`camera_to_world` throughout the sequence to track in camera coordinates.
+`CameraModel.camera_to_world` throughout the sequence to track in camera
+coordinates. A NumPy camera projection can also be passed with a frame that
+provides its image dimensions; use `CameraModel` when no frame is supplied.
 
 ## Contributing
 

@@ -62,7 +62,7 @@ class OcSortLibrary:
         self._library.boxmot_ocsort_destroy.restype = None
         self._library.boxmot_ocsort_reset.argtypes = [ctypes.c_void_p]
         self._library.boxmot_ocsort_reset.restype = ctypes.c_int
-        self._update, self._result_free = _common.configure_update_v2(self._library, prefix=_TRACKER_NAME)
+        self._update, self._result_free = _common.configure_update_v3(self._library, prefix=_TRACKER_NAME)
         self._library.boxmot_ocsort_last_error.argtypes = []
         self._library.boxmot_ocsort_last_error.restype = ctypes.c_char_p
 
@@ -106,8 +106,9 @@ class OcSortLibrary:
         detection_indices: np.ndarray,
         embeddings: np.ndarray | None,
         image: np.ndarray | None,
+        dt: float = 0.0,
     ) -> _common.NativeTrackBatch:
-        return _common.call_update_v2(
+        return _common.call_update_v3(
             self._update,
             self._result_free,
             handle=handle,
@@ -117,6 +118,7 @@ class OcSortLibrary:
             detection_indices=detection_indices,
             embeddings=embeddings,
             image=image,
+            dt=dt,
             display_name=_DISPLAY_NAME,
             last_error=self._last_error,
         )

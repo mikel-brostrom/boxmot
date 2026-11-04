@@ -27,8 +27,8 @@ public:
                     int frame_id);
     void Update(const Track& new_track, const KalmanFilterXYAH& kalman_filter, int frame_id);
     void Update(const Track& new_track, const KalmanFilterXYWH& kalman_filter, int frame_id);
-    void Predict(const KalmanFilterXYAH& kalman_filter);
-    void Predict(const KalmanFilterXYWH& kalman_filter);
+    void Predict(const KalmanFilterXYAH& kalman_filter, double dt = 0.0);
+    void Predict(const KalmanFilterXYWH& kalman_filter, double dt = 0.0);
 
     Eigen::Vector4d xyxy() const;
     Eigen::Vector4d xyah() const;

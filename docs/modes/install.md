@@ -3,15 +3,25 @@
 Use `install` to add optional dependencies to the Python environment running
 BoxMOT:
 
-```bash
-boxmot install --extra onnx
-```
+=== "CLI"
+
+    ```bash
+    boxmot install --extra onnx
+    ```
+
+=== "Python"
+
+    ```python
+    from boxmot.engine.commands.install import install_extras
+
+    install_extras(["onnx"])
+    ```
 
 Download helpers, ReID backends, exporters, tuning, and research validate their
 dependencies when used. Run this command explicitly when a dependency check
 reports missing packages.
 
-KITTI 2D tracking evaluation and tuning use built-in metrics and do not require
+KITTI 2D tracking evaluation uses built-in metrics and does not require
 TrackEval. For [EagerMOT's optional official KITTI AP reports](../trackers/eagermot.md#evaluate-3d-tracks)
 with `--eval-3d --eval-ap`, extract the official object devkit and provide its directory:
 
@@ -28,7 +38,7 @@ evaluation uses the cached executable without downloading dependencies.
 Repeat `--extra` to prepare several workflows:
 
 ```bash
-boxmot install --extra yolo --extra evolve --extra onnx
+boxmot install --extra evolve --extra onnx
 ```
 
 Extra definitions come from the installed BoxMOT distribution. Checks include
@@ -50,9 +60,13 @@ Install packages from direct URLs with `pip` or `uv`.
 
 See [mode-specific extras](../getting-started/installation.md#mode-specific-extras)
 for the available workflow selections. For a source checkout managed with
-`uv sync`, continue using the [PyTorch profile workflow](../getting-started/installation.md#select-a-pytorch-profile)
+`uv sync`, continue using the [PyTorch profile workflow](../getting-started/pytorch.md)
 to preserve the selected CPU or CUDA build. The `cpu` and `cu130` profile extras
 are not accepted by `boxmot install`.
+
+For YOLOX, use the [source checkout](../getting-started/pytorch.md#source-checkout)
+with the `yolo` extra so its dependency and build overrides apply. Ultralytics
+alone can be installed with `boxmot install --requirement 'ultralytics>=8.4.58'`.
 
 ## Select the Python environment
 

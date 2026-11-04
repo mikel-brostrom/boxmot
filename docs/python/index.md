@@ -10,6 +10,11 @@ The package root exports `__version__`, `create_tracker`, tracker classes,
 and their algorithm and shared Kalman/ReID configs. These exports load lazily.
 Import other public contracts from their domain package.
 
+For complete workflows with sources, saved outputs, and benchmark runs, use the
+**Python** tabs in the [mode guides](../modes/index.md). They call engine
+workflows with keyword arguments and apply defaults internally. The examples
+below show how to compose individual components in your application.
+
 ## Canonical values
 
 Component boundaries use CPU-contiguous Torch tensors. Constructors validate
@@ -51,8 +56,13 @@ components. Persisted observations and direct calls to ReID or segmentor adapter
 still require explicit sample IDs matching their frames.
 
 `select`, `with_masks`, `with_embeddings`, and `with_instance_ids` return new
-immutable values. Use `to_aabb_rows()` or `to_obb_rows()` only when a file or
-wire boundary requires the legacy 6/7- or 8/9-column representation.
+frozen values. Tensor storage itself remains mutable and can be shared with
+the caller; treat it as read-only or clone it before independent modification.
+
+`to_aabb_rows()` and `to_obb_rows()` serialize to **float32 Torch tensors**,
+including ID columns. They differ from the `float64` NumPy tracker return
+path below and can lose precision for large integer IDs. Keep canonical
+structures when exact IDs, sample metadata, or enrichments matter.
 
 ## Tracker factory
 
@@ -150,6 +160,20 @@ Factory precedence is config defaults, the supplied config, spec options,
 YAML presets override individual fields; tracker YAML files provide tuning
 metadata while the typed configs define algorithm defaults.
 
+### Multiple classes
+
+Use `per_class=True` to keep independent association state for each class in
+Python box trackers. The default `False` shares the association pool; attaching
+class IDs alone does not make every algorithm class-aware. EagerMot always
+gates association by class. Native backends reject `per_class=True`.
+
+For Python trackers, `class_ids` declares the accepted class catalog; it does
+not filter detections. Unknown IDs raise an error. When `class_ids` is omitted,
+supplied `class_names` define that catalog; omitting both accepts any nonnegative
+class ID. Native backends do not enforce this catalog, so validate class IDs in
+the caller. Filter caller-owned detections with `Detections.select()` before
+updating when needed.
+
 ### Update inputs and outputs
 
 The public method preserves the input representation:
@@ -190,6 +214,12 @@ embeddings lazily; the return value remains a NumPy matrix without sample
 metadata. A `detection_index == -1` value identifies a propagated track without
 a current detection.
 
+Advance every frame, including frames without detections. For packed AABB
+calls, use `np.empty((0, 6), dtype=np.float32)`; OBB uses `(0, 7)`. For canonical
+calls, keep geometry shaped `(0, 4)` or `(0, 5)`, scores and classes shaped
+`(0,)`, and any required masks shaped `(0, height, width)`. Frame and timestamp
+requirements still apply. Call `reset()` before processing another sequence.
+
 Use the [tracker input matrix](../trackers/index.md#input-support) to compare
 geometry, embeddings, masks, frames, and sensor inputs across implementations.
 Read `tracker.requirements` after construction. When `embeddings`, `masks`, or
@@ -224,6 +254,12 @@ covariance, not standard deviation. Omitting `kalman` uses the defaults.
 The tracker resolves `time_unit=None` from `kalman.variable_dt` without mutating the
 provided object. A saved explicit unit must match the selected timing mode.
 
+The eight Python 2D Kalman trackers also accept `KalmanConfig(type="xyah")`,
+`"xywh"`, `"xysr"`, `"xyscr"`, or `"xyhr"` to select their motion state.
+Omitting `type` preserves the tracker's default. Changing the state model can
+change tracking behavior and invalidate fitted noise profiles. Native trackers
+retain their original filter; EagerMot uses its separate 3D filter.
+
 Use `by_class` for complete class-specific settings. Unlisted class IDs use the
 global settings. Box trackers require `per_class=True` when these profiles are
 present:
@@ -241,8 +277,10 @@ tracker = OcSort(per_class=True, kalman=KalmanConfig(noise=noise))
 
 Each track keeps independent state and covariance. Class profiles share the
 same timing units and reference interval. EagerMot accepts the same configuration
-for its 3D filter with frame-based timing. SFSORT and MafHda do not accept Kalman
-configuration. See [tracker YAMLs](../config/trackers.md#kalman-noise) and
+for its 3D filter, and MafHda applies it to its Gaussian motion model. Both accept
+fixed-step and capture-time prediction. SFSORT does not accept Kalman settings
+or variable timing on either backend.
+See [tracker YAMLs](../config/trackers.md#kalman-noise) and
 [calibration and tuning](../modes/tune.md#kalman-noise-and-timing) for saved profiles.
 
 Filter behavior also belongs to `KalmanConfig`. Optional policies select the
@@ -262,7 +300,8 @@ spatial_tracker = EagerMot(kalman=KalmanConfig(is_angular=True))
 ```
 
 `adaptive_kf` is available in BoostTrack and OccluBoost. `is_angular` is specific
-to EagerMOT. AMS is specific to OccluBoost's AABB updates; its OBB path bypasses
+to EagerMOT. Adaptation requires the original XYHR filter or explicit
+`type="xyhr"`. AMS is specific to OccluBoost's AABB updates; its OBB path bypasses
 that policy. Per-class noise settings vary covariance only. Association weights,
 CMC, and track lifetime belong to the tracker's algorithm config.
 
@@ -277,22 +316,37 @@ Variable timing and online noise adaptation are independent settings. See
 for scenarios, recommended starting points, and configuration examples.
 
 Python ByteTrack, BotSort, StrongSort, OcSort, DeepOcSort, HybridSort, BoostTrack,
-and OccluBoost offer an experimental seconds-based mode. Enable it explicitly
-when constructing the tracker:
+OccluBoost, EagerMot, and MafHda accept experimental variable timing. Native
+ByteTrack, BotSort, OcSort, and OccluBoost also support it. SFSORT uses fixed
+steps on both backends and rejects variable timing. Enable timing explicitly
+when constructing a supported tracker. This minimal ByteTrack example supplies
+capture timestamps directly:
 
 ```python
-tracker = create_tracker(
-    "bytetrack",
-    kalman=KalmanConfig(variable_dt=True),
-)
-tracks = tracker.update(detections, frame=frame)
+import numpy as np
+from boxmot import ByteTrack, KalmanConfig
+
+tracker = ByteTrack(kalman=KalmanConfig(variable_dt=True))
+
+# x1, y1, x2, y2, confidence, class_id
+detections = np.array([[10, 20, 50, 100, 0.9, 0]], dtype=np.float32)
+
+# First update establishes the clock.
+tracker.update(detections, timestamp_s=0.00)
+
+# Second update uses dt = 0.04 seconds.
+tracks = tracker.update(detections, timestamp_s=0.04)
+
+print(tracks)
 ```
 
-The tracker then derives elapsed seconds internally from `Frame.timestamp_s`.
-For detections-only calls or NumPy images, supply the capture timestamp in
-seconds with `tracker.update(detections, timestamp_s=12.04)`. Use one timestamp
-source: passing this keyword together with a timestamp-bearing `Frame` raises
-an error.
+Replace `detections` with each frame's detections and supply its capture
+timestamp in seconds. The tracker calculates
+`dt = current_timestamp_s - previous_timestamp_s` internally.
+
+When supplying a canonical `Frame`, the tracker can read `Frame.timestamp_s`
+instead. Use one timestamp source: passing `timestamp_s=` together with a
+timestamp-bearing `Frame` raises an error.
 
 The first timestamp anchors the clock; later updates use the difference from
 the preceding timestamp. Timestamps must be finite and increase strictly,
@@ -349,9 +403,14 @@ or loaded covariance scales unless `--tune-kf` enables noise refinement.
 Unit conversion provides coherent priors; it does not guarantee that existing
 benchmark accuracy transfers without calibration and held-out evaluation.
 
-EagerMot, MafHda, SFSORT, and native C++ tracker adapters reject `kalman.variable_dt=True` and
-retain fixed-step behavior. Native C++ elapsed-time prediction is not
-implemented. Track expiration and confirmation settings such as `max_age`,
+EagerMot applies elapsed time to its 3D position and optional yaw prediction.
+MafHda uses elapsed seconds for Gaussian motion, velocity estimation, and
+tracklet recovery. SFSORT uses observed boxes and smooths OBB angles per update;
+capture timestamps do not change its behavior.
+
+The four native backends with variable timing use the same timestamp contract
+and require libraries rebuilt with the elapsed-time update interface. Native covariance tuning and online
+adaptation remain unsupported. Track expiration and confirmation settings such as `max_age`,
 `max_lost_frames`, and `min_hits`
 remain counts of updates; elapsed-time prediction does not turn them into
 durations.
@@ -617,6 +676,12 @@ For service or cached inputs, construct a pipeline with `detector=None` and call
 `step_detections(frame, detections)`. Both entry points use the same enrichment
 and runtime-validation path. A `PipelineResult` has exactly two fields:
 `detections` and `tracks`.
+
+Requested masks or embeddings remain in `result.detections` even when the
+tracker does not consume them; the pipeline removes unsupported channels from
+the private tracker call. Direct `tracker.update()` calls reject unsupported
+enrichments. EagerMot requires its own sensor-aware update API and cannot be
+used inside `TrackingPipeline`.
 
 ### Capture timestamps
 

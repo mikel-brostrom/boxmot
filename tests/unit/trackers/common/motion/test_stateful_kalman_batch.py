@@ -136,6 +136,44 @@ def test_matrix_overrides_remain_discrete_and_instance_local(kind):
         _assert_state(observed, reference)
 
 
+@pytest.mark.parametrize("kind", ["xysr", "xysr-obb", "xyscr"])
+@pytest.mark.parametrize("override", ["F", "Q", "FQ"])
+@pytest.mark.parametrize("count", [1, 4])
+def test_fixed_step_matrix_overrides_preserve_recovery_across_batch_sizes(kind: str, override: str, count: int) -> None:
+    """Discrete overrides must retain scalar recovery after missed observations."""
+    expected = _filters(kind)[:count]
+    measurements = [kf.x[: kf.dim_z].copy() for kf in expected]
+    for kf, measurement in zip(expected, measurements):
+        kf.update(measurement.copy())
+    actual = deepcopy(expected)
+    factory = type(actual[0])
+    overrides = {}
+    if "F" in override:
+        transition = expected[0].F.copy()
+        transition[0, expected[0].dim_z] *= 0.6
+        overrides["F"] = transition
+    if "Q" in override:
+        overrides["Q"] = np.eye(expected[0].dim_x) * 0.1
+
+    for step in range(3):
+        for kf in expected:
+            kf.predict(**overrides)
+        factory.predict_many(actual, **overrides)
+        observations = []
+        for measurement in measurements:
+            recovered = measurement.copy()
+            recovered[0] += 6.0
+            recovered[1] += 2.0
+            observations.append(recovered if step == 2 else None)
+        for kf, observation in zip(expected, observations):
+            kf.update(None if observation is None else observation.copy())
+        factory.update_many(actual, deepcopy(observations))
+
+    for observed, reference in zip(actual, expected):
+        _assert_state(observed, reference)
+        assert not observed._time_aware
+
+
 @pytest.mark.parametrize("kind", ["xyhr", "xyhr-obb"])
 @pytest.mark.parametrize("seconds", [False, True])
 @pytest.mark.parametrize("adaptive", [False, True])

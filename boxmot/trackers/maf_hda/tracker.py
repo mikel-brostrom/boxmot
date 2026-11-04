@@ -16,11 +16,14 @@ from boxmot.structures import GeometryKind
 from boxmot.trackers.common.association.matching import linear_assignment
 from boxmot.trackers.common.base import BaseTracker
 from boxmot.trackers.common.constructor import TrackerMetadataOptions, validate_runtime_options
+from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
+from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
 from boxmot.trackers.common.specs import TrackerCapabilities, TrackerFamily
 from boxmot.trackers.maf_hda.appearance import MaskedKCF, _AppearanceScorer
 from boxmot.trackers.maf_hda.association import (
     INITIAL_COVARIANCE,
     MAX_COST,
+    MEASUREMENT_NOISE,
     fusion_cost,
     gaussian_affinity,
     mask_merge_groups,
@@ -60,6 +63,8 @@ class _Track:
     last_frame: int
     hits: int
     history_observations: deque
+    first_timestamp_s: float | None = None
+    last_timestamp_s: float | None = None
 
     @property
     def xyxy(self) -> np.ndarray:
@@ -85,16 +90,21 @@ class MafHda(BaseTracker):
         accepts_frame=True,
     )
     _requires_masks = True
+    supports_variable_dt = True
+    supports_kalman_noise = True
 
     def __init__(
         self,
         config: MafHdaConfig | None = None,
+        *,
+        kalman: KalmanConfig | None = None,
         **kwargs: Unpack[TrackerMetadataOptions],
     ) -> None:
         """Configure mask association, KCF appearance, and tracklet recovery.
 
         Args:
             config: Immutable algorithm settings. None selects MafHdaConfig defaults.
+            kalman: Gaussian covariance settings and optional elapsed-seconds prediction.
             **kwargs: Runtime ``per_class``, ``class_ids``, and ``class_names`` settings.
         """
         config = MafHdaConfig.resolve(config)
@@ -109,8 +119,10 @@ class MafHda(BaseTracker):
             iou_threshold=config.iou_threshold,
             asso_func=config.asso_func,
             centroid_max_distance=config.centroid_max_distance,
+            kalman=kalman,
             **kwargs,
         )
+        self.kalman_noise_config.validate_layout(4, 2)
         self.velocity_alpha = config.velocity_alpha
         self.merge_iou_thresh = config.merge_iou_thresh
         self.appearance_lower = config.appearance_lower
@@ -178,7 +190,7 @@ class MafHda(BaseTracker):
             cls=observation.cls,
             det_ind=observation.det_ind,
             weight=observation.weight,
-            covariance=INITIAL_COVARIANCE.copy(),
+            covariance=self._track_noise(observation.cls).initial_covariance(INITIAL_COVARIANCE.copy(), 2),
             velocity=np.zeros(2),
             appearance=appearance,
             first_frame=self.frame_count,
@@ -186,7 +198,14 @@ class MafHda(BaseTracker):
             last_frame=self.frame_count,
             hits=1,
             history_observations=deque([observation.bbox.copy()], maxlen=self.max_obs),
+            first_timestamp_s=self._timestamp_s,
+            last_timestamp_s=self._timestamp_s,
         )
+
+    def _track_noise(self, class_id: int) -> KalmanNoiseConfig:
+        """Resolve covariance settings using canonical IDs for optional class profiles."""
+        noise = self.kalman_noise_config
+        return noise.for_class(self._decode_kernel_class_id(class_id)) if noise.by_class else noise
 
     def _associate(
         self,
@@ -213,8 +232,14 @@ class MafHda(BaseTracker):
         appearance_scorer = _AppearanceScorer(image) if mode != "motion" else None
         boxes = np.asarray([observation.bbox for observation in observations], dtype=np.float64).reshape(-1, 4)
         for row, track in enumerate(tracks):
+            noise = self._track_noise(track.cls)
+            measurement_noise = noise.measurement_covariance(MEASUREMENT_NOISE)
             if recovery:
-                duration = track.last_frame - track.first_frame
+                duration = (
+                    track.last_timestamp_s - track.first_timestamp_s
+                    if self.variable_dt
+                    else track.last_frame - track.first_frame
+                )
                 displacement = (track.bbox[:2] + track.bbox[2:] - track.first_bbox[:2] - track.first_bbox[2:]) * 0.5
                 velocity = displacement / duration if duration > 0 else np.zeros(2)
                 posterior = track.covariance
@@ -222,12 +247,19 @@ class MafHda(BaseTracker):
                     gap = candidate.first_frame - track.last_frame
                     if not 1 <= gap <= self.max_age or candidate.cls != track.cls:
                         continue
-                    predicted = track.bbox + np.tile(velocity * gap, 2)
+                    interval = candidate.first_timestamp_s - track.last_timestamp_s if self.variable_dt else gap
+                    predicted = track.bbox + np.tile(velocity * interval, 2)
+                    covariance = (
+                        predict_covariance(track.covariance, dt=interval, noise_config=noise)
+                        if self.variable_dt
+                        else track.covariance
+                    )
                     likelihood, _ = gaussian_affinity(
-                        candidate.first_bbox[None], predicted, track.covariance, recovery=True,
+                        candidate.first_bbox[None], predicted, covariance, recovery=True,
                         gate_geometry=gate_geometry,
                         max_area_ratio=self.config.max_area_ratio,
                         min_intersection_ratio=self.config.min_intersection_ratio,
+                        measurement_noise=measurement_noise,
                     )
                     motion[row, col] = track.weight * likelihood[0]
                     # The temporal bridge ends at the candidate's birth frame.
@@ -238,12 +270,14 @@ class MafHda(BaseTracker):
                     )
                     allowed[row, col] = self.association_eligibility(predicted[None], candidate.first_bbox[None])[0, 0]
             else:
-                predicted = track.bbox + np.tile(track.velocity, 2)
-                covariance = predict_covariance(track.covariance)
+                interval = self._prediction_dt if self.variable_dt else 1.0
+                predicted = track.bbox + np.tile(track.velocity * interval, 2)
+                covariance = predict_covariance(track.covariance, dt=self._prediction_dt, noise_config=noise)
                 likelihood, posterior = gaussian_affinity(
                     boxes, predicted, covariance, gate_geometry=gate_geometry,
                     max_area_ratio=self.config.max_area_ratio,
                     min_intersection_ratio=self.config.min_intersection_ratio,
+                    measurement_noise=measurement_noise,
                 )
                 motion[row] = track.weight * likelihood
                 overlap[row] = np.clip(self.asso_func(predicted[None], boxes)[0], 0.0, 1.0)
@@ -296,11 +330,13 @@ class MafHda(BaseTracker):
         image: np.ndarray | None,
     ) -> None:
         """Commit a matched observation; candidate scoring never updates a filter."""
-        predicted_center = (track.bbox[:2] + track.bbox[2:]) * 0.5 + track.velocity
+        previous_center = (track.bbox[:2] + track.bbox[2:]) * 0.5
         center = (observation.bbox[:2] + observation.bbox[2:]) * 0.5
-        track.velocity = self.velocity_alpha * track.velocity + (1.0 - self.velocity_alpha) * (
-            center - predicted_center
-        )
+        if self.variable_dt:
+            measured_velocity = (center - previous_center) / (self._timestamp_s - track.last_timestamp_s)
+        else:
+            measured_velocity = center - (previous_center + track.velocity)
+        track.velocity = self.velocity_alpha * track.velocity + (1.0 - self.velocity_alpha) * measured_velocity
         track.bbox = observation.bbox.copy()
         track.mask = observation.mask.copy()
         track.conf = observation.conf
@@ -308,6 +344,7 @@ class MafHda(BaseTracker):
         track.covariance = covariance
         track.weight = weight if weight > 0 else observation.weight
         track.last_frame = self.frame_count
+        track.last_timestamp_s = self._timestamp_s
         track.hits += 1
         track.history_observations.append(track.bbox.copy())
         if track.appearance is not None:
@@ -386,8 +423,13 @@ class MafHda(BaseTracker):
         recovered_ids = set()
         for lost_index, candidate_index in recovery_matches:
             old, candidate = lost[lost_index], candidates[candidate_index]
+            if self.variable_dt and candidate.hits == 1:
+                elapsed = candidate.first_timestamp_s - old.last_timestamp_s
+                displacement = (candidate.bbox[:2] + candidate.bbox[2:] - old.bbox[:2] - old.bbox[2:]) * 0.5
+                candidate.velocity = displacement / elapsed
             candidate.id = old.id
             candidate.first_frame = old.first_frame
+            candidate.first_timestamp_s = old.first_timestamp_s
             candidate.first_bbox = old.first_bbox.copy()
             candidate.hits += old.hits
             candidate.history_observations = deque(

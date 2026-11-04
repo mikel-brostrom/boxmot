@@ -8,6 +8,16 @@ then reconnects new tracklets to lost tracks. Mask merging reduces duplicate
 instances. The BoxMOT implementation is a Python port of the
 [authors' GMPHD_MAF source](https://github.com/SonginCV/GMPHD_MAF).
 
+## Tasks and variants
+
+| Task | Default variant | Other variants |
+| --- | --- | --- |
+| [Masks](../tasks/masks.md) | [Motion and masked appearance](../tasks/masks.md#motion-and-masked-appearance) | [Motion-only association](../tasks/masks.md#motion-only-association) |
+
+Both variants use AABB detections with instance masks. Select motion-only
+association with `s2ta_mode="motion"` and `t2ta_mode="motion"`; the default
+for both stages is `"maf"`.
+
 ## What BoxMOT needs
 
 - Axis-aligned boxes with a nonempty, full-frame instance mask for each detection.
@@ -26,6 +36,13 @@ backend are not supported. Its implementation lives under
 `boxmot/trackers/maf_hda`. Its capabilities declare the `multimodal` family
 because both geometry and masks are fundamental to its state and appearance
 model.
+
+Enable `KalmanConfig(variable_dt=True)` and supply `timestamp_s=` or a
+timestamp-bearing `Frame` on every update for irregular capture intervals.
+The Gaussian model integrates motion uncertainty over elapsed seconds, velocity
+uses pixels per second, and recovery uses the gap between tracklet observations.
+The default remains fixed-step tracking; `max_age` still counts updates.
+See [capture timing](../python/index.md#elapsed-time).
 
 ## Evaluate TrackR-CNN detections on KITTI MOTS
 
@@ -112,8 +129,9 @@ For an empty frame, pass an empty `Detections` with a `MaskBatch` of shape
 
 ## Configuration and source
 
-Defaults and tuning ranges are in `boxmot/configs/trackers/maf_hda.yaml`.
-The defaults follow the upstream MOTS20 training preset. `s2ta_mode` and
+`MafHdaConfig` owns algorithm defaults; tuning ranges and matching defaults
+are in `boxmot/configs/trackers/maf_hda.yaml`. The defaults follow the upstream
+MOTS20 training preset. `s2ta_mode` and
 `t2ta_mode` choose motion, appearance, or fused (`maf`) affinity independently
 for segment-to-track and track-to-track association. `asso_func` selects the
 overlap affinity used in association and gating; its default is `iou`.

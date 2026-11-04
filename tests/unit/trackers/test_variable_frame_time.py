@@ -225,10 +225,14 @@ def test_class_separated_tracks_share_one_elapsed_interval() -> None:
     assert tracker.frame_count == 2
 
 
-@pytest.mark.parametrize("name", ["sfsort", "maf_hda"])
-def test_trackers_without_timed_motion_reject_enabling_variable_dt(name: str) -> None:
-    with pytest.raises(ValueError, match="kalman"):
-        create_tracker(TrackerSpec(name, options=(("kalman.variable_dt", True),)))
+@pytest.mark.parametrize("name", ["maf_hda", "eagermot"])
+def test_remaining_trackers_accept_variable_dt(name: str) -> None:
+    tracker = create_tracker(TrackerSpec(name, options=(("kalman.variable_dt", True),)))
+    assert tracker.supports_variable_dt
+    assert tracker.requirements.timestamp
+    assert tracker.validate_timing(timestamp_s=0.0) is None
+    with pytest.raises(ValueError, match="requires timestamp_s"):
+        tracker.validate_timing()
 
 
 def test_native_tracker_ignores_frame_and_explicit_timestamp_metadata() -> None:
@@ -433,10 +437,17 @@ def test_variable_dt_configuration_requires_boolean(value: object) -> None:
         create_tracker(TrackerSpec("bytetrack", options=(("kalman.variable_dt", value),)))
 
 
-def test_native_variable_dt_rejected_before_allocating_handle() -> None:
+def test_native_variable_dt_requires_timestamps_before_update() -> None:
     library = _FakeLibrary()
-
-    with pytest.raises(ValueError, match="kalman.variable_dt"):
-        NativeByteTrackTracker({"kalman.variable_dt": True}, library=library)
-
-    assert library.calls == []
+    tracker = NativeByteTrackTracker({"kalman.variable_dt": True}, library=library)
+    initial_calls = list(library.calls)
+    try:
+        assert tracker.requirements.timestamp
+        with pytest.raises(ValueError, match="requires timestamp_s"):
+            tracker.update(_aabb_rows())
+        assert library.calls == initial_calls
+        tracker.update(_aabb_rows(), timestamp_s=0.0)
+        tracker.update(_aabb_rows(), timestamp_s=0.1)
+        assert [call[0] for call in library.calls[len(initial_calls):]] == ["update", "update"]
+    finally:
+        tracker.close()

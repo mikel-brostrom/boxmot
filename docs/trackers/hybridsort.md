@@ -2,7 +2,19 @@
 
 [Paper: Hybrid-SORT: Weak Cues Matter for Online Multi-Object Tracking](https://arxiv.org/abs/2308.00783)
 
-Hybrid-SORT argues that MOT pipelines lean too heavily on strong cues such as appearance and overlap, even though those cues often fail together during heavy occlusion. The paper supplements them with weaker but cheap signals such as velocity direction, confidence, and height state, then combines those cues in a training-free online tracker. That makes the method attractive when association needs extra structure without turning into a much heavier offline system.
+HybridSort combines geometry and optional appearance with direction, confidence,
+and box-state cues. It provides high- and low-confidence association stages
+and observation-based recovery, with configurable camera-motion compensation.
+
+## Tasks and variants
+
+| Task | Default variant | Other variants |
+| --- | --- | --- |
+| [2D boxes (AABB)](../tasks/aabb.md) | [AABB + ReID](../tasks/aabb.md#appearance-assisted-reid) | [Motion-only](../tasks/aabb.md#motion-only) |
+| [Oriented boxes (OBB)](../tasks/obb.md) | [OBB + ReID](../tasks/obb.md#appearance-assisted-reid) | [Motion-only](../tasks/obb.md#motion-only) |
+
+Set `use_embeddings=False` in the tracker config to select motion-only
+association. Camera-motion compensation and frame requirements apply independently.
 
 Python AABB mode also supports optional [EdgeTAM mask guidance](../tasks/masks.md#use-temporal-masks-in-association)
 with `--tracker hybridsort --tracker-backend python --asso-func iou --edgetam --mask-guidance-weights edgetam.pt`.
@@ -21,6 +33,11 @@ gains have not been established for this extension.
 Direct construction accepts `reid=ReIDConfig(...)` or a prebuilt
 `AppearanceEncoder`, as described in the
 [Python API](../python/index.md#live-embeddings-in-reid-enabled-trackers).
+
+ECC CMC is enabled by default. Supply current image pixels even with
+precomputed embeddings, or set `HybridSortConfig(use_cmc=False)`.
+`use_embeddings=False` disables appearance independently. The default
+association is `diou`; temporal mask guidance requires selecting `iou` instead.
 
 Tracker YAML profiles and Python construction use lowercase option names:
 `eg_weight_high_score`, `eg_weight_low_score`, `tcm_first_step`,

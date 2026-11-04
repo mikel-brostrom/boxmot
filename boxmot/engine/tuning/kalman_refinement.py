@@ -9,14 +9,14 @@ from pathlib import Path
 from typing import Any
 
 from boxmot.engine.tuning.search_space import expand_yaml_groups
-from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_OPTIONS, KALMAN_NOISE_TRACKER_NAMES
+from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_OPTIONS, KALMAN_TRACKER_NAMES
 
 KALMAN_REFINEMENT_FIELDS = tuple(name.rsplit(".", 1)[-1] for name in KALMAN_NOISE_OPTIONS)
 
 
 def validate_kalman_refinement(tracker_name: str, backend: str = "python") -> None:
     """Reject scale search when the selected runtime cannot use its settings."""
-    if backend != "python" or tracker_name not in KALMAN_NOISE_TRACKER_NAMES:
+    if backend != "python" or tracker_name not in KALMAN_TRACKER_NAMES | {"eagermot"}:
         raise ValueError(
             f"--tune-kf is unavailable for {tracker_name!r} with backend {backend!r}; "
             "choose a Python tracker with a supported Kalman filter."

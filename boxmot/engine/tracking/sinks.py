@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import colorsys
 import json
 from collections.abc import Iterable, Mapping, Sequence
+from functools import lru_cache
 from numbers import Integral
 from pathlib import Path
 from typing import IO, Callable, Protocol, runtime_checkable
@@ -14,7 +16,7 @@ from typing_extensions import Self
 
 from boxmot.engine.tracking.profiling import timed_runtime_stage
 from boxmot.pipelines import PipelineResult
-from boxmot.structures import Boxes, CameraModel, Frame, OrientedBoxes, Tracks3D
+from boxmot.structures import Boxes, CameraModel, Frame, OrientedBoxes, Tracks, Tracks3D
 
 
 class _StopTrackingRequested(Exception):
@@ -324,33 +326,126 @@ def _render_result(
     if overlay is not None:
         cv2.addWeighted(overlay, 0.35, image, 0.65, 0, dst=image)
 
+    label_anchors: list[tuple[int, int]] = []
     if isinstance(tracks.geometry, Boxes):
         for index, box in enumerate(tracks.geometry.values.numpy()):
             x1, y1, x2, y2 = np.rint(box).astype(int)
             color = _track_color(int(tracks.track_ids[index]))
-            cv2.rectangle(image, (x1, y1), (x2, y2), color, line_width)
-            _draw_label(image, tracks, index, (x1, y1), color, class_names)
+            cv2.rectangle(image, (x1, y1), (x2, y2), color, line_width, lineType=cv2.LINE_8)
+            label_anchors.append((int(x1), int(y1)))
     else:
         for index, box in enumerate(tracks.geometry.values.numpy()):
             cx, cy, width, height, angle = (float(value) for value in box)
             corners = cv2.boxPoints(((cx, cy), (width, height), float(np.degrees(angle))))
             corners = np.rint(corners).astype(np.int32)
             color = _track_color(int(tracks.track_ids[index]))
-            cv2.polylines(image, [corners], True, color, line_width)
-            anchor = tuple(int(value) for value in corners[0])
-            _draw_label(image, tracks, index, anchor, color, class_names)
+            cv2.polylines(image, [corners], True, color, line_width, lineType=cv2.LINE_8)
+            top_corner = corners[np.argmin(corners[:, 1])]
+            label_anchors.append((int(top_corner[0]), int(top_corner[1])))
+    # Draw badges last so another track's box cannot cross their text.
+    for index, anchor in enumerate(label_anchors):
+        _draw_label(image, tracks, index, anchor, class_names, line_width=line_width)
     return image
 
 
 def _track_color(track_id: int) -> tuple[int, int, int]:
-    return ((37 * track_id) % 205 + 50, (17 * track_id) % 205 + 50, (29 * track_id) % 205 + 50)
+    """Keep every identity, including zero, vivid in boxes and translucent masks."""
+
+    hue = (track_id * 0.618033988749895) % 1.0
+    red, green, blue = colorsys.hsv_to_rgb(hue, 0.75, 0.95)
+    return int(blue * 255), int(green * 255), int(red * 255)
 
 
-def _draw_label(image, tracks, index, anchor, color, class_names) -> None:
+def _label_text_color(background: tuple[int, int, int]) -> tuple[int, int, int]:
+    """Choose black or white text with the stronger contrast against a BGR fill."""
+
+    channels = (value / 255.0 for value in reversed(background))
+    red, green, blue = (
+        value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
+        for value in channels
+    )
+    luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+    black_contrast = (luminance + 0.05) / 0.05
+    white_contrast = 1.05 / (luminance + 0.05)
+    return (0, 0, 0) if black_contrast >= white_contrast else (255, 255, 255)
+
+
+@lru_cache(maxsize=256)
+def _label_text_mask(label: str, font_scale: float) -> np.ndarray:
+    """Return read-only text coverage cropped to its actual antialiased pixels."""
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    (width, height), baseline = cv2.getTextSize(label, font, font_scale, 1)
+    guard = 3
+    mask = np.zeros((height + baseline + 2 * guard, width + 2 * guard), dtype=np.uint8)
+    cv2.putText(mask, label, (guard, guard + height), font, font_scale, 255, 1, cv2.LINE_AA)
+    x, y, width, height = cv2.boundingRect(mask)
+    ink = mask[y : y + height, x : x + width].copy()
+    ink.setflags(write=False)
+    return ink
+
+
+def _draw_label(
+    image: np.ndarray,
+    tracks: Tracks,
+    index: int,
+    anchor: tuple[int, int],
+    class_names: Mapping[int, str] | None,
+    *,
+    line_width: int,
+) -> None:
+    """Align the badge to the outer stroke and its first ink just inside the border."""
+
     class_id = int(tracks.class_ids[index])
     class_label = str(class_id) if class_names is None else class_names.get(class_id, str(class_id))
     label = f"{class_label} #{int(tracks.track_ids[index])} {float(tracks.scores[index]):.2f}"
-    cv2.putText(image, label, anchor, cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
+    font_scale = 0.5
+    padding = 2
+    # LINE_8 outlines extend beyond their coordinates; filled rectangles do not.
+    # Odd widths above one round outward (widths 3 and 4 both extend 2 pixels).
+    stroke_radius = (line_width + 1) // 2 if line_width > 1 else 0
+    text_inset = 2 * stroke_radius + 1
+    image_height, image_width = image.shape[:2]
+    available_width = image_width - text_inset - padding
+    available_height = image_height - 2 * padding
+    if available_width <= 0 or available_height <= 0:
+        return
+
+    text_mask = _label_text_mask(label, font_scale)
+    text_height, text_width = text_mask.shape
+    fit = min(1.0, available_width / text_width, available_height / text_height)
+    if fit < 1.0:
+        # Leave room for pixel rounding and the fixed text stroke after scaling.
+        font_scale *= fit * 0.95
+        text_mask = _label_text_mask(label, font_scale)
+        text_height, text_width = text_mask.shape
+    badge_width = text_width + text_inset + padding
+    badge_height = text_height + 2 * padding
+    if badge_width > image_width or badge_height > image_height:
+        return
+
+    left = min(max(anchor[0] - stroke_radius, 0), image_width - badge_width)
+    # Overlap the rounded corner up to its centerline for a continuous join.
+    top = anchor[1] - badge_height + 1
+    if top < 0:
+        top = anchor[1] - stroke_radius
+    top = min(max(top, 0), image_height - badge_height)
+    color = _track_color(int(tracks.track_ids[index]))
+    cv2.rectangle(
+        image,
+        (left, top),
+        (left + badge_width - 1, top + badge_height - 1),
+        color,
+        cv2.FILLED,
+    )
+    # Cropping actual glyph coverage removes font bearings without clipping
+    # leading antialiasing or descenders at image boundaries.
+    alpha = text_mask.astype(np.uint16)[..., None]
+    foreground = np.asarray(_label_text_color(color), dtype=np.uint16)
+    background = np.asarray(color, dtype=np.uint16)
+    text_pixels = ((foreground * alpha + background * (255 - alpha) + 127) // 255).astype(np.uint8)
+    text_left, text_top = left + text_inset, top + padding
+    image[text_top : text_top + text_height, text_left : text_left + text_width] = text_pixels
 
 
 class VideoSink(_BaseSink):

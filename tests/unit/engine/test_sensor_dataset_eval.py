@@ -159,7 +159,6 @@ def test_sensor_eval_uses_shared_dispatch_and_portable_dataset_defaults(
         ["--build-root", "builds"],
         ["--experiment", "experiment.yaml"],
         ["--tracker-config", "override.yaml"],
-        ["--variable-dt"],
         ["--fps", "5"],
         ["--compare-trackeval"],
         ["--allow-noncanonical-build"],
@@ -256,7 +255,10 @@ def test_sensor_eval_ap_reports_missing_object_labels(tmp_path: Path, monkeypatc
     assert "Add ground_truth_objects" in result.output
 
 
-def test_sensor_eval_passes_class_profile_yaml_to_runner(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+@pytest.mark.parametrize("variable_dt", [False, True])
+def test_sensor_eval_passes_class_profile_yaml_to_runner(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, variable_dt: bool
+) -> None:
     captured = {}
 
     def run(args: SimpleNamespace, **kwargs: Any) -> ValidationResult:
@@ -273,7 +275,10 @@ def test_sensor_eval_passes_class_profile_yaml_to_runner(monkeypatch: pytest.Mon
     monkeypatch.setitem(sys.modules, "boxmot.engine.eval.eagermot_kitti", SimpleNamespace(run_eagermot_kitti=run))
     profiles = tmp_path / "best.yaml"
     profiles.write_text("car: {}\npedestrian: {}\n", encoding="utf-8")
-    result = CliRunner().invoke(boxmot, [*_arguments(tmp_path), "--class-config", str(profiles)])
+    result = CliRunner().invoke(
+        boxmot,
+        [*_arguments(tmp_path), "--class-config", str(profiles), *(["--variable-dt"] if variable_dt else [])],
+    )
 
     assert result.exit_code == 0, result.output
     args = captured["args"]
@@ -284,6 +289,17 @@ def test_sensor_eval_passes_class_profile_yaml_to_runner(monkeypatch: pytest.Mon
     assert args.show is False
     assert args.save is False
     assert args.show_3d is False
+    assert bool(args.variable_dt) is variable_dt
+
+
+def test_sensor_calibration_rejects_variable_timing_before_evaluator_import(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """3D calibration remains explicitly fixed-step even though replay supports timestamps."""
+    monkeypatch.setitem(sys.modules, "boxmot.engine.eval.evaluator", None)
+    result = CliRunner().invoke(boxmot, [*_arguments(tmp_path), "--calibrate-kf", "--variable-dt"])
+    assert result.exit_code == 2
+    assert "calibration uses fixed frame steps" in result.output
 
 
 @pytest.mark.parametrize(("show", "save"), ((False, True), (True, False), (True, True)))

@@ -2,9 +2,42 @@
 
 Use this page to compare ReID backbones by compute, parameter count, embedding size, and available same-domain evaluation results.
 
+## Select an architecture or checkpoint
+
+`train-reid --model` takes an architecture name such as `osnet_x0_25` or
+`csl_tinyvit_7m_v20`. Tracking instead needs trained weights, selected with a
+runtime profile such as `osnet-x0-25-msmt17` or a checkpoint path:
+
+```bash
+boxmot track --source video.mp4 --detector yolo26n --tracker botsort \
+  --reid osnet-x0-25-msmt17
+```
+
+An architecture being registered does not imply that a trained ReID checkpoint
+is available for download. ImageNet initialization is a training starting
+point; it is not a substitute for identity-supervised ReID weights.
+
+The table below is a selection, not the complete registry. Additional families
+include ResNet/ResNeXt, MobileNetV2, HACNN, MLFN, OSNet AIN/IBN, hybrid
+MobileNetV4, and CSL-TinyViT LMBN variants. List names supported by your checkout
+without constructing or downloading models:
+
+```python
+from boxmot.reid.backbones import registered_backbone_names
+
+print("\n".join(registered_backbone_names()))
+```
+
 ## Model Reference
 
 Same-domain scores are reported as rank-1 `(mAP)`. Rows with `-` do not yet have a documented same-domain result in this table. GFLOPs are input-size dependent and should be read together with the `Input` column; rows are not normalized to one common crop.
+
+Parameter counts describe the cited reference constructions, which can include
+training classifiers or privileged branches as explained below. They are not
+uniform counts of exported inference graphs. Paper scores and recorded BoxMOT
+training runs use different protocols and should not be treated as one
+controlled leaderboard. Use [Compare ReID](../modes/compare-reid.md) for a
+checkpoint comparison on the same local targets and hardware.
 
 | Model | GFLOPs | Input | Params | Embedding | Market1501 | CUHK03-L | CUHK03-D | DukeMTMC-reID | MSMT17 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -16,7 +49,7 @@ Same-domain scores are reported as rank-1 `(mAP)`. Rows with `-` do not yet have
 | `mobilenetv4_conv_medium` | 2.02 | 384x128 | 12.12M | 1536 | - | - | - | - | - |
 | `mobilenetv4_conv_large` | 4.68 | 384x128 | 35.02M | 1536 | - | - | - | - | - |
 | `hi_afa` | 2.24† | 384x128 | 12.76M† | 8192 | 97.0 (91.8)† | - | - | 91.7 (82.9)† | 87.6 (71.9)† |
-| `lmbn_n` | 4.87 | 384x128 | 9.15M | 3584 | 96.3 (91.5) | 87.2 (85.1) | 84.9 (82.4) | - | - |
+| `lmbn_n` | 4.87 | 384x128 | 9.15M | 3584 | 96.3 (91.5) | 87.2 (85.1) | 85.4 (82.6) | 92.1 (83.7) | - |
 | `lmbn_ain_n` | 4.87 | 384x128 | 9.15M | 3584 | - | - | - | - | - |
 | `csl_tinyvit_7m` | 5.18 | 384x128 | 9.79M | 1536 | - | - | - | - | - |
 | `csl_tinyvit_7m_v20` | 3.29‡ | 384x128 | 6.94M‡ | 1152 | 95.6 (90.0)‡ | - | - | - | - |
@@ -24,7 +57,14 @@ Same-domain scores are reported as rank-1 `(mAP)`. Rows with `-` do not yet have
 | `csl_tinyvit_11m_v20` | 5.85 | 384x128 | 13.51M | 1536 | 95.9 (91.0)§ | - | - | - | - |
 | `csl_tinyvit_23m` | 15.15 | 384x128 | 25.71M | 1536 | - | - | - | - | - |
 
-The linked OSNet scores use the published same-domain softmax setup with 256x128 input, random flip augmentation, and Euclidean distance. The `lmbn_n` scores are the LightMBN paper row reported as `Ours LightMBN` with an OSNet backbone. MobileNetV4, LMBN, Hi-AFA, and CSL-TinyViT rows use the 384x128 BoxMOT ReID crop used by their training configs.
+The linked OSNet scores use the published same-domain softmax setup with
+256x128 input, random flip augmentation, and Euclidean distance from the
+[OSNet model zoo](https://github.com/KaiyangZhou/deep-person-reid/blob/master/docs/MODEL_ZOO.md).
+The `lmbn_n` retrieval scores are the OSNet-backed results without reranking
+from the [LightMBN authors' implementation](https://github.com/jixunbo/LightMBN#results),
+whose settings may differ from the original paper. MobileNetV4, LMBN, Hi-AFA,
+and CSL-TinyViT rows use the 384x128 BoxMOT ReID crop used by their training
+configs.
 
 † Hi-AFA complexity and scores are reported by the
 [Hi-AFA paper](https://doi.org/10.1109/ACCESS.2024.3389698); they are not a
@@ -63,3 +103,5 @@ model. The RGB-only `csl_tinyvit_11m` recipe is a separate training policy.
 - [ReID Profiles](reid.md)
 - [Train ReID](../modes/train.md)
 - [Evaluate ReID](../modes/eval-reid.md)
+- [Compare ReID](../modes/compare-reid.md)
+- [Export formats](../modes/export.md)

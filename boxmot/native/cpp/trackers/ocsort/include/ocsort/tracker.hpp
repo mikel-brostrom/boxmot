@@ -25,7 +25,7 @@ public:
                                   bool is_obb,
                                   std::int64_t track_id);
 
-        [[nodiscard]] Eigen::VectorXd Predict();
+        [[nodiscard]] Eigen::VectorXd Predict(double dt = 0.0);
         void Update(const Detection* detection);
         [[nodiscard]] Eigen::VectorXd GetState() const;
         [[nodiscard]] Eigen::VectorXd CurrentOutputBox() const;
@@ -62,7 +62,7 @@ public:
     explicit OCSORTTracker(Config config);
 
     std::vector<TrackOutput> Update(const std::vector<Detection>& detections,
-                                    const cv::Mat& image) override;
+                                    const cv::Mat& image, double dt = 0.0) override;
     void Reset() override;
 
     [[nodiscard]] bool SupportsObb() const noexcept override { return true; }

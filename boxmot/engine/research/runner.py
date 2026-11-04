@@ -11,6 +11,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from boxmot.engine.config.runtime import resolve_mode_args
 from boxmot.engine.eval.evaluator import eval_setup
 from boxmot.engine.materialization.builds import resolve_build_path
 from boxmot.engine.ui.reporters.research import ResearchWorkflowReporter
@@ -745,9 +746,12 @@ def main(args: argparse.Namespace) -> ResearchResult:
 
 
 def run_research(
-    args: argparse.Namespace,
+    args: argparse.Namespace | ResearchConfig | None = None,
     *,
     pipeline: PipelineTracker | None = None,
+    **options: Any,
 ) -> ResearchResult:
+    """Run tracker research using keyword options or prepared workflow configuration."""
+    args = resolve_mode_args("research", args, options)
     config = args if isinstance(args, ResearchConfig) else ResearchConfig.from_namespace(args)
     return TrackerResearcher(config).run(pipeline=pipeline)

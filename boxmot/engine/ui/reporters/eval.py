@@ -14,6 +14,7 @@ from rich.table import Table
 from rich.text import Text
 
 import boxmot.engine.ui.core.ui as ui
+from boxmot.engine.ui.dashboard import SequenceRow
 from boxmot.engine.ui.workflow.fields import panel_field
 from boxmot.engine.ui.workflow.reporting import RichWorkflowReporter, WorkflowDetailCallback
 from boxmot.engine.ui.workflow.steps import (
@@ -76,6 +77,21 @@ class _SequenceProgressView:
         )
         return Group(self._presenter.summary, columns)
 
+    def dashboard_sequences(self) -> tuple[SequenceRow, ...]:
+        """Expose actual progress snapshots for live sequence inspection."""
+        return tuple(
+            SequenceRow(
+                name=task.description,
+                completed=task.completed,
+                total=task.total,
+                status=str(task.fields.get("status", "queued")),
+                detail=task.fields.get("detail"),
+                elapsed=task.elapsed,
+                group=self._presenter._dashboard_label,
+            )
+            for task in self._presenter.progress.tasks
+        )
+
 
 class EvalSequenceProgressPresenter:
     """Render ordered per-sequence replay progress in the active eval step.
@@ -95,6 +111,7 @@ class EvalSequenceProgressPresenter:
         unit: str = "frames",
         clock: Callable[[], float] = time.monotonic,
         refresh_interval_s: float | None = 0.08,
+        dashboard_label: str | None = None,
     ) -> None:
         if refresh_interval_s is not None and refresh_interval_s <= 0:
             raise ValueError("refresh_interval_s must be positive or None.")
@@ -103,6 +120,7 @@ class EvalSequenceProgressPresenter:
 
         self._callback = callback
         self._label = label
+        self._dashboard_label = dashboard_label or label
         self._clock = clock
         self._refresh_interval_s = refresh_interval_s
         self._last_refresh_s: float | None = None

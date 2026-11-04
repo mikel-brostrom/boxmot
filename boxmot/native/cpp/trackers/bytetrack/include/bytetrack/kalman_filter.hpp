@@ -12,7 +12,7 @@ public:
     KalmanFilterXYAH();
 
     std::pair<Vector, Matrix> Initiate(const Eigen::Vector4d& measurement) const;
-    std::pair<Vector, Matrix> Predict(const Vector& mean, const Matrix& covariance) const;
+    std::pair<Vector, Matrix> Predict(const Vector& mean, const Matrix& covariance, double dt = 0.0) const;
     std::pair<Vector, Matrix> Update(
         const Vector& mean,
         const Matrix& covariance,
@@ -43,7 +43,7 @@ public:
     [[nodiscard]] int dim_x() const { return dim_x_; }
 
     std::pair<Vector, Matrix> Initiate(const Vector& measurement) const;
-    std::pair<Vector, Matrix> Predict(const Vector& mean, const Matrix& covariance) const;
+    std::pair<Vector, Matrix> Predict(const Vector& mean, const Matrix& covariance, double dt = 0.0) const;
     std::pair<Vector, Matrix> Update(
         const Vector& mean,
         const Matrix& covariance,

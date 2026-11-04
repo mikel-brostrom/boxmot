@@ -19,7 +19,7 @@ public:
     // filter to AABB (size 4) or OBB (size 5) mode based on ``measurement``.
     void Initiate(const Vector& measurement);
 
-    void Predict();
+    void Predict(double dt = 0.0);
 
     // Standard update step with optional alpha-scaled Kalman gain.
     void Update(const Vector& measurement, double alpha = 1.0);

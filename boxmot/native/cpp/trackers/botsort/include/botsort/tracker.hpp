@@ -17,7 +17,7 @@ public:
     explicit BotSortTracker(Config config);
 
     std::vector<TrackOutput> Update(const std::vector<Detection>& detections,
-                                    const cv::Mat& image) override;
+                                    const cv::Mat& image, double dt = 0.0) override;
     void Reset() override;
     [[nodiscard]] bool SupportsObb() const noexcept override { return true; }
     [[nodiscard]] bool SupportsEmbeddings() const noexcept override { return true; }

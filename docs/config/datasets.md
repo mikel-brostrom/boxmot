@@ -1,8 +1,11 @@
-# Datasets
+# Dataset configuration
 
 Dataset configs live under `boxmot/configs/datasets`. They contain
 dataset facts and their download locations, with no detector, ReID, or
 experiment selection.
+
+For available benchmarks, configured splits, and download behavior, start with
+the [supported dataset catalog](../datasets/index.md).
 
 ```yaml
 id: mot17
@@ -34,7 +37,10 @@ classes:
   target:
     pedestrian: 1
   ignore:
+    person_on_vehicle: 2
+    static_person: 7
     distractor: 8
+    reflection: 12
 
 resources:
   dataset:
@@ -86,6 +92,43 @@ This supports train/validation partitions that share a directory of frames.
 
 `box_type: aabb` selects axis-aligned MOT metrics. `box_type: obb` selects rotated
 IoU; OBB ground truth is expected in 13-column corner format on disk.
+
+## Bring your own image dataset
+
+For MOT-style data, save a local `dataset.yaml` with `format.layout: mot`,
+`storage.root: .`, your native class IDs, and explicit splits. Each split's
+`path` contains sequence directories. A typical annotated sequence is:
+
+```text
+my-dataset/
+├── dataset.yaml
+└── train/sequence-01/
+    ├── img1/000001.jpg
+    ├── img1/000002.jpg
+    ├── gt/gt.txt
+    └── seqinfo.ini
+```
+
+Images can also sit directly inside the sequence directory. Use zero-padded
+filenames so lexical order matches frame order. MOT result and annotation
+frame IDs are one-based; internal catalog frame indices are zero-based.
+For AABB ground truth, use the MOT fields
+`frame,id,left,top,width,height,mark,class,visibility`. OBB annotations contain
+`frame,id,x1,y1,x2,y2,x3,y3,x4,y4,confidence,class,visibility`, with corners
+ordered around the rectangle. These on-disk formats differ from the packed
+tracker update arrays described in the [Python API](../python/index.md).
+
+`seqinfo.ini` supplies `[Sequence] frameRate` when known. For irregular
+timestamps, add `timestamps.csv` beside it with exactly the header
+`frame_id,timestamp_s`, one ordered row for each frame `1..N`, and finite,
+strictly increasing timestamps. That timeline takes precedence over
+`frameRate` and participates in the build identity. See
+[time variants](../modes/time-variant.md) for resampling and variable-time
+tracking requirements.
+
+Create an [experiment](experiments.md) pointing at the local dataset YAML and
+selecting a detector whose classes and geometry match. Use `has_ground_truth:
+false` for unannotated splits; those can be materialized, but cannot be scored.
 
 ## KITTI 2D tracking
 
@@ -400,7 +443,7 @@ modalities:
 directory names, such as `validation`, `recordings`, and `drive-001`; they do
 not imply official KITTI membership. Quote numeric names such as `"0002"`.
 Paths use `/`, cannot contain `..` or an absolute root, and accept
-`{partition}` and `{sequence}` placeholders. The directory names can match
+`{partition}`, `{sequence}`, and `{split}` placeholders. The directory names can match
 your existing export layout; the YAML selects their meaning and encoding.
 
 Each modality declares `format`, either `path` or `paths`, and optional
@@ -420,14 +463,14 @@ Unused scoring annotations are not loaded, even when their modalities remain dec
 
 Sequence layouts require a finite positive dataset `fps`. This template sets `10`; it
 sets timestamps (`frame_index / fps`) and saved video playback speed. Tracking
-still advances once per image; this setting does not resample frames or
+still performs one update per image; this setting does not resample frames or
 enable variable-time motion.
 
 ### Supported encodings
 
 | Modality / encoding | File contract |
 | --- | --- |
-| `images` / `image-directory` | PNG frames named `000000.png`, `000001.png`, etc.; contiguous, zero-based, with constant dimensions per sequence |
+| `images` / `image-directory` | Numeric image names such as `000000.png` or `000000.jpg`; saved-sensor replay requires a contiguous zero-based timeline and constant dimensions per sequence |
 | `ground_truth` / `kitti-tracking-labels` | Native 17-field sequence labels for KITTI 2D image tracking; preserves visibility and ignored boxes, requires no spatial inputs |
 | `ground_truth` / `instance-png` | Matching single-channel uint16 PNGs encoding `class_id * 1000 + instance_id`; the template uses car `1`, pedestrian `2`, background `0`, ignore `10000` |
 | `ground_truth_3d` / `kitti-tracking-labels` | Sequence text file with 17 KITTI tracking label fields, including zero-based frame and stable object identity; required for `eval --eval-3d` or 3D Kalman calibration |
@@ -442,7 +485,8 @@ models. `kitti-detections` uses `options.score_transform: odds` for PointGNN
 scores, mapping `s` to `s / (1 + s)`. Use `identity` for scores already in
 `[0, 1]`. Set `options.class_map` to translate source labels into dataset class
 names or IDs; `ignore_classes: [Cyclist]` explicitly skips that source label in
-the PointGNN example. Other undeclared classes are errors. The template README
+the PointGNN example. Other undeclared classes are errors. The
+[template README](https://github.com/mikel-brostrom/boxmot/blob/master/examples/datasets/sensor-fusion/README.md)
 specifies every field, coordinate convention,
 mask encoding, and empty-frame behavior. Format parsers live under
 `boxmot/datasets/readers`; adding an encoding belongs there, with consumers
@@ -621,8 +665,8 @@ To replay saved masks with MAF-HDA, use
 Perception experiments cannot silently replace those saved predictions with
 a different detector or build.
 
-To intentionally run an image-only experiment, author a separate dataset config
-or explicit split override selecting only `images` and `ground_truth`, then
-select a perception build or detector through ordinary `eval` or `tune`.
+To intentionally run an image-only experiment, select only `images` and
+`ground_truth` in its `dataset.modalities` mapping, then select perception
+components and materialize a build through ordinary `eval` or `tune`.
 The payload files can stay in place; the selected configuration must express
 which inputs the experiment uses.

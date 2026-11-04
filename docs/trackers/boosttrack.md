@@ -2,7 +2,20 @@
 
 [Paper: BoostTrack++: Using Tracklet Information to Detect More Objects in Multiple Object Tracking](https://arxiv.org/abs/2408.13003)
 
-BoostTrack++ focuses on a neglected part of MOT pipelines: deciding which detections are worth trusting in the first place. The paper extends BoostTrack by using tracklet history to build a richer similarity score, then boosts low-confidence detections when past evidence suggests they are real objects. In practice, that improves recall and identity stability without giving up the online tracking-by-detection setup.
+BoostTrack combines geometry, motion uncertainty, shape, and optional appearance
+for association. Confidence boosting promotes detections supported by existing
+tracks or by the tracklet-similarity rules. BoxMOT exposes the boosting and
+association controls through `BoostTrackConfig`.
+
+## Tasks and variants
+
+| Task | Default variant | Other variants |
+| --- | --- | --- |
+| [2D boxes (AABB)](../tasks/aabb.md) | [AABB + ReID](../tasks/aabb.md#appearance-assisted-reid) | [Motion-only](../tasks/aabb.md#motion-only) |
+| [Oriented boxes (OBB)](../tasks/obb.md) | [OBB + ReID](../tasks/obb.md#appearance-assisted-reid) | [Motion-only](../tasks/obb.md#motion-only) |
+
+Set `use_embeddings=False` in the tracker config to select motion-only
+association. Camera-motion compensation and frame requirements apply independently.
 
 Python AABB mode also supports optional [EdgeTAM mask guidance](../tasks/masks.md#use-temporal-masks-in-association)
 with `--tracker boosttrack --tracker-backend python --asso-func iou --edgetam --mask-guidance-weights edgetam.pt`.
@@ -22,6 +35,11 @@ gains have not been established for this extension.
 Direct construction accepts `reid=ReIDConfig(...)` or a prebuilt
 `AppearanceEncoder`, as described in the
 [Python API](../python/index.md#live-embeddings-in-reid-enabled-trackers).
+
+ECC CMC is enabled by default (`use_cmc=True`, `cmc_method="ecc"`). Current
+pixels are still required with precomputed embeddings. Set `use_cmc=False`
+and `use_embeddings=False` for ordinary detections-only association; centroid
+association and temporal mask guidance retain their own frame requirements.
 
 ## Tuning notes
 

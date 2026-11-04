@@ -189,7 +189,7 @@ def _core_option_decorators(defaults: Any, *, half_help: str) -> dict[str, Calla
             "--variable-dt/--fixed-dt",
             default=None,
             help=(
-                "Use capture timestamps for Kalman prediction; otherwise keep the tracker YAML setting "
+                "Use capture timestamps for tracker motion; otherwise keep the tracker YAML setting "
                 "(default: fixed dt)."
             ),
         ),
@@ -215,14 +215,14 @@ def _core_option_decorators(defaults: Any, *, half_help: str) -> dict[str, Calla
             "--show-trajectories",
             is_flag=True,
             default=defaults.show_trajectories,
-            help="overlay past trajectories",
+            help="Accepted, but trajectory overlays are not implemented by the current track renderer.",
         ),
         "show_kf_preds": click.option(
             "--show-kf-preds",
             "show_kf_preds",
             is_flag=True,
             default=defaults.show_kf_preds,
-            help="show Kalman-filter predictions",
+            help="Accepted, but Kalman prediction overlays are not implemented by the current track renderer.",
         ),
         "save_txt": click.option(
             "--save-txt",

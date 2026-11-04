@@ -182,7 +182,7 @@ def test_dotted_and_nested_class_noise_resolve_to_the_same_immutable_config():
         normalize_kalman_options({"kalman.noise.by_class.5.unknown": 1.0}, variable_dt=False)
 
 
-@pytest.mark.parametrize("name, backend", [("bytetrack", "cpp"), ("sfsort", "python"), ("maf_hda", "python")])
+@pytest.mark.parametrize("name, backend", [("bytetrack", "cpp"), ("sfsort", "python")])
 def test_factory_rejects_unsupported_noise_scaling_before_loading_models(name, backend):
     with pytest.raises(ValueError, match="Python Kalman|does not support kalman"):
         create_tracker(TrackerSpec(name=name, backend=backend, options=(("kalman.noise.process_position_scale", 2.0),)))
@@ -192,7 +192,7 @@ def test_native_adapter_accepts_default_scales_and_rejects_custom_scales():
     config = load_native_tracker_config(
         "bytetrack", {"kalman.noise.process_position_scale": 1.0, "kalman.noise.time_unit": "frames"}
     )
-    assert not any(option.startswith("kalman.noise.") for option in config)
+    assert {option for option in config if option.startswith("kalman.noise.")} == {"kalman.noise.reference_dt_s"}
     with pytest.raises(ValueError, match="Python Kalman"):
         load_native_tracker_config("bytetrack", {"kalman.noise.measurement_noise_scale": 0.5})
 

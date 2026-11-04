@@ -50,6 +50,7 @@ class _FakeLibrary:
         detection_indices,
         embeddings,
         image,
+        dt=0.0,
     ):
         assert handle == "handle"
         self.update_calls.append(

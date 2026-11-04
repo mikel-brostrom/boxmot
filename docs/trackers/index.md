@@ -1,26 +1,45 @@
 # Tracker Overview
 
-BoxMOT ships multiple tracker backends behind one interface.
+Choose a tracker by its supported [task](../tasks/index.md) and association
+variant. One algorithm can support several tasks and variants.
 
-## Implementation taxonomy
+## Tasks and variants
 
-Each algorithm lives under `boxmot/trackers/<name>/`. Shared tracker
-infrastructure lives under `boxmot/trackers/common/`, including the base class,
-configuration, factory, protocols, registry, and specifications. The shared
-`BoxTracker` base and box-geometry adapters live under `common/box/`.
+The table lists common task variants and the shipped Python algorithm defaults.
+Choose AABB or OBB geometry independently of the association variant; a custom
+tracker config or preset can change the enabled cues. Individual tracker pages
+describe further association settings.
 
-`TrackerFamily` classifies the representation maintained as tracker state:
+| Tracker | Main tasks | Default variant | Other task variants |
+| --- | --- | --- | --- |
+| [ByteTrack](bytetrack.md) | [2D boxes (AABB)](../tasks/aabb.md), [Oriented boxes (OBB)](../tasks/obb.md) | Motion-only | — |
+| [OcSort](ocsort.md) | [2D boxes (AABB)](../tasks/aabb.md), [Oriented boxes (OBB)](../tasks/obb.md) | Motion-only | — |
+| [SFSORT](sfsort.md) | [2D boxes (AABB)](../tasks/aabb.md), [Oriented boxes (OBB)](../tasks/obb.md) | Motion-only | — |
+| [BotSort](botsort.md) | [2D boxes (AABB)](../tasks/aabb.md), [Oriented boxes (OBB)](../tasks/obb.md) | Appearance-assisted (ReID) | Motion-only |
+| [StrongSort](strongsort.md) | [2D boxes (AABB)](../tasks/aabb.md), [Oriented boxes (OBB)](../tasks/obb.md) | Appearance-assisted (ReID) | — |
+| [DeepOcSort](deepocsort.md) | [2D boxes (AABB)](../tasks/aabb.md), [Oriented boxes (OBB)](../tasks/obb.md) | Appearance-assisted (ReID) | Motion-only |
+| [HybridSort](hybridsort.md) | [2D boxes (AABB)](../tasks/aabb.md), [Oriented boxes (OBB)](../tasks/obb.md) | Appearance-assisted (ReID) | Motion-only |
+| [BoostTrack](boosttrack.md) | [2D boxes (AABB)](../tasks/aabb.md), [Oriented boxes (OBB)](../tasks/obb.md) | Appearance-assisted (ReID) | Motion-only |
+| [OccluBoost](occluboost.md) | [2D boxes (AABB)](../tasks/aabb.md), [Oriented boxes (OBB)](../tasks/obb.md) | Appearance-assisted (ReID) | Motion-only |
+| [MafHda](maf_hda.md) | [Masks](../tasks/masks.md) (AABB + instance masks) | Motion and masked appearance | Motion-only association |
+| [EagerMot](eagermot.md) | [2D/3D fusion](../tasks/fusion.md) | Calibrated fusion without ego poses | Fusion with ego-motion compensation |
 
-- `box`: AABB or OBB state. Appearance embeddings, camera motion, masks, or
-  frames may still be optional association inputs.
-- `mask`: an instance mask is the primary state.
-- `multimodal`: multiple primary representations or model memory are
-  fundamental to the method, as in MafHda and EagerMot.
+For the five configurable ReID trackers, set `use_embeddings=False` in the
+typed config, or `use_embeddings: false` in a tracker YAML, to select the
+motion-only variant. StrongSort always requires appearance embeddings.
+Motion-only means ReID is disabled; camera-motion compensation and other
+enabled features can still require image frames.
 
-The family is capability metadata; algorithm directories are flat. Each
-registered implementation also declares immutable geometry and input
-capabilities, which factories and pipelines use for validation. Selecting
-`backend="cpp"` chooses a registered native implementation of the same family.
+MafHda keeps masks in both variants. Select its motion-only variant with
+`s2ta_mode="motion"` and `t2ta_mode="motion"`; the default masked appearance
+cue uses a correlation filter. EagerMot's fusion variant depends on whether
+camera-to-world poses are supplied consistently throughout the sequence.
+
+The box trackers also offer [temporal mask guidance](../tasks/masks.md#use-temporal-masks-in-association)
+under its supported Python AABB configuration. Carrying masks for output or
+enabling this extra cue does not change their primary task classification.
+See [input support](#input-support) for the complete requirements and
+[native differences](#native-input-differences) when choosing C++.
 
 ## Input support
 
@@ -36,11 +55,11 @@ each non-`Unused` column once, including optional and configurable inputs.
 
 | Tracker | 2D geometry | ReID embeddings | Instance masks | Image input | 3D boxes | Calibration | Ego poses |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| [ByteTrack](bytetrack.md) | AABB, OBB | Unused | Unused | Centroid dimensions | Unused | Unused | Unused |
-| [OcSort](ocsort.md) | AABB, OBB | Unused | Unused | Centroid dimensions | Unused | Unused | Unused |
+| [ByteTrack](bytetrack.md) | AABB, OBB | Unused | Unused | Optional CMC / centroid dimensions | Unused | Unused | Unused |
+| [OcSort](ocsort.md) | AABB, OBB | Unused | Unused | Optional CMC / centroid dimensions | Unused | Unused | Unused |
 | [SFSORT](sfsort.md) | AABB, OBB | Unused | Unused | Dimensions or configured size | Unused | Unused | Unused |
 | [BotSort](botsort.md) | AABB, OBB | Configurable | Unused | CMC / live ReID / centroid | Unused | Unused | Unused |
-| [StrongSort](strongsort.md) | AABB, OBB | Required | Unused | Required: ECC pixels | Unused | Unused | Unused |
+| [StrongSort](strongsort.md) | AABB, OBB | Required | Unused | CMC / live ReID / centroid | Unused | Unused | Unused |
 | [DeepOcSort](deepocsort.md) | AABB, OBB | Configurable | Unused | CMC / live ReID / centroid | Unused | Unused | Unused |
 | [HybridSort](hybridsort.md) | AABB, OBB | Configurable | Unused | CMC / live ReID / centroid | Unused | Unused | Unused |
 | [BoostTrack](boosttrack.md) | AABB, OBB | Configurable | Unused | CMC / live ReID / centroid | Unused | Unused | Unused |
@@ -51,11 +70,13 @@ each non-`Unused` column once, including optional and configurable inputs.
 - **ReID:** `use_embeddings=True` enables appearance on configurable trackers.
   Supply embeddings or let the tracker generate them from image pixels.
   Cached embeddings remove this pixel requirement but do not disable CMC.
-  StrongSort always uses appearance and ECC; it still needs pixels with cached
-  embeddings. With appearance disabled, supplied embeddings are unused.
+  StrongSort always uses appearance and enables ECC by default; set
+  `use_cmc=False` to disable its pixel requirement when embeddings are supplied.
+  With appearance disabled on configurable trackers, supplied embeddings are unused.
 - **Pixels and dimensions:** CMC and live ReID need actual pixels. Centroid
   association needs dimensions only, including when CMC and ReID are disabled.
-  ByteTrack and OcSort never use image pixels. SFSORT needs dimensions for its
+  Python ByteTrack and OcSort can enable CMC with `use_cmc=True`; it is off by
+  default. SFSORT needs dimensions for its
   regions and optional centroid association; provide a frame or configure both
   `frame_width` and `frame_height`.
 - **MafHda:** Its default appearance stages need pixels, including empty
@@ -67,12 +88,16 @@ each non-`Unused` column once, including optional and configurable inputs.
   them on matched image-track outputs; its association uses box geometry.
   A ReID encoder that requires masks may consume them when generating missing
   embeddings for a box tracker; this does not enable mask association.
+  All nine Python box trackers also support optional
+  [temporal mask guidance](../tasks/masks.md#use-temporal-masks-in-association).
+  That extension needs current pixels and derives its own masks; the table's
+  instance-mask column describes supplied detection masks.
 - **3D and calibration:** EagerMot requires independent 2D and 3D detections
   and camera calibration on every update. These can be NumPy arrays or
   canonical `Detections`, `Detections3D`, and `CameraModel`. Either detection batch
   can be explicitly empty. A 3D observation initializes a track; later 2D
-  observations can sustain it. Pass `image_size=(height, width)` with a NumPy
-  projection when no frame is supplied; `CameraModel` stores these dimensions.
+  observations can sustain it. A NumPy projection requires a frame to supply
+  image dimensions; use `CameraModel.image_size` when no frame is supplied.
   Saved-sensor `eval --eval-3d` can omit `detections_2d` and
   supplies empty image detections; mask scoring still needs predicted masks.
 - **Ego motion:** EagerMot optionally consumes absolute camera-to-world poses
@@ -80,12 +105,13 @@ each non-`Unused` column once, including optional and configurable inputs.
   `CameraModel.camera_to_world`. With poses it tracks motion in world
   coordinates; without them it uses camera coordinates. Keep pose availability
   consistent throughout a sequence. Calibration projection remains required.
-- **Timing:** Python ByteTrack, BotSort, StrongSort, OcSort, DeepOcSort,
-  HybridSort, BoostTrack, and OccluBoost support `kalman.variable_dt=True`. This then
+- **Timing:** Python trackers except SFSORT, plus native ByteTrack, BotSort,
+  OcSort, and OccluBoost, support `kalman.variable_dt=True`. This then
   requires a capture timestamp on every update through `Frame.timestamp_s`
   or `timestamp_s=`. Otherwise timestamps are metadata and prediction uses
-  fixed frame intervals. MafHda, EagerMot, SFSORT, and native backends use fixed
-  intervals. See [choosing Kalman timing and
+  fixed frame intervals. SFSORT uses fixed steps on both backends and rejects
+  variable timing. Track lifetimes remain counts of updates.
+  See [choosing Kalman timing and
   adaptation](../modes/track.md#choose-kalman-timing-and-adaptation).
 
 ### Input representations
@@ -133,7 +159,8 @@ ByteTrack, BotSort, OcSort, OccluBoost, and SFSORT have C++ adapters supporting
 both AABB and OBB, canonical detections, and
 packed NumPy rows. BotSort and OccluBoost accept embeddings or generate them
 through their Python adapter. Native trackers do not support masks, 3D sensor
-inputs, or variable timing, and their outputs do not preserve masks.
+inputs, or mask outputs. ByteTrack, BotSort, OcSort, and OccluBoost support
+variable timing; native SFSORT uses fixed steps.
 
 Native frame requirements are fixed at construction: CMC needs pixels;
 centroid association without CMC needs dimensions only. SFSORT likewise
@@ -143,6 +170,9 @@ Live ReID additionally needs real pixels when embeddings are missing. See
 for backend details.
 
 ## How to choose
+
+See [Compare trackers and ReID models](../guides/comparison.md) for selection
+guidance and a workflow that evaluates trackers on the same detections.
 
 - Start with `bytetrack` when you want a fast motion-only baseline.
 - Use `botsort`, `strongsort`, `deepocsort`, `hybridsort`, `boosttrack`, or `occluboost` when appearance cues matter.
@@ -154,6 +184,26 @@ for backend details.
   supported AABB and OBB choices. EagerMot uses IoU for image association and
   exposes a separate 3D association metric.
 - Use `--tracker-backend cpp` for native C++ implementations when the selected tracker has a native backend.
+
+## Implementation taxonomy
+
+Each algorithm lives under `boxmot/trackers/<name>/`. Shared tracker
+infrastructure lives under `boxmot/trackers/common/`, including the base class,
+configuration, factory, protocols, registry, and specifications. The shared
+`BoxTracker` base and box-geometry adapters live under `common/box/`.
+
+`TrackerFamily` classifies the representation maintained as tracker state:
+
+- `box`: AABB or OBB state. Appearance embeddings, camera motion, masks, or
+  frames may still be optional association inputs.
+- `mask`: an instance mask is the primary state.
+- `multimodal`: multiple primary representations or model memory are
+  fundamental to the method, as in MafHda and EagerMot.
+
+The family is capability metadata; algorithm directories are flat. Each
+registered implementation also declares immutable geometry and input
+capabilities, which factories and pipelines use for validation. Selecting
+`backend="cpp"` chooses a registered native implementation of the same family.
 
 ## Config and factory
 

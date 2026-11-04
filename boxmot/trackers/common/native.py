@@ -30,10 +30,13 @@ from boxmot.trackers.common.input import (
 from boxmot.trackers.common.mask_guidance import MASK_GUIDANCE_OPTIONS
 from boxmot.trackers.common.motion.kalman_filters.config import normalize_kalman_config
 from boxmot.trackers.common.motion.kalman_filters.noise import (
+    DEFAULT_REFERENCE_DT_S,
     KALMAN_NOISE_OPTIONS,
+    KALMAN_NOISE_TRACKER_NAMES,
     KALMAN_TIMING_OPTIONS,
 )
 from boxmot.trackers.common.protocols import TrackerRequirements
+from boxmot.trackers.common.tracking.timing import resolve_frame_timing
 
 ASSOCIATION_FUNCTIONS = frozenset({"centroid", "ciou", "diou", "giou", "hmiou", "iou"})
 NATIVE_FUSION_DEFAULTS = {
@@ -76,6 +79,7 @@ class NativeTrackerLibrary(Protocol):
         detection_indices: np.ndarray,
         embeddings: np.ndarray | None,
         image: np.ndarray | None,
+        dt: float = 0.0,
     ) -> NativeTrackBatch: ...
 
 
@@ -119,7 +123,7 @@ def load_native_tracker_config(
         accepted_keys = (
             set(resolved)
             | set(native_only_keys)
-            | {"kalman.variable_dt"}
+            | {"kalman.type", "kalman.variable_dt"}
             | set(KALMAN_NOISE_OPTIONS)
             | set(KALMAN_TIMING_OPTIONS)
         )
@@ -134,6 +138,9 @@ def load_native_tracker_config(
     validate_native_fusion_options(tracker_name, resolved)
     kalman = normalize_kalman_config(resolved, tracker_name=tracker_name, backend="cpp")
     resolved = {key: value for key, value in resolved.items() if not key.startswith("kalman.")}
+    if tracker_name in KALMAN_NOISE_TRACKER_NAMES:
+        resolved["kalman.variable_dt"] = kalman.variable_dt
+        resolved["kalman.noise.reference_dt_s"] = kalman.noise.reference_dt_s
     if kalman.ams is not None:
         resolved.update({f"ams_{key}": value for key, value in kalman.ams.to_dict().items()})
     return resolved
@@ -178,7 +185,7 @@ class NativeTrackerAdapter(LiveReIDMixin):
 
     _native_display_name: str
     supports_obb = True
-    supports_variable_dt = False
+    supports_variable_dt = True
     variable_dt = False
     supports_masks = False
     accepts_embeddings = False
@@ -198,6 +205,9 @@ class NativeTrackerAdapter(LiveReIDMixin):
             raise ValueError("Native tracker geometry must be 'aabb' or 'obb'.")
         self.name = self.__class__.__name__
         self.cfg = cfg
+        self.variable_dt = bool(cfg.get("kalman.variable_dt", False))
+        self._reference_dt_s = float(cfg.get("kalman.noise.reference_dt_s", DEFAULT_REFERENCE_DT_S))
+        self._last_timestamp_s: float | None = None
         self.geometry = geometry
         self.is_obb = geometry == "obb"
         self.use_embeddings = use_embeddings
@@ -206,6 +216,7 @@ class NativeTrackerAdapter(LiveReIDMixin):
             embeddings=use_embeddings,
             frame=requires_frame,
             frame_dimensions_only=frame_dimensions_only,
+            timestamp=self.variable_dt,
         )
         self._library = library
         self._handle = self._library.create(self.cfg)
@@ -219,8 +230,19 @@ class NativeTrackerAdapter(LiveReIDMixin):
 
         return self._requirements
 
-    def validate_timing(self, frame: Frame | np.ndarray | None = None, *, timestamp_s: float | None = None) -> None:
-        """Keep frame timestamps as metadata; native prediction uses fixed steps."""
+    def _resolve_timing(
+        self, frame: Frame | np.ndarray | None, timestamp_s: float | None
+    ) -> tuple[float | None, float | None]:
+        """Validate capture timestamps without advancing native state."""
+        return resolve_frame_timing(
+            frame, timestamp_s, variable_dt=self.variable_dt, last_timestamp_s=self._last_timestamp_s
+        )
+
+    def validate_timing(
+        self, frame: Frame | np.ndarray | None = None, *, timestamp_s: float | None = None
+    ) -> float | None:
+        """Check capture timing before expensive upstream work."""
+        return self._resolve_timing(frame, timestamp_s)[1]
 
     @overload
     def update(
@@ -244,7 +266,10 @@ class NativeTrackerAdapter(LiveReIDMixin):
         The detection representation determines the output representation.
         """
 
-        self.validate_timing(frame, timestamp_s=timestamp_s)
+        timestamp_s, dt = self._resolve_timing(frame, timestamp_s)
+        elapsed_step = 0.0 if dt is None else dt / self._reference_dt_s
+        if dt is not None and (not np.isfinite(elapsed_step) or elapsed_step <= 0.0):
+            raise ValueError("timestamp_s interval is unrepresentable with kalman.noise.reference_dt_s.")
         frame = prepare_frame(frame)
 
         is_obb = self.is_obb
@@ -319,6 +344,7 @@ class NativeTrackerAdapter(LiveReIDMixin):
             detection_indices=np.arange(len(scores), dtype=np.int64),
             embeddings=embeddings,
             image=image,
+            dt=elapsed_step,
         )
         output_geometry = batch.geometry
         if is_obb and len(batch.track_ids):
@@ -354,6 +380,7 @@ class NativeTrackerAdapter(LiveReIDMixin):
                 detection_indices=batch.detection_indices,
             )
             tracks = _to_tracks(output_batch, sample_id=sample_id, is_obb=is_obb)
+        self._last_timestamp_s = timestamp_s
         self._sample_index += 1
         return tracks
 
@@ -361,6 +388,7 @@ class NativeTrackerAdapter(LiveReIDMixin):
         """Reset native state and OBB continuity state."""
 
         self._library.reset(self._handle)
+        self._last_timestamp_s = None
         self._sample_index = 0
         self._obb_output_by_track_id.clear()
         self._dimension_only_images.clear()

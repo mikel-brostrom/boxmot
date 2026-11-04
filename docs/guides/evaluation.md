@@ -1,6 +1,6 @@
 # Evaluation and Postprocessing
 
-Evaluation has two independent inputs:
+Perception-build evaluation has two independent inputs:
 
 1. A dataset adapter owns raw ground truth and its source-catalog digest.
 2. A complete `boxmot.dataset/v1` build owns keyed perception artifacts.
@@ -173,7 +173,8 @@ With an explicit `--build`, `--fps` must match its recorded sampling rate;
 omitting `--fps` uses that rate automatically. Detections, images, and ground
 truth use the same selected frames, retaining their capture timestamps.
 
-`--calibrate-kf` fits the five shared covariance scales directly; evaluation
+`--calibrate-kf` fits coordinate-wise multipliers for the five covariance groups;
+the global scales are saved as `1.0`. Evaluation
 then runs once. To calibrate before searching tracker parameters, use
 [`boxmot tune --calibrate-kf`](../modes/tune.md#calibrate-the-kf-before-tracker-tuning)
 with a materialized 2 FPS build. Calibration runs once before the trials,
@@ -202,7 +203,8 @@ boxmot eval \
   --variable-dt
 ```
 
-Cached replay does not accept `--device`. Comparisons should use the same
+Plain cached replay rejects `--device`; replay with `--edgetam` accepts it to
+select the temporal mask-inference device. Comparisons should use the same
 variant and perception build, with tracker settings calibrated for the
 selected timing mode. See [Kalman calibration](../modes/eval.md#kalman-calibration)
 for fitting and reusing noise settings.
@@ -257,3 +259,18 @@ remains owned by the dataset adapter.
 
 Legacy `.npy`, `.npz`, and text-only perception caches are unsupported. They
 are not read, migrated, or deleted.
+
+## Interpret reported metrics
+
+BoxMOT reports HOTA, DetA, AssA, MOTA, and IDF1 in percentage units; a change from
+60 to 61 is one percentage point. HOTA combines detection and association
+accuracy across overlap thresholds, so localization affects which matches count.
+Read DetA and AssA alongside HOTA to distinguish missed detections from identity
+fragmentation. IDF1 measures identity consistency, while MOTA penalizes missed
+detections, false positives, and identity switches and can be negative.
+
+Compare the same class or aggregate, geometry, split, and preprocessing protocol.
+Mask, box, and 3D scores use different overlap measures and should be labeled
+separately. Cached replay timing excludes the perception build; it is not
+end-to-end detector-and-tracker throughput. Omit `--show` and `--save` when
+measuring replay speed, because they add rendering, I/O, and preview pacing.

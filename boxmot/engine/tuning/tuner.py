@@ -36,7 +36,7 @@ def _configure_ray_environment() -> None:
     os.environ.setdefault("RAY_process_group_cleanup_enabled", "true")
 
 
-from boxmot.engine.config.runtime import resolve_sequence_workers
+from boxmot.engine.config.runtime import resolve_mode_args, resolve_sequence_workers
 from boxmot.engine.config.trackers import edgetam_checkpoint, resolve_tracker_options
 from boxmot.engine.eval.results import SUMMARY_COLUMNS, ValidationResult
 from boxmot.engine.tuning.backends import build_search_backend, resolve_search_backend
@@ -92,8 +92,8 @@ from boxmot.engine.ui.reporters.validation import CLI_TUNE_BEST_SUMMARY_TITLE
 from boxmot.trackers.common.config import load_tracker_config
 from boxmot.trackers.common.motion.kalman_filters.noise import (
     KALMAN_NOISE_OPTIONS,
+    KALMAN_NOISE_TRACKER_NAMES,
     KALMAN_TIMING_OPTIONS,
-    KALMAN_TRACKER_NAMES,
 )
 from boxmot.utils import logger as LOGGER
 
@@ -102,7 +102,9 @@ if TYPE_CHECKING:
 
 _TUNE_WARNING_FILTER = "ignore:resource_tracker:UserWarning"
 # Spatial confidence decay does not affect image masks; the 2D affinity is fixed.
-_SENSOR_FIXED_PARAMETERS = frozenset({"max_age_2d", "asso_func", "per_class"})
+_SENSOR_FIXED_PARAMETERS = frozenset(
+    {"max_age_2d", "asso_func", "per_class", "kalman.variable_dt", *KALMAN_TIMING_OPTIONS}
+)
 _SENSOR_OBJECTIVE = "cls_comb_cls_av.HOTA"
 
 
@@ -658,7 +660,7 @@ class Tuner:
 
     def _validate_resumed_timing(self, results) -> None:
         """Keep timing units and the reference prior basis fixed on resume."""
-        if self.args.tracker not in KALMAN_TRACKER_NAMES:
+        if self.args.tracker not in KALMAN_NOISE_TRACKER_NAMES:
             return
         expected = getattr(self, "_runtime_config", None)
         if expected is None:
@@ -897,6 +899,7 @@ class Tuner:
             )
 
         if interrupted:
+            pipeline.workflow.allow_dashboard_browse = False
             n_saved = len(saved_artifacts.get("trial_data", [])) if saved_artifacts else 0
             if final_renderable is not None:
                 pipeline.finish(final_renderable, title="Interrupted — Partial Results")
@@ -1231,11 +1234,17 @@ def _run_eagermot_tuning(args: Any, *, pipeline: Any | None = None) -> TuneResul
     selected_kalman_options(tune_kf)
     if pipeline is not None:
         pipeline.update("Loading saved KITTI predictions and ground truth…")
+    baseline_profiles = load_kitti_profiles(
+        getattr(args, "class_config", None), variable_dt=getattr(args, "variable_dt", None)
+    )
+    if getattr(args, "calibrate_kf", False) and any(
+        profile["kalman.variable_dt"] for profile in baseline_profiles.values()
+    ):
+        raise ValueError("EagerMOT 3D KF calibration uses fixed frame steps.")
     inputs = prepare_eagermot_kitti(args)
     try:
         sequence_workers = resolve_sequence_workers(len(inputs.sequences), getattr(args, "sequence_workers", None))
         output = increment_path(Path(args.project).expanduser().resolve() / inputs.manifest["split"], mkdir=True)
-        baseline_profiles = load_kitti_profiles(getattr(args, "class_config", None))
         calibration = None
         fixed_parameters = (
             frozenset({"kalman.is_angular"})
@@ -1489,6 +1498,8 @@ def _run_sensor_tuning(
     )
     if path is None:
         return None
+    if getattr(args, "calibrate_kf", False) and getattr(args, "variable_dt", False):
+        raise ValueError("EagerMOT 3D KF calibration uses fixed frame steps; omit --variable-dt.")
 
     for option in ("select_kf", "select_cmc"):
         if getattr(args, option, False):
@@ -1519,7 +1530,6 @@ def _run_sensor_tuning(
         "resume_tune",
         "time_budget_s",
         "fps",
-        "variable_dt",
     )
     for name in unsupported:
         value = getattr(args, name, None)
@@ -1625,8 +1635,9 @@ def _run_sensor_tuning(
 # ---------------------------------------------------------------------------
 
 
-def run_tune(args, *, baseline_config: dict | None = None) -> TuneResult:
-    """Run tuning and return a structured TuneResult."""
+def run_tune(args: Any | None = None, *, baseline_config: dict | None = None, **options: Any) -> TuneResult:
+    """Tune keyword options or prepared args and return a structured TuneResult."""
+    args = resolve_mode_args("tune", args, options)
     sensor_result = _run_sensor_tuning(args, baseline_config=baseline_config)
     if sensor_result is not None:
         return sensor_result

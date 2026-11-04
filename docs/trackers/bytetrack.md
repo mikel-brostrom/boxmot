@@ -2,13 +2,31 @@
 
 [Paper: ByteTrack: Multi-Object Tracking by Associating Every Detection Box](https://arxiv.org/abs/2110.06864)
 
-ByteTrack's main idea is simple: do not throw away low-confidence detections too early. The paper shows that a second association pass over lower-score boxes recovers occluded or partially visible objects and reduces fragmented tracks without adding much complexity. In practice, it is one of the strongest motion-only baselines because it stays fast while improving ID continuity.
+ByteTrack first associates high-confidence detections, then uses lower-score
+boxes to recover unmatched active tracks. It uses Kalman motion and geometric
+association without an appearance encoder.
+
+## Tasks and variants
+
+| Task | Default variant | Other variants |
+| --- | --- | --- |
+| [2D boxes (AABB)](../tasks/aabb.md) | [Motion-only](../tasks/aabb.md#motion-only) | None (ReID is unsupported) |
+| [Oriented boxes (OBB)](../tasks/obb.md) | [Motion-only](../tasks/obb.md#motion-only) | None (ReID is unsupported) |
 
 ## What BoxMOT Needs For ByteTrack
 
 - Detector only. ReID features are not required.
 - Supports both AABB and OBB detections in BoxMOT.
 - Good default when you want a fast, strong baseline and already trust the detector.
+
+Keep the detector's confidence cutoff at or below `ByteTrackConfig.min_conf`
+(default `0.1`) if you want its low-score recovery pass to see those detections.
+Boxes filtered out by the detector cannot be recovered by tracker settings.
+
+Python ByteTrack can also compensate camera motion with
+`ByteTrackConfig(use_cmc=True, cmc_method="sof")`. CMC is off by default and
+requires the current frame on every update when enabled. The C++ ByteTrack
+backend does not implement this CMC extension.
 
 ## Lost-track lifetime
 
@@ -108,8 +126,9 @@ one model within a live workflow, with separate inference states.
 ### Association behavior
 
 Each ByteTrack pass keeps its normal acceptance threshold, including configured
-`match_thresh` for high-confidence detections (`0.5` for the low-confidence pass
-and `0.7` for unconfirmed tracks). Candidate classification uses the original
+`match_thresh` for high-confidence detections, `second_match_thresh` for the
+low-confidence pass (default `0.5`), and `unconfirmed_match_thresh` for
+unconfirmed tracks (default `0.7`). Candidate classification uses the original
 cost matrix:
 
 - A pair is admissible when its original cost is at or below the pass threshold.

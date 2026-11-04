@@ -1,5 +1,7 @@
 #include "bytetrack/kalman_filter.hpp"
 
+#include "boxmot/trackers/base/timing.hpp"
+
 #include <array>
 #include <algorithm>
 #include <cmath>
@@ -129,17 +131,18 @@ std::pair<KalmanFilterXYAH::Vector, KalmanFilterXYAH::Matrix> KalmanFilterXYAH::
 
 std::pair<KalmanFilterXYAH::Vector, KalmanFilterXYAH::Matrix> KalmanFilterXYAH::Predict(
     const Vector& mean,
-    const Matrix& covariance
+    const Matrix& covariance,
+    const double dt
 ) const {
     const auto [std_pos, std_vel] = ProcessNoiseStd(mean);
-    Vector predicted_mean = motion_mat_ * mean;
-    predicted_mean[2] = std::max(predicted_mean[2], 1.0e-4);
-    predicted_mean[3] = std::max(predicted_mean[3], 1.0e-4);
-
     Vector std(8);
     std << std_pos, std_vel;
     Matrix motion_cov = std.array().square().matrix().asDiagonal();
-    Matrix predicted_covariance = motion_mat_ * covariance * motion_mat_.transpose() + motion_cov;
+    const auto [motion, integrated_noise] = boxmot::trackers::base::ElapsedMotion(motion_mat_, motion_cov, dt);
+    Vector predicted_mean = motion * mean;
+    predicted_mean[2] = std::max(predicted_mean[2], 1.0e-4);
+    predicted_mean[3] = std::max(predicted_mean[3], 1.0e-4);
+    Matrix predicted_covariance = motion * covariance * motion.transpose() + integrated_noise;
     return {predicted_mean, predicted_covariance};
 }
 
@@ -264,16 +267,17 @@ std::pair<KalmanFilterXYWH::Vector, KalmanFilterXYWH::Matrix> KalmanFilterXYWH::
 
 std::pair<KalmanFilterXYWH::Vector, KalmanFilterXYWH::Matrix> KalmanFilterXYWH::Predict(
     const Vector& mean,
-    const Matrix& covariance
+    const Matrix& covariance,
+    const double dt
 ) const {
     const auto [std_pos, std_vel] = ProcessNoiseStd(mean);
-    Vector predicted_mean = motion_mat_ * mean;
-    predicted_mean = EnforceXywhConstraints(predicted_mean);
-
     Vector std(dim_x_);
     std << std_pos, std_vel;
     Matrix motion_cov = std.array().square().matrix().asDiagonal();
-    Matrix predicted_covariance = motion_mat_ * covariance * motion_mat_.transpose() + motion_cov;
+    const auto [motion, integrated_noise] = boxmot::trackers::base::ElapsedMotion(motion_mat_, motion_cov, dt);
+    Vector predicted_mean = motion * mean;
+    predicted_mean = EnforceXywhConstraints(predicted_mean);
+    Matrix predicted_covariance = motion * covariance * motion.transpose() + integrated_noise;
     return {predicted_mean, predicted_covariance};
 }
 

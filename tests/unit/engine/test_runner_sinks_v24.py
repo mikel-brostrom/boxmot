@@ -155,7 +155,8 @@ def test_track_reporter_labels_an_interrupted_summary_as_stopped() -> None:
     rendered = capture_renderable(reporter.result(run), width=100)
 
     assert "Tracking stopped by user" in rendered
-    assert "3 frames" in rendered
+    frame_row = next(line for line in rendered.splitlines() if "Frames completed" in line)
+    assert [cell.strip() for cell in frame_row.split("│")[1:3]] == ["Frames completed", "3"]
 
 
 def test_display_sink_q_stops_tracking_and_closes_the_window(monkeypatch) -> None:

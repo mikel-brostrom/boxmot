@@ -121,12 +121,6 @@ def _create_native_tracker(
         raise ValueError(f"Native {spec.name} does not support {geometry_kind.value.upper()} geometry.")
     if definition.capabilities.accepts_masks:
         raise ValueError(f"Native {spec.name} does not support masks.")
-    variable_dt = spec.option_dict.get("kalman.variable_dt", False)
-    if not isinstance(variable_dt, bool):
-        raise TypeError("variable_dt must be bool.")
-    if variable_dt:
-        raise ValueError("The native tracker backend does not support variable_dt=True; use the Python backend.")
-
     option_names = set(spec.option_dict)
     mask_options = sorted(option_names & _FORBIDDEN_NATIVE_MASK_OPTIONS)
     if mask_options:

@@ -1,6 +1,29 @@
 # Contributing Guide
 
-The repo has six main extension surfaces:
+Start with a source checkout and the development dependencies:
+
+```bash
+git clone https://github.com/mikel-brostrom/boxmot.git
+cd boxmot
+pip install "uv==0.12.4"
+uv sync --extra cpu --extra yolo --extra evolve --extra service \
+  --group dev --group test --group docs
+uv run --no-sync python -m boxmot.engine.cli --help
+```
+
+Use your fork's URL when contributing through a fork. Replace `cpu` with
+`cu130` for CUDA 13.0, and repeat the selected extras on later syncs. Create a
+short branch such as `docs/update-examples`, keep changes focused, and include
+the exact [tests](testing.md) you ran in the pull request.
+
+## Where code belongs
+
+The main extension surfaces are:
+
+- canonical data values under `boxmot/structures` and reusable component
+  composition under `boxmot/pipelines`
+- detector and segmentor implementations under `boxmot/detectors` and
+  `boxmot/segmentors`
 
 - algorithm packages under `boxmot/trackers/<name>`, with shared support code
   under `boxmot/trackers/common` and representation families declared in
@@ -18,7 +41,7 @@ The repo has six main extension surfaces:
   `boxmot/resources`; renderers integrate through callbacks, so resources never
   import the engine UI
 
-`boxmot/utils` is deliberately limited to genuinely cross-domain checks,
+`boxmot/utils` is deliberately limited to cross-domain checks,
 configuration primitives, logging/constants, and Torch device helpers. Put new
 helpers beside the subsystem that owns their behavior instead of rebuilding a
 generic `misc` module.

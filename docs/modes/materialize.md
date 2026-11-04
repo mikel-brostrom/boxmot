@@ -20,20 +20,57 @@ create a different experiment that references the appropriate reusable config
 assets. This guarantees that every published build carries the dataset and
 experiment identity expected by eval, tune, and research.
 
-```bash
-# Catalog-backed experiment
-boxmot materialize \
-  --experiment mot17/ablation-yolox-lmbn.yaml \
-  --data-root datasets/mot \
-  --build-root runs/materializations \
-  --device mps
+Build the MOT17 ablation experiment:
 
-# Standard MMOT 8-band test split
-boxmot materialize \
-  --experiment mmot-obb/test-yolo11l-lmbn.yaml \
-  --data-root datasets/mot \
-  --device mps
-```
+=== "CLI"
+
+    ```bash
+    boxmot materialize \
+      --experiment mot17/ablation-yolox-lmbn.yaml \
+      --data-root datasets/mot \
+      --build-root runs/materializations \
+      --device mps
+    ```
+
+=== "Python"
+
+    ```python
+    from boxmot.engine.materialization.workflow import materialize
+
+    build_path = materialize(
+        experiment="mot17/ablation-yolox-lmbn.yaml",
+        data_root="datasets/mot",
+        build_root="runs/materializations",
+        device="mps",
+    )
+    print(build_path)
+    ```
+
+For the standard MMOT 8-band test split:
+
+=== "CLI"
+
+    ```bash
+    boxmot materialize \
+      --experiment mmot-obb/test-yolo11l-lmbn.yaml \
+      --data-root datasets/mot \
+      --device mps
+    ```
+
+=== "Python"
+
+    ```python
+    from boxmot.engine.materialization.workflow import materialize
+
+    build_path = materialize(
+        experiment="mmot-obb/test-yolo11l-lmbn.yaml", data_root="datasets/mot", device="mps"
+    )
+    print(build_path)
+    ```
+
+The Python call returns the published build's `Path`, which can be passed to
+evaluation, tuning, or research. Choose `cpu`, `mps`, or `cuda:0` for your machine;
+`device=` applies the selected device to every perception component.
 
 NumPy frames selected by an experiment's dataset must be `uint8` HWC arrays
 with at least three channels.
@@ -47,13 +84,22 @@ first three. These dataset images are not the unsupported legacy positional
 ReID crop extraction is automatic: AABB detections use clipped axis-aligned
 crops, while OBB detections use the canonical rectified OBB transform. The crop
 is not an experiment override. Built-in ReID profiles do not consume detection
-masks; a custom mask-dependent encoder declares that requirement through its
-encoder contract.
+masks, and the CLI embedding stage does not attach them. Compose a custom
+mask-dependent encoder through the [Python pipeline API](../python/index.md),
+where its declared input requirements drive enrichment.
 
 Image references are published by default, masks are disabled by default, and
 embeddings are enabled by default. Model artifacts are resolved and hashed
 before the build ID is established; materialization never changes that semantic
 identity after work begins.
+
+If the experiment has no ReID encoder and its detector does not emit embeddings,
+pass `--no-publish-embeddings`. To publish masks, add `--publish-masks` and
+select an experiment whose detector or segmentor supplies them. A standalone
+segmentor in the experiment runs when mask publication is requested.
+Published image references point to the original media; they do not copy image
+pixels into the build. Keep the source data available for replay validation,
+visualization, camera compensation, and frame-dependent trackers.
 
 Inference batch sizes, execution devices, worker counts, retries, and writer
 shard sizes do not change content identity or prevent reuse. For example, a
@@ -193,6 +239,38 @@ If finalization is interrupted, rerunning the same command reuses intact inferen
 shards and restarts finalization. Masks and embeddings are compacted in bounded
 payload batches. The candidate temporarily requires disk space for the compacted
 artifacts in addition to the inference checkpoints.
+
+### Executor settings
+
+For a memory-constrained device, reduce the pending inference batches:
+
+```bash
+boxmot materialize --experiment mot17/ablation-yolox-lmbn.yaml \
+  --set detect.batch_size=2 --set embed.batch_size=16
+```
+
+The equivalent partial plan can be saved as `executor.yaml`:
+
+```yaml
+detect:
+  batch_size: 2
+embed:
+  batch_size: 16
+decode:
+  workers: 2
+writer:
+  instance_rows_per_shard: 50000
+```
+
+Defaults use batches of 16 for detection, 8 for segmentation, and 64 for
+embedding. `embed.batch_size` also caps detection crops per encoder call, so a
+crowded frame is split into bounded inference batches while checkpoints stay
+aligned to samples. Stages use `executor: inline` with one worker; more stage workers
+require `executor: process` and serializable component specs. The writer
+requires exactly one worker. `retries` counts additional attempts after the
+first (default two for inference stages, zero for finalization). CLI `--set`
+values override the plan, which overrides defaults. On resume, completed
+checkpoints retain the original stage batching.
 
 The first catalog pass hashes each source file and stores its dimensions and
 digest in the platform cache. Later invocations reuse that metadata only when

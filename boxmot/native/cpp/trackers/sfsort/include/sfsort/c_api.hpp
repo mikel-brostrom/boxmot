@@ -43,9 +43,11 @@ struct BoxMOTSFSORTHandle;
 BOXMOT_SFSORT_API BoxMOTSFSORTHandle* boxmot_sfsort_create(const BoxMOTSFSORTConfig* config);
 BOXMOT_SFSORT_API void boxmot_sfsort_destroy(BoxMOTSFSORTHandle* handle);
 BOXMOT_SFSORT_API int boxmot_sfsort_reset(BoxMOTSFSORTHandle* handle);
-BOXMOT_SFSORT_API int boxmot_sfsort_update_v2(BoxMOTSFSORTHandle* handle,
+// The shared v3 interface requires dt == 0 for SFSORT's fixed-step algorithm.
+BOXMOT_SFSORT_API int boxmot_sfsort_update_v3(BoxMOTSFSORTHandle* handle,
                                               const BoxMOTDetectionBatchV2* detections,
                                               const BoxMOTImageV2* image,
+                                              double dt,
                                               BoxMOTTrackBatchV2** output);
 BOXMOT_SFSORT_API void boxmot_sfsort_result_free_v2(BoxMOTTrackBatchV2* output);
 BOXMOT_SFSORT_API const char* boxmot_sfsort_last_error();

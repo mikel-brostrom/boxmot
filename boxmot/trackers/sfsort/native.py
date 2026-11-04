@@ -24,6 +24,7 @@ class NativeSFSORTTracker(NativeTrackerAdapter):
     """Canonical tracker interface backed by the native SFSORT ABI."""
 
     _native_display_name = "SFSORT"
+    supports_variable_dt = False
 
     def __init__(
         self,

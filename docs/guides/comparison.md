@@ -1,4 +1,4 @@
-# Compare BoxMOT Components
+# Compare Trackers and ReID Models
 
 Choose components against the constraints of your footage and deployment, then
 compare them on the same cached detections. Tracker and ReID rankings are not
@@ -19,6 +19,11 @@ portable across detectors, datasets, hardware, or association settings.
 This is a starting-point guide, not a universal ranking. The
 [tracker overview](../trackers/index.md) contains the support matrix, and each
 tracker page explains its own requirements and tradeoffs.
+
+"Motion-only" means no appearance embedding model is needed. Python ByteTrack
+and OcSort also support optional camera compensation, which needs frame pixels.
+Keep CMC, temporal mask guidance, and timing settings fixed or report them
+explicitly when comparing algorithms; each can change both accuracy and runtime.
 
 ## Compare ReID models
 
@@ -45,6 +50,11 @@ Keep the experiment, detector profile, split, postprocessing, and metric
 configuration fixed. Record the tracker YAML and runtime overrides with every
 result.
 
+Use the [source checkout with the `yolo` extra](../getting-started/pytorch.md#source-checkout)
+for this YOLOX example. Replace `BUILD_ID` with the ID printed by
+`materialize`. The [dataset catalog](../datasets/index.md) lists other built-in
+benchmarks and their setup requirements.
+
 For EagerMOT, use `eval --dataset` with the same
 [multimodal dataset](../trackers/eagermot.md#use-your-own-sensor-data). Keep
 2D/3D predictions, calibration, ego poses, and scoring protocol fixed across runs.
@@ -57,6 +67,11 @@ For EagerMOT, use `eval --dataset` with the same
 - **FPS and latency** must be measured on the deployment hardware and include
   any ReID or camera-motion stages you enable.
 
-See [Evaluation and Postprocessing](../guides/evaluation.md) for metric details
-and [Experiment Workflows](../guides/experiments.md) for cache identity and
+Cached evaluation excludes detector and ReID inference from replay timing.
+Use live tracking to measure the complete perception-and-tracking path, and
+disable preview/video output for a compute-focused comparison. Report warmup,
+input resolution, hardware, backend, and the timed stages with every FPS claim.
+
+See [Evaluation and Postprocessing](evaluation.md) for metric details
+and [Experiment Workflows](experiments.md) for cache identity and
 reproducibility.

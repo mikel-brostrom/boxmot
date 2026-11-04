@@ -2,7 +2,19 @@
 
 [Paper: Deep OC-SORT: Multi-Pedestrian Tracking by Adaptive Re-Identification](https://arxiv.org/abs/2302.11813)
 
-Deep OC-SORT starts from OC-SORT's motion-centric association and adds appearance in a more adaptive way than earlier ReID heuristics. The paper argues that appearance should not dominate all the time, but should be integrated when it is actually helpful, especially under long occlusions and dense interactions. This makes it a stronger tracker than pure OC-SORT when motion cues alone are not enough to keep identities stable.
+DeepOcSort combines observation-centric motion with appearance association.
+Its adaptive weighting controls the contribution of embeddings, while
+camera-motion compensation handles motion shared across the image.
+
+## Tasks and variants
+
+| Task | Default variant | Other variants |
+| --- | --- | --- |
+| [2D boxes (AABB)](../tasks/aabb.md) | [AABB + ReID](../tasks/aabb.md#appearance-assisted-reid) | [Motion-only](../tasks/aabb.md#motion-only) |
+| [Oriented boxes (OBB)](../tasks/obb.md) | [OBB + ReID](../tasks/obb.md#appearance-assisted-reid) | [Motion-only](../tasks/obb.md#motion-only) |
+
+Set `use_embeddings=False` in the tracker config to select motion-only
+association. Camera-motion compensation and frame requirements apply independently.
 
 Python AABB mode also supports optional [EdgeTAM mask guidance](../tasks/masks.md#use-temporal-masks-in-association)
 with `--tracker deepocsort --tracker-backend python --asso-func iou --edgetam --mask-guidance-weights edgetam.pt`.
@@ -33,9 +45,11 @@ tracker: deepocsort
 use_cmc: false
 ```
 
-Pass the profile with `--tracker-config path/to/profile.yaml`. The canonical
-setting is `use_cmc`; replace an earlier `cmc_off` setting with its inverted
-boolean value. For example, `cmc_off: true` becomes `use_cmc: false`.
+Pass the profile with `--tracker-config path/to/profile.yaml`. Current image
+pixels are required while CMC is enabled, even with precomputed embeddings.
+`use_embeddings=False` disables appearance independently; disable both features
+for detections-only updates, unless centroid association or mask guidance
+requires a frame.
 
 For joint camera/filter selection, use
 `tune --tracker deepocsort --select-kf --select-cmc`; see

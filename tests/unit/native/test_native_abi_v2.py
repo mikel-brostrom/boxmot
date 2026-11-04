@@ -54,9 +54,10 @@ def test_typed_v2_call_preserves_int64_fields_and_frees_owned_result_once() -> N
     frees = 0
     keepalive: list[object] = []
 
-    def update(_handle, batch_pointer, image_pointer, result_pointer) -> int:
+    def update(_handle, batch_pointer, image_pointer, dt, result_pointer) -> int:
         nonlocal calls
         calls += 1
+        assert dt == 1.25
         batch = ctypes.cast(batch_pointer, ctypes.POINTER(_common.CDetectionBatchV2)).contents
         assert batch.abi_version == 2
         assert batch.geometry_cols == 4
@@ -89,13 +90,14 @@ def test_typed_v2_call_preserves_int64_fields_and_frees_owned_result_once() -> N
         nonlocal frees
         frees += 1
 
-    tracks = _common.call_update_v2(
+    tracks = _common.call_update_v3(
         update,
         result_free,
         handle=object(),
         **_buffers(),
         display_name="test",
         last_error=lambda: "failure",
+        dt=1.25,
     )
 
     assert calls == 1
@@ -105,12 +107,29 @@ def test_typed_v2_call_preserves_int64_fields_and_frees_owned_result_once() -> N
     assert tracks.detection_indices.tolist() == [0, -1]
 
 
+@pytest.mark.parametrize("dt", [-1.0, float("nan"), float("inf"), True, [0.1], "0.1"])
+def test_timed_update_rejects_invalid_intervals_before_entering_native_code(dt: float) -> None:
+    def unexpected_update(*args) -> int:
+        pytest.fail("Invalid timing reached the native library")
+
+    with pytest.raises(ValueError, match="dt must be finite and non-negative"):
+        _common.call_update_v3(
+            unexpected_update,
+            lambda result: None,
+            handle=object(),
+            **_buffers(),
+            display_name="test",
+            last_error=lambda: "failure",
+            dt=dt,
+        )
+
+
 def test_typed_v2_call_frees_result_when_output_validation_fails() -> None:
     calls = 0
     frees = 0
     result = _common.CTrackBatchV2(abi_version=999, rows=0, geometry_cols=4)
 
-    def update(_handle, _batch, _image, result_pointer) -> int:
+    def update(_handle, _batch, _image, dt, result_pointer) -> int:
         nonlocal calls
         calls += 1
         ctypes.cast(result_pointer, ctypes.POINTER(_common.CTrackBatchV2Pointer))[0] = ctypes.pointer(result)
@@ -121,7 +140,7 @@ def test_typed_v2_call_frees_result_when_output_validation_fails() -> None:
         frees += 1
 
     with pytest.raises(RuntimeError, match="unsupported ABI version"):
-        _common.call_update_v2(
+        _common.call_update_v3(
             update,
             result_free,
             handle=object(),
@@ -136,14 +155,14 @@ def test_typed_v2_call_frees_result_when_output_validation_fails() -> None:
 def test_low_level_binding_accepts_only_typed_contiguous_numpy_buffers() -> None:
     result = _common.CTrackBatchV2(abi_version=2, rows=0, geometry_cols=4)
 
-    def update(_handle, _batch, _image, result_pointer) -> int:
+    def update(_handle, _batch, _image, dt, result_pointer) -> int:
         ctypes.cast(result_pointer, ctypes.POINTER(_common.CTrackBatchV2Pointer))[0] = ctypes.pointer(result)
         return 1
 
     buffers = _buffers()
     buffers["geometry"] = np.empty((1, 4), dtype=np.float64)
     with pytest.raises(TypeError, match="geometry must have dtype float32"):
-        _common.call_update_v2(
+        _common.call_update_v3(
             update,
             lambda _result: None,
             handle=object(),
@@ -180,6 +199,7 @@ class _FakeBinding:
         detection_indices,
         embeddings,
         image,
+        dt=0.0,
     ) -> _common.NativeTrackBatch:
         assert geometry.shape[1] == 4
         assert embeddings is None
@@ -202,6 +222,7 @@ class _FakeObbBinding(_FakeBinding):
         detection_indices,
         embeddings,
         image,
+        dt=0.0,
     ) -> _common.NativeTrackBatch:
         assert geometry.shape[1] == 5
         assert embeddings is None

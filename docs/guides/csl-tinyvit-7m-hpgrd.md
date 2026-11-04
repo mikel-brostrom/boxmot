@@ -1,14 +1,17 @@
 # CSL-TinyViT-7M HP-GRD
 
-HP-GRD is an experimental, training-only treatment for the promoted
-`csl_tinyvit_7m_v20` person-ReID model. It targets the gap between the current
-89.96% Market-1501 mAP run and 93% mAP without enlarging or changing the
-deployed model. The 93% value is a research target, not a measured result.
+HP-GRD is an experimental, training-only treatment for the
+`csl_tinyvit_7m_v20` person-ReID model. It transfers an offline teacher's
+identity relations into the RGB descriptor without changing its inference
+inputs or descriptor width. This guide prepares the cache explicitly and
+starts training with the bundled recipe.
 
 The recipe is `boxmot/reid/training/configs/recipes/csl_tinyvit_7m_hpgrd.yaml`.
-Its training graph has 7,165,011 parameters; the pruned deployed RGB graph has
-6,937,893 and still emits `norm_concat_bn`. Every pose, parsing, teacher,
-memory, and intervention object is removed from `best.pt`.
+With 751 training identities, its training construction has 7,165,011
+parameters; the matching RGB construction without privileged anatomy has
+6,937,893. Those counts include training classifiers and are not final
+deployment counts. Deployment removes classifiers and training-only branches
+and retains the 1152-D `norm_concat_bn` descriptor.
 
 ## What is trained
 
@@ -44,70 +47,38 @@ ablation. Relative to suppression it also uses P=24/K=4 camera-diverse
 sampling, a center-loss ramp, background mosaic, and replaces the legacy
 learned-anatomy objectives with fixed-mask privileged supervision. Attribute
 any gain to the complete treatment unless those components are ablated
-separately. The launcher does keep initialization and official-query
-evaluation frequency matched between the two requested arms.
+separately. Match initialization, data, seeds, and evaluation frequency
+explicitly when comparing recipes.
 
-## 1. Reuse V20 as the offline teacher
+## 1. Prepare the inputs
 
-The self-contained treatment uses the existing promoted checkpoint:
+Use a source checkout with the training dependencies and the `yolo` extra for
+metadata generation. The teacher checkpoint, dataset, and annotations are
+external inputs; they are not included in the package.
 
-```text
-runs/csl_tinyvit_7m_fix/a0_model_fixes_applied/best.pt
-```
+1. Prepare Market1501 at `datasets/reid/Market-1501-v15.09.15`.
+2. Generate `Market-1501-pav-metadata` and
+   `Market-1501-mosaic-highconf-masks` using the
+   [pose metadata](../modes/train.md#pose-aligned-view-mosaic) and
+   [background mask](../modes/train.md#identity-preserving-background-mosaic)
+   commands. The commands below reuse its `primary/` foreground masks for
+   anatomical pooling and offline extraction.
+3. Supply a trained `csl_tinyvit_7m_v20` checkpoint at
+   `runs/reid_train/v20/best.pt`, or replace that path consistently below.
+   You can train it with `--recipe csl_tinyvit_7m_v20` and the generated
+   `--anatomical-metadata-dir`.
 
-The immutable file has one training-only role: it is the frozen offline
-teacher used to generate global, semantic-part, and leave-one-part-out relation
-targets.
+The student starts from normal ImageNet initialization (`pretrained: true`);
+the V20 checkpoint is only a frozen offline teacher, not a student warm-start
+or optimizer resume. Its byte-level checksum becomes part of cache provenance.
+No separate human-pretraining checkpoint is required by this recipe.
 
-The HP-GRD student does not load V20 weights. It uses `pretrained: true`, the
-same normal ImageNet TinyViT initialization as the suppression arm, with a
-fresh ReID head and identity classifiers. This makes the comparison fair:
-neither arm receives the promoted model as a student warm-start. HP-GRD is not
-an optimizer resume or a continuation of the complete 89.96% run; V20 supplies
-only frozen relational targets generated before training.
+## 2. Build the privileged cache
 
-No separate human-pretraining run and no larger teacher checkpoint are
-required. This version is V20 graph self-distillation with training-only pose
-and segmentation guidance. The cache manifest records the V20 checkpoint's
-byte-level SHA-256, so replacing it at the same path makes an existing cache
-fail provenance validation.
-
-## 2. Automatic privileged-cache preparation
-
-The ablation launcher builds the HP-GRD inputs automatically when its cache is
-missing. It performs three deterministic steps before training:
-
-1. Export the exact stable Market-1501 training mapping.
-2. Run the frozen V20 checkpoint over the clean images, six-part masked-in
-   views, and six leave-one-part-out views derived from the existing PAV
-   metadata and person masks.
-3. Build and validate the immutable privileged graph cache against both the
-   dataset mapping and V20 teacher checksum.
-
-The first extraction is computationally expensive because the teacher must
-process every training crop and its semantic interventions. The generated
-artifacts are stored under `artifacts/hpgrd/market1501_v20_teacher` and reused
-by later seeds; selecting another seed does not rerun the teacher. A present
-but invalid cache is rejected rather than silently overwritten.
-
-`AUTO_BUILD_HPGRD_CACHE=1` enables this preparation and is the launcher
-default. `HPGRD_EXTRACT_DEVICE`, `HPGRD_EXTRACT_BATCH_SIZE`, and
-`HPGRD_EXTRACT_WORKERS` tune offline extraction independently of training.
-`HPGRD_TEACHER_WEIGHTS` overrides the default V20 teacher path when needed.
-`HPGRD_ARTIFACT_DIR` can move all three generated artifacts together.
-
-To prepare and validate the launcher-compatible cache without starting a
-training run:
-
-```bash
-PREPARE_ONLY=1 ARMS=hpgrd ./ablation_csl_tinyvit_7m_new_variants.sh
-```
-
-The launcher signs the full teacher, dataset, anatomical-input, extractor
-configuration, and teacher-signal hashes into sidecar/cache provenance. The
-following low-level commands illustrate the underlying pipeline, but the raw
-build command intentionally omits that launcher-specific signature; use
-`PREPARE_ONLY=1` for an artifact the ablation launcher will accept.
+Preparation has three stages: stable dataset indexing, teacher extraction,
+and cache building/validation. No automatic cache-building shell launcher is
+included in this checkout. Reuse the resulting cache across seeds when the
+training sample mapping, teacher, annotations, and extraction settings match.
 
 Export the exact training mapping from the same registered dataset and root
 that fine-tuning will use:
@@ -141,11 +112,11 @@ six-part anatomical metadata used by training:
 
 ```bash
 uv run --no-sync python -m boxmot.engine.commands.reid.teacher_extract \
-  --teacher runs/csl_tinyvit_7m_fix/a0_model_fixes_applied/best.pt \
+  --teacher runs/reid_train/v20/best.pt \
   --dataset-index artifacts/hpgrd/market1501_v20_teacher/train-samples.json \
   --image-root datasets/reid/Market-1501-v15.09.15 \
-  --anatomical-metadata Market-1501-pav-metadata-clean \
-  --person-mask-dir Market-1501-mosaic-highconf-person-masks \
+  --anatomical-metadata Market-1501-pav-metadata \
+  --person-mask-dir Market-1501-mosaic-highconf-masks/primary \
   --include-leave-part-out \
   --global-confidence-from-parts \
   --img-size 384 128 \
@@ -171,47 +142,43 @@ Build and validate the immutable cache:
 uv run --no-sync python -m boxmot.engine.commands.reid.privileged_cache build \
   --tensor-input artifacts/hpgrd/market1501_v20_teacher/teacher-signals.pt \
   --dataset-index artifacts/hpgrd/market1501_v20_teacher/train-samples.json \
-  --teacher-provenance runs/csl_tinyvit_7m_fix/a0_model_fixes_applied/best.pt \
+  --teacher-provenance runs/reid_train/v20/best.pt \
   --part-names head torso left_arm right_arm left_leg right_leg \
   --output artifacts/hpgrd/market1501_v20_teacher/privileged_graph.pt
 
 uv run --no-sync python -m boxmot.engine.commands.reid.privileged_cache validate \
   --cache artifacts/hpgrd/market1501_v20_teacher/privileged_graph.pt \
   --dataset-index artifacts/hpgrd/market1501_v20_teacher/train-samples.json \
-  --teacher-provenance runs/csl_tinyvit_7m_fix/a0_model_fixes_applied/best.pt \
+  --teacher-provenance runs/reid_train/v20/best.pt \
   --part-names head torso left_arm right_arm left_leg right_leg \
   --require-exact-index-file
 ```
 
+Existing output files are rejected unless you explicitly pass `--overwrite`.
 The builder hashes the semantic sample mapping, source files, teacher
 provenance, tensor payload, and manifest. Training refuses a cache whose
 dataset mapping differs from the live dataset or whose signed ordered part
 names differ from the student's canonical anatomical packet.
 
-## 3. Run the requested ablation
+## 3. Train the student
 
-The self-contained launcher starts with these existing inputs:
-
-- `runs/csl_tinyvit_7m_fix/a0_model_fixes_applied/best.pt`
-- `datasets/reid/Market-1501-v15.09.15`
-- `Market-1501-pav-metadata-clean`
-- `Market-1501-mosaic-highconf-masks`
-- `Market-1501-mosaic-highconf-person-masks`
-
-The privileged cache is an output of launcher preparation, not a checkpoint
-the user must obtain. The first mask root supplies the background compositor's
-`primary/` and `all_people/` trees; the second supplies per-crop foreground
-masks for fixed anatomical pooling and offline teacher extraction.
-
-Run only multilevel suppression and HP-GRD from the repository root:
+After cache validation succeeds, run:
 
 ```bash
-ARMS=suppression,hpgrd SEEDS=0 DEVICE=0 \
-  ./ablation_csl_tinyvit_7m_new_variants.sh
+boxmot train-reid \
+  --recipe csl_tinyvit_7m_hpgrd \
+  --data-dir datasets/reid/Market-1501-v15.09.15 \
+  --anatomical-metadata-dir Market-1501-pav-metadata \
+  --anatomical-person-mask-dir Market-1501-mosaic-highconf-masks/primary \
+  --background-mosaic-mask-dir Market-1501-mosaic-highconf-masks \
+  --hpgrd-cache-dir artifacts/hpgrd/market1501_v20_teacher/privileged_graph.pt \
+  --device cuda:0 --seed 0 \
+  --project runs/reid_train --name hpgrd_seed0
 ```
 
-For a multi-seed comparison, set `SEEDS=0,1,2`. Runs are sequential, and the
-same validated offline cache is shared across seeds.
+Repeat with explicit seeds and distinct run names for a multi-seed comparison.
+Keep the validated offline cache unchanged. The `primary/` masks preserve the
+anchor foreground; `all_people/` masks remove people from donor backgrounds.
 
 The recipe uses camera-aware `P=24, K=4` batches, a 16,384-row GlobalAP
 memory, and a warmup/hold/decay schedule over epochs 20/50/130/170. Camera

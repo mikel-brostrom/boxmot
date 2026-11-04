@@ -33,9 +33,10 @@ struct BoxMOTOCSORTHandle;
 BOXMOT_OCSORT_API BoxMOTOCSORTHandle* boxmot_ocsort_create_v2(const BoxMOTOCSORTConfigV2* config);
 BOXMOT_OCSORT_API void boxmot_ocsort_destroy(BoxMOTOCSORTHandle* handle);
 BOXMOT_OCSORT_API int boxmot_ocsort_reset(BoxMOTOCSORTHandle* handle);
-BOXMOT_OCSORT_API int boxmot_ocsort_update_v2(BoxMOTOCSORTHandle* handle,
+BOXMOT_OCSORT_API int boxmot_ocsort_update_v3(BoxMOTOCSORTHandle* handle,
                                               const BoxMOTDetectionBatchV2* detections,
                                               const BoxMOTImageV2* image,
+                               double dt,
                                               BoxMOTTrackBatchV2** output);
 BOXMOT_OCSORT_API void boxmot_ocsort_result_free_v2(BoxMOTTrackBatchV2* output);
 BOXMOT_OCSORT_API const char* boxmot_ocsort_last_error();

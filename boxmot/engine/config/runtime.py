@@ -155,6 +155,19 @@ def build_mode_namespace(
     return SimpleNamespace(**values)
 
 
+def resolve_mode_args(mode: str, args: Any | None, options: Mapping[str, Any]) -> Any:
+    """Normalize Python keyword options or retain prepared workflow arguments.
+
+    A prepared namespace belongs to the caller and can carry execution state,
+    so keyword overrides must be supplied without that namespace.
+    """
+    if args is not None:
+        if options:
+            raise TypeError("Pass either prepared workflow arguments or keyword options, not both.")
+        return args
+    return build_mode_namespace(mode, options, explicit_keys=options)
+
+
 DEFAULT_DETECTOR = get_mode_default("track", "detector")
 DEFAULT_REID = get_mode_default("track", "reid")
 
@@ -402,5 +415,6 @@ __all__ = (
     "build_mode_namespace",
     "get_mode_default",
     "get_mode_defaults",
+    "resolve_mode_args",
     "resolve_sequence_workers",
 )

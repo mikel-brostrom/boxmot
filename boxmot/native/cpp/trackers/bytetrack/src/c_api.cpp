@@ -80,9 +80,10 @@ int boxmot_bytetrack_reset(BoxMOTByteTrackHandle* handle) {
         "Unknown native ByteTrack failure");
 }
 
-int boxmot_bytetrack_update_v2(BoxMOTByteTrackHandle* handle,
+int boxmot_bytetrack_update_v3(BoxMOTByteTrackHandle* handle,
                                const BoxMOTDetectionBatchV2* detections,
                                const BoxMOTImageV2* image,
+                               double dt,
                                BoxMOTTrackBatchV2** output) {
     return boxmot::native::GuardCall(
         [&]() {
@@ -93,13 +94,14 @@ int boxmot_bytetrack_update_v2(BoxMOTByteTrackHandle* handle,
                 throw std::runtime_error("Native ByteTrack input/output pointers are null.");
             }
             *output = nullptr;
+            boxmot::trackers::base::ValidateElapsedStep(dt);
             const std::vector<bytetrack::Detection> converted =
                 boxmot::trackers::base::ConvertLiveDetectionsV2<bytetrack::Detection>(*detections,
                                                                                       "ByteTrack");
             const cv::Mat image_mat =
                 boxmot::trackers::base::WrapOptionalLiveImageV2(image, "ByteTrack");
             const std::vector<bytetrack::TrackOutput> tracks =
-                handle->tracker->Update(converted, image_mat);
+                handle->tracker->Update(converted, image_mat, dt);
             *output =
                 boxmot::trackers::base::AllocateLiveOutputV2(tracks, detections->geometry_cols);
         },

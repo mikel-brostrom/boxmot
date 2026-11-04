@@ -63,6 +63,7 @@ _ROOT_HELP_RUNTIME_MODULES = (
 )
 
 _REGISTERED_COMMAND_MODULES = (
+    "boxmot.engine.commands.ui",
     "boxmot.engine.commands.build",
     "boxmot.engine.commands.eval",
     "boxmot.engine.commands.materialize",
@@ -88,6 +89,7 @@ _REID_COMMAND_MODULES = (
 )
 
 _COMMAND_MODULE_BY_NAME = {
+    "ui": "boxmot.engine.commands.ui",
     "track": "boxmot.engine.commands.track",
     "materialize": "boxmot.engine.commands.materialize",
     "eval": "boxmot.engine.commands.eval",

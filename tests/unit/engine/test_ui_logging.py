@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from io import StringIO
 
 from click.testing import CliRunner
 from rich.logging import RichHandler
@@ -37,3 +38,31 @@ def test_cli_configures_engine_logging_before_command_dispatch(monkeypatch) -> N
 
     assert result.exit_code != 0
     assert calls == [None]
+
+
+def test_active_dashboard_captures_logs_and_normal_output_resumes(monkeypatch) -> None:
+    """Suppress duplicate terminal records only while a dashboard accepts them."""
+    from boxmot.engine.ui import dashboard
+
+    messages: list[tuple[str, str]] = []
+    active = True
+
+    def capture(message: str, level: str) -> bool:
+        if active:
+            messages.append((message, level))
+        return active
+
+    monkeypatch.setattr(dashboard, "capture_dashboard_log", capture)
+    output = StringIO()
+    handler = logging.StreamHandler(output)
+    handler.addFilter(engine_logging._DashboardLogFilter())
+    logger = logging.Logger("dashboard-log-test")
+    logger.addHandler(handler)
+
+    logger.warning("Sequence %s is missing", "MOT17-04")
+    assert messages == [("Sequence MOT17-04 is missing", "WARNING")]
+    assert output.getvalue() == ""
+
+    active = False
+    logger.warning("Normal output restored")
+    assert output.getvalue() == "Normal output restored\n"

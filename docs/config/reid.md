@@ -1,6 +1,8 @@
 # ReID Profiles
 
-Runtime ReID profiles live under `boxmot/configs/reid`.
+Runtime ReID profiles live under `boxmot/configs/reid`. They select trained
+weights and crop preprocessing; [training recipes](../modes/train.md) are
+separate configurations under `boxmot/reid/training/configs/recipes`.
 
 ```yaml
 id: lmbn-n-duke
@@ -18,9 +20,15 @@ preprocessing:
   image_size: [384, 128]
 ```
 
-`device: auto` inherits the command's selected device. `precision` is explicit
-and accepts `fp16`, `fp32`, or `bf16`; the resolver adapts these settings to the
-existing runtime arguments. `preprocessing.mode` is required, and
+CLI workflows select the runtime device; standalone profile resolution maps
+`device: auto` to CPU unless you supply an override. Use `fp16` or `fp32`
+for built-in encoders. Although the profile schema accepts `bf16`, the built-in
+ReID adapters reject BF16 inference. Live `track` uses `--device` and `--half`
+for device and precision, overriding the resolved profile precision.
+
+`preprocessing.mode` is required and supports `resize` or `resize_pad`.
+`resize_pad` preserves aspect ratio and pads with the ImageNet mean;
+`resize` stretches to the configured crop. Match the training policy.
 `preprocessing.image_size` must contain exactly two positive integers in
 height-width order.
 
@@ -55,6 +63,17 @@ composed `AppearanceEncoder` remains available when embeddings should be shared
 or exposed as pipeline output. Native adapters support the same lazy path;
 their low-level C++ tracker libraries remain model-free consumers of embedding
 buffers.
+
+The encoder processes at most 64 crops per batch by default; set
+`ReIDConfig(batch_size=...)` to adjust it. `embedding_dim` is an optional
+declared output width, not a request to resize a descriptor. Provide it for
+custom runtimes whose output dimension cannot be inferred before an empty
+batch is encoded. `allow_download=False` requires existing local weights.
+
+Model references can also select exported `.onnx`, `.engine`, `.torchscript`,
+or `.tflite` files, an `_openvino_model` directory, or a `_coreml_model` bundle.
+The suffix selects the runtime. Install the corresponding optional dependency
+and preserve export metadata beside the artifact; see [Export](../modes/export.md).
 
 ## Related pages
 

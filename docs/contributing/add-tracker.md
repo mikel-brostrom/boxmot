@@ -15,10 +15,12 @@ To integrate a new tracker cleanly:
    `_track_detections()`. The inherited
    `TrackerRequirements` property exposes those requirements to pipelines.
    Keep the inherited public
-   overloaded `update()` entry point: `Detections` input returns `Tracks`, and
-   packed NumPy input returns packed NumPy track rows. `BaseTracker` owns
-   validation and conversion of both representations; concrete trackers
-   continue to implement only their private NumPy kernel. A ReID-enabled
+   overloaded `update()` entry point: image trackers return `Tracks` for
+   `Detections` input and packed rows for packed NumPy input. Trackers with
+   independent spatial observations implement `_track_multimodal()` and return
+   `MultimodalTracks` for canonical input; EagerMOT's NumPy path returns a pair
+   of image and spatial track arrays. `BaseTracker` owns validation and
+   conversion at this boundary. A ReID-enabled
    high-level tracker adapter must expose and forward
    `reid: ReIDConfig | AppearanceEncoder | None`. Keep `use_embeddings` and
    appearance association parameters in the algorithm config. The shared tracker-domain
@@ -42,7 +44,7 @@ To integrate a new tracker cleanly:
 6. Add a tracker doc page and wire it into `mkdocs.yml`.
 7. Extend registry/package tests under `tests/unit/trackers/`, add focused
    algorithm tests under `tests/unit/trackers/<family>/` when useful, and update
-   the tracker lists in `tests/test_config.py` where applicable.
+   the config coverage under `tests/unit/configs/` where applicable.
 8. Update the tracker, ReID, mask/OBB, and benchmark lists in
    `.github/workflows/` when the new tracker should run in those jobs.
 
@@ -94,7 +96,7 @@ live-extraction fallback, but model settings remain separate from
 
 - tracker implementation
 - tracker registration
-- tracker YAML
+- typed algorithm config and tracker YAML
 - docs page
 - tests
 - workflow matrices if benchmarked in CI

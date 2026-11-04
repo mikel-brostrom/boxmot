@@ -58,7 +58,7 @@ def export_options(func: Callable) -> Callable:
             callback=_parse_imgsz,
             type=str,
             default=_click_imgsz_default(EXPORT_DEFAULTS.imgsz),
-            help="Image size as H,W (e.g. 256,128)",
+            help="Parsed H,W value; current export uses the checkpoint or registered model crop instead.",
         ),
         click.option(
             "--device",
@@ -76,7 +76,7 @@ def export_options(func: Callable) -> Callable:
             "--dynamic",
             is_flag=True,
             default=EXPORT_DEFAULTS.dynamic,
-            help="Enable dynamic axes for ONNX/TensorRT export",
+            help="Enable dynamic batch for ONNX, TensorRT, and OpenVINO; attempt it for TFLite. Crop size stays fixed.",
         ),
         click.option(
             "--simplify",
@@ -102,7 +102,7 @@ def export_options(func: Callable) -> Callable:
             "--half",
             is_flag=True,
             default=EXPORT_DEFAULTS.half,
-            help="Enable FP16 half-precision export (GPU only)",
+            help="Request FP16 export; ONNX graph conversion also supports CPU. TensorRT requires CUDA.",
         ),
         click.option(
             "--coreml-batch-buckets",
@@ -204,8 +204,13 @@ def export_options(func: Callable) -> Callable:
     return func
 
 
-def main(args: Any):
-    """Render export progress while delegating model work to ``boxmot.reid``."""
+def main(args: Any = None, **options: Any) -> Any:
+    """Export ReID weights using keyword options or resolved workflow arguments."""
+
+    if args is not None and options:
+        raise TypeError("Pass either resolved arguments or keyword options, not both.")
+    if args is None:
+        args = build_export_namespace(options)
 
     from boxmot.engine.ui.reporters.export import ExportWorkflowReporter
     from boxmot.reid.exporters import workflow

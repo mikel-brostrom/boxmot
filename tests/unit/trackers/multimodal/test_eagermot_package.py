@@ -135,7 +135,7 @@ def test_eagermot_applies_calibrated_noise_to_each_track_and_preserves_it_on_res
         )
     )
     assert tracker.kalman_noise_config.time_unit == "frames"
-    assert tracker.supports_variable_dt is False
+    assert tracker.supports_variable_dt is True
     detections, spatial, camera = _observations()
     for _ in range(2):
         tracker.update(detections, detections_3d=spatial, camera=camera)

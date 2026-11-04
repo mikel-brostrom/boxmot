@@ -11,6 +11,7 @@ import pytest
 
 from boxmot.engine.eval import visualization
 from boxmot.engine.eval.visualization import ReplayVisualization
+from boxmot.engine.tracking import sinks
 
 
 def _replay(index, timestamp, sequence="seq"):
@@ -22,7 +23,7 @@ def _replay(index, timestamp, sequence="seq"):
 
 
 def capture_rendered_images(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
-    """Keep actual renderers while replacing only OpenCV output devices."""
+    """Capture mask rendering without devices or labels covering tiny fixtures."""
     writers = []
     shown = []
 
@@ -48,7 +49,9 @@ def capture_rendered_images(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     monkeypatch.setattr(visualization.cv2, "imshow", lambda name, image: shown.append(image.copy()))
     monkeypatch.setattr(visualization.cv2, "destroyWindow", lambda *args: None)
     monkeypatch.setattr(visualization.cv2, "waitKey", lambda *args: -1)
-    # Text is irrelevant to mask pixels and would cover most of the tiny replay fixture.
+    # Suppress labels before text rasterization, plus replay's frame annotations.
+    # Replacing putText alone would also blank the label's cached glyph coverage.
+    monkeypatch.setattr(sinks, "_draw_label", lambda *args, **kwargs: None)
     monkeypatch.setattr(visualization.cv2, "putText", lambda *args: None)
     return SimpleNamespace(writers=writers, shown=shown)
 

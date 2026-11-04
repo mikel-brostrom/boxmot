@@ -18,13 +18,18 @@ and command detail when reporting a problem for someone else to reproduce it.
 Capture these details before opening an issue:
 
 ```bash
-boxmot --help
+boxmot --version
 python --version
-pip show boxmot
+python -m pip show boxmot
 ```
 
 Also record the exact command, full traceback, operating system, accelerator,
 and detector/ReID artifact names.
+
+For benchmark problems, include the experiment YAML, split, explicit build ID,
+tracker config, and the failing run's `metrics.json` or `evaluation.json` when
+available. For service problems, include the HTTP status and stream/session
+frame order. See [service failure handling](../guides/deployment.md#handle-failures).
 
 ## Get support
 

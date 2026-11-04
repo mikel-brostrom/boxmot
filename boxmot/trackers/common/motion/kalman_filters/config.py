@@ -82,8 +82,8 @@ class KalmanConfig:
             Native trackers accept their original
             filter; choosing another type requires a Python 2D Kalman tracker.
         noise: Covariance multipliers, unit metadata, and optional class profiles.
-        variable_dt: Predict using measured capture intervals in seconds; supported
-            by the eight 2D Kalman trackers. False advances one reference frame.
+        variable_dt: Predict motion using measured capture intervals in seconds.
+            False advances one reference frame.
         adaptive_kf: Adapt covariance from innovations in BoostTrack or OccluBoost.
             None selects their default of False; other trackers reject explicit values.
         is_angular: Include object yaw velocity in EagerMOT's 3D state. None selects
@@ -134,10 +134,8 @@ class KalmanConfig:
                 raise ValueError("Selecting a different kalman.type requires a Python 2D Kalman tracker.")
         if self.adaptive_kf and self.type not in {None, "xyhr"}:
             raise ValueError("kalman.adaptive_kf=True requires kalman.type='xyhr' or the original XYHR filter.")
-        if self.variable_dt and (backend != "python" or tracker_name not in KALMAN_TRACKER_NAMES | {None}):
-            raise ValueError("kalman.variable_dt=True requires a Python 2D Kalman tracker.")
         noise = self.noise.resolve(variable_dt=self.variable_dt)
-        if backend != "python" and not noise.is_default:
+        if backend != "python" and not noise.has_default_scaling:
             raise ValueError("Kalman noise scaling requires a Python Kalman tracker.")
         adaptive, angular, ams = self.adaptive_kf, self.is_angular, self.ams
         if tracker_name is not None:

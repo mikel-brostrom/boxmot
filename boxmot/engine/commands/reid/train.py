@@ -784,7 +784,7 @@ def train_options(func: Callable) -> Callable:
                      default=TRAIN_DEFAULTS.pretrained_weights,
                      help='Local exact-backbone checkpoint from human pretraining; overrides model-zoo init'),
         click.option('--device', default=TRAIN_DEFAULTS.device,
-                     help='cuda device, e.g. 0 or cpu or mps'),
+                     help='PyTorch device: cpu, mps, or cuda:N (e.g. cuda:0).'),
         click.option('--project', type=click.Path(), default=TRAIN_DEFAULTS.project, show_default=True,
                      help='Save directory'),
         click.option('--name', default=TRAIN_DEFAULTS.name, show_default=True,
@@ -1122,8 +1122,15 @@ def train_options(func: Callable) -> Callable:
 
 
 
-def main(args: Any):
-    """Train a ReID model from a resolved domain training namespace."""
+def main(args: Any = None, **options: Any) -> Any:
+    """Train a ReID model using keyword options or resolved workflow arguments."""
+
+    if args is not None and options:
+        raise TypeError("Pass either resolved arguments or keyword options, not both.")
+    if args is None:
+        from boxmot.reid.datasets.resolution import resolve_reid_train_data
+
+        args = resolve_reid_train_data(build_training_namespace(options, explicit_keys=options))
 
     from boxmot.reid.training.config import ReIDTrainConfig, load_train_hparams, trainer_kwargs_from_args
     from boxmot.reid.training.trainer import ReIDTrainer

@@ -607,7 +607,8 @@ void OccluBoostTracker::SuppressDuplicateEmissions(
 }
 
 std::vector<TrackOutput> OccluBoostTracker::Update(const std::vector<Detection>& detections,
-                                                   const cv::Mat& image) {
+                                                   const cv::Mat& image, const double dt) {
+    boxmot::trackers::base::ValidateElapsedStep(dt);
     if (boxmot::trackers::base::AssociationModeRequiresFrameDimensions(association_mode_) &&
         (association_frame_width_ <= 0 || association_frame_height_ <= 0)) {
         if (image.empty()) {
@@ -639,7 +640,7 @@ std::vector<TrackOutput> OccluBoostTracker::Update(const std::vector<Detection>&
     }
 
     if (is_obb_mode_) {
-        return UpdateObb(detections, image);
+        return UpdateObb(detections, image, dt);
     }
 
     ++frame_count_;
@@ -661,7 +662,7 @@ std::vector<TrackOutput> OccluBoostTracker::Update(const std::vector<Detection>&
     Eigen::MatrixXd trks_np = Eigen::MatrixXd::Zero(static_cast<int>(trackers_.size()), 5);
     Eigen::VectorXd track_conf = Eigen::VectorXd::Zero(static_cast<int>(trackers_.size()));
     for (std::size_t i = 0; i < trackers_.size(); ++i) {
-        const Eigen::Vector4d xyxy = trackers_[i]->Predict();
+        const Eigen::Vector4d xyxy = trackers_[i]->Predict(dt);
         const double tc = trackers_[i]->GetConfidence();
         trks_np(static_cast<int>(i), 0) = xyxy[0];
         trks_np(static_cast<int>(i), 1) = xyxy[1];
@@ -1075,7 +1076,7 @@ std::vector<TrackOutput> OccluBoostTracker::Update(const std::vector<Detection>&
 // OBB code path (mirrors Python OccluBoost._update_obb).
 // ---------------------------------------------------------------------------
 std::vector<TrackOutput> OccluBoostTracker::UpdateObb(const std::vector<Detection>& detections,
-                                                      const cv::Mat& image) {
+                                                      const cv::Mat& image, const double dt) {
     ++frame_count_;
     if (cmc_) {
         const cv::Mat warp = cmc_->Apply(image, detections);
@@ -1093,7 +1094,7 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(const std::vector<Detectio
     // Predict trackers and capture xywha + track confidences.
     Eigen::MatrixXd trks_xywha = Eigen::MatrixXd::Zero(static_cast<int>(trackers_.size()), 5);
     for (std::size_t i = 0; i < trackers_.size(); ++i) {
-        trackers_[i]->Predict();
+        trackers_[i]->Predict(dt);
         trks_xywha.row(static_cast<int>(i)) = trackers_[i]->xywha().transpose();
     }
 

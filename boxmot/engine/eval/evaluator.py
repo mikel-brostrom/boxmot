@@ -27,7 +27,7 @@ from boxmot.detectors.config import resolve_detector_spec
 from boxmot.engine.config.datasets import validate_mots_evaluation_inputs
 from boxmot.engine.config.experiments import resolve_experiment_config
 from boxmot.engine.config.postprocessing import normalize_postprocessing
-from boxmot.engine.config.runtime import resolve_sequence_workers
+from boxmot.engine.config.runtime import resolve_mode_args, resolve_sequence_workers
 from boxmot.engine.config.trackers import (
     edgetam_checkpoint,
     resolve_tracker_options,
@@ -589,6 +589,8 @@ def _run_sensor_evaluation(
     )
     if path is None:
         return None
+    if getattr(args, "calibrate_kf", False) and getattr(args, "variable_dt", False):
+        raise ValueError("EagerMOT 3D KF calibration uses fixed frame steps; omit --variable-dt.")
     if getattr(args, "postprocessing", None):
         raise ValueError("--postprocessing requires an AABB perception build; saved sensor evaluation is unsupported.")
     eval_3d = bool(getattr(args, "eval_3d", False))
@@ -632,7 +634,6 @@ def _run_sensor_evaluation(
         "tracker_config",
         "cmc_policy",
         "fps",
-        "variable_dt",
         "allow_noncanonical_build",
         "compare_trackeval",
     ):
@@ -716,7 +717,7 @@ def _run_sensor_evaluation(
 
 
 def run_eval(
-    args: argparse.Namespace,
+    args: argparse.Namespace | SimpleNamespace | None = None,
     *,
     evolve_config: Mapping[str, Any] | None = None,
     setup: bool = True,
@@ -728,9 +729,13 @@ def run_eval(
     output_dir: Path | None = None,
     replay_session: ReplaySession | None = None,
     progress_callback: ReplayProgressCallback | None = None,
+    **options: Any,
 ) -> ValidationResult:
-    """Evaluate cached inputs, optionally forwarding replay progress without a UI."""
+    """Evaluate keyword options or prepared args, optionally forwarding replay progress."""
 
+    if args is None and verbose is not None:
+        options["verbose"] = verbose
+    args = resolve_mode_args("eval", args, options)
     sensor_result = _run_sensor_evaluation(
         args,
         evolve_config=evolve_config,

@@ -35,9 +35,10 @@ BOXMOT_BYTETRACK_API BoxMOTByteTrackHandle* boxmot_bytetrack_create_v3(
     const BoxMOTByteTrackConfigV3* config);
 BOXMOT_BYTETRACK_API void boxmot_bytetrack_destroy(BoxMOTByteTrackHandle* handle);
 BOXMOT_BYTETRACK_API int boxmot_bytetrack_reset(BoxMOTByteTrackHandle* handle);
-BOXMOT_BYTETRACK_API int boxmot_bytetrack_update_v2(BoxMOTByteTrackHandle* handle,
+BOXMOT_BYTETRACK_API int boxmot_bytetrack_update_v3(BoxMOTByteTrackHandle* handle,
                                                     const BoxMOTDetectionBatchV2* detections,
                                                     const BoxMOTImageV2* image,
+                               double dt,
                                                     BoxMOTTrackBatchV2** output);
 BOXMOT_BYTETRACK_API void boxmot_bytetrack_result_free_v2(BoxMOTTrackBatchV2* output);
 BOXMOT_BYTETRACK_API const char* boxmot_bytetrack_last_error();

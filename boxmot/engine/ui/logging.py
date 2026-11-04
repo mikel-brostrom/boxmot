@@ -7,6 +7,19 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 
 
+class _DashboardLogFilter(logging.Filter):
+    """Keep engine log output inside an active dashboard's log drawer."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Capture a formatted record, falling back to normal terminal output."""
+        from boxmot.engine.ui.dashboard import capture_dashboard_log
+
+        message = record.getMessage()
+        if record.exc_info:
+            message += "\n" + logging.Formatter().formatException(record.exc_info)
+        return not capture_dashboard_log(message, record.levelname)
+
+
 def configure_engine_logging(
     main_only: bool = True,
     main_thread_only: bool = False,
@@ -16,11 +29,14 @@ def configure_engine_logging(
     from boxmot.engine.ui.core.ui import get_console
     from boxmot.utils import configure_logging
 
-    return configure_logging(
+    logger = configure_logging(
         main_only=main_only,
         main_thread_only=main_thread_only,
         console=get_console(stderr=True),
     )
+    for handler in logger.handlers:
+        handler.addFilter(_DashboardLogFilter())
+    return logger
 
 
 @contextmanager

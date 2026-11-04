@@ -24,6 +24,8 @@ class CalibrationModel3D:
     def __init__(self, options: Mapping[str, Any]) -> None:
         validate_calibration_options("eagermot", options)
         kalman = normalize_kalman_config(options, tracker_name="eagermot")
+        if kalman.variable_dt:
+            raise ValueError("EagerMOT 3D KF calibration uses fixed frame steps.")
         self._filter = Kalman3D(
             np.array([0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0]), is_angular=kalman.is_angular
         )

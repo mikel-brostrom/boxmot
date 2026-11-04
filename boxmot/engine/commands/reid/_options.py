@@ -49,7 +49,7 @@ def reid_evaluation_options(func: Callable) -> Callable:
             default=None,
             help="Use horizontal flip test-time augmentation (default: hparams value)",
         ),
-        click.option("--device", default="cpu", help="Device: cpu, mps, or cuda index"),
+        click.option("--device", default="cpu", help="PyTorch device: cpu, mps, or cuda:N (e.g. cuda:0)."),
         click.option(
             "--batch-size",
             type=int,

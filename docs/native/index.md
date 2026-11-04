@@ -66,13 +66,34 @@ the frame dimensions, but does not consume its pixels. A pipeline supplies the r
 detections with a shared appearance encoder, or a ReID-enabled native adapter
 may derive missing embeddings privately before invoking its C++ library.
 
-Native trackers do not support masks or per-class tracker state. Their factory
-rejects those modes, unknown tracker options, model/weight options placed in
+Native tracker libraries do not use masks in association or maintain per-class
+tracker state. Their factory rejects those modes, unknown tracker options, model/weight options placed in
 `TrackerSpec`, and geometry modes unsupported by the selected native
 implementation. Configure tracker-owned ReID separately with
 `tracker.configure_reid(spec)`.
 
-Native trackers retain fixed-step prediction and reject `kalman.variable_dt=True`.
+A custom tracker-owned appearance encoder may require detection masks while
+extracting missing embeddings. In that case the Python adapter consumes them;
+only the resulting feature buffer reaches the native tracker.
+
+Native trackers default to fixed steps. ByteTrack, BotSort, OcSort, and
+OccluBoost support `kalman.variable_dt=True`; supply `timestamp_s=` or
+`Frame.timestamp_s` on every update to use measured capture intervals.
+Timestamps must be finite and strictly increasing; `reset()` starts a new
+sequence clock. Native SFSORT uses fixed steps and rejects variable timing
+and Kalman settings. Track lifetimes count updates.
+Rebuild native libraries after updating BoxMOT: elapsed-time prediction requires
+the `update_v3` entrypoint.
+
+Native trackers reject nondefault Kalman noise scales, alternate filter types,
+adaptive Kalman filtering, and enabled Python-only fusion policies
+(`motion_fusion`, `fuse_iou`, or `fuse_detection_score`). Existing ByteTrack and
+BotSort confidence-fusion switches remain available. A Python tuning profile
+is therefore not automatically a valid native profile.
+
+CMC is implemented only by native BotSort and OccluBoost, using `ecc` or `sof`.
+The current native ByteTrack and OcSort adapters accept shared CMC config fields
+but do not apply camera compensation; use their Python backend for this feature.
 See the [tracker input matrix](../trackers/index.md#input-support) for the Python
 implementations and their additional input modes.
 
@@ -195,15 +216,58 @@ an existing library may still reference the previous OpenCV version or path.
 In a source or editable install, BoxMOT resolves or builds the matching
 `<tracker>_capi` shared library. Prebuild all registered native libraries with:
 
-```bash
-boxmot build
-```
+=== "CLI"
+
+    ```bash
+    boxmot build
+    ```
+
+=== "Python"
+
+    ```python
+    from boxmot.native.reid import ensure_reid_capi_library
+    from boxmot.native.trackers.botsort import ensure_botsort_cpp_library
+    from boxmot.native.trackers.bytetrack import ensure_bytetrack_cpp_library
+    from boxmot.native.trackers.occluboost import ensure_occluboost_cpp_library
+    from boxmot.native.trackers.ocsort import ensure_ocsort_cpp_library
+    from boxmot.native.trackers.sfsort import ensure_sfsort_cpp_library
+
+    for build_library in (
+        ensure_reid_capi_library,
+        ensure_botsort_cpp_library,
+        ensure_bytetrack_cpp_library,
+        ensure_occluboost_cpp_library,
+        ensure_ocsort_cpp_library,
+        ensure_sfsort_cpp_library,
+    ):
+        library_path = build_library(force_rebuild=False)
+    ```
+
+The default `all` selection includes the independent ReID library as well as
+the five trackers, so it also requires OpenCV's `dnn` module. Select tracker
+names explicitly for a tracker-only build, or use `--tracker reid` to build
+only the appearance backend. `--force` rebuilds existing libraries.
 
 Build a subset with repeated tracker selectors:
 
-```bash
-boxmot build --tracker bytetrack --tracker ocsort
-```
+=== "CLI"
+
+    ```bash
+    boxmot build --tracker bytetrack --tracker ocsort
+    ```
+
+=== "Python"
+
+    ```python
+    from boxmot.native.trackers.bytetrack import ensure_bytetrack_cpp_library
+    from boxmot.native.trackers.ocsort import ensure_ocsort_cpp_library
+
+    bytetrack_library = ensure_bytetrack_cpp_library(force_rebuild=False)
+    ocsort_library = ensure_ocsort_cpp_library(force_rebuild=False)
+    ```
+
+In Python, set `force_rebuild=True` to rebuild an existing library. Each helper
+returns the resolved shared-library path.
 
 Per-tracker CMake builds remain available:
 
@@ -264,20 +328,27 @@ ByteTrack and BotSort construction uses `boxmot_bytetrack_create_v3` with
 `BoxMOTByteTrackConfigV3` and `boxmot_botsort_create_v3` with
 `BoxMOTBotSortConfigV3`. Their `max_lost_frames` setting counts tracker updates
 directly, without FPS scaling. Rebuild older libraries to use these layouts;
-the Python loader rejects their previous constructors. The shared v2 update
-and result buffers are unchanged.
+the Python loader rejects their previous constructors. The shared v2 detection
+and result buffers are unchanged; the update entrypoint is v3.
 
 The update function has this shape, with `<name>` replaced by the tracker ID:
 
 ```cpp
-int boxmot_<name>_update_v2(
+int boxmot_<name>_update_v3(
     BoxMOT<Name>Handle* handle,
     const BoxMOTDetectionBatchV2* detections,
     const BoxMOTImageV2* image,
+    double dt,
     BoxMOTTrackBatchV2** output);
 
 void boxmot_<name>_result_free_v2(BoxMOTTrackBatchV2* output);
 ```
+
+Pass `dt=0` for fixed steps. ByteTrack, BotSort, OcSort, and OccluBoost also
+accept a finite positive elapsed interval in reference-frame units; SFSORT
+requires zero and rejects positive intervals. The Python adapter supplies
+`elapsed_seconds / kalman.noise.reference_dt_s` in variable mode. The first
+timestamp establishes the clock and uses zero because no prior tracks exist.
 
 `BoxMOTDetectionBatchV2` is columnar:
 
@@ -294,7 +365,7 @@ from routing identifiers through a float row matrix.
 
 ### Ownership and update semantics
 
-On success, `update_v2` stores a library-allocated result object in `output`,
+On success, `update_v3` stores a library-allocated result object in `output`,
 including for an empty result. The caller must invoke the matching
 `result_free_v2` exactly once after copying or consuming the buffers.
 
@@ -331,3 +402,11 @@ target_link_libraries(my_app PRIVATE bytetrack_core)
 The core API accepts typed `Detection` objects. Appearance-capable trackers
 expect the caller to populate `Detection.embedding`; they do not own an
 inference backend.
+
+## Build command reference
+
+::: mkdocs-click
+    :module: boxmot.engine.commands.build
+    :command: build
+    :prog_name: boxmot build
+    :depth: 1

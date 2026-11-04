@@ -105,15 +105,17 @@ def _create_kitti_tracker(profile: dict[str, Any], *, class_id: int | None = Non
     return EagerMot(config=EagerMotConfig.from_mapping(arguments), **runtime, kalman=kalman)
 
 
-def load_kitti_profiles(path: Path | None = None) -> dict[int, dict[str, Any]]:
-    """Load car/pedestrian overrides, validating every option before replay."""
+def load_kitti_profiles(
+    path: Path | None = None, *, variable_dt: bool | None = None
+) -> dict[int, dict[str, Any]]:
+    """Resolve class overrides and optional timing without changing authored units."""
     profiles = {class_id: dict(profile) for class_id, profile in KITTI_PROFILES.items()}
-    if path is None:
-        return profiles
-    try:
-        values = yaml.safe_load(Path(path).expanduser().read_text(encoding="utf-8"))
-    except yaml.YAMLError as exc:
-        raise ValueError(f"Invalid EagerMOT class configuration in {path}: {exc}") from exc
+    values = dict.fromkeys(KITTI_CLASSES.values(), {})
+    if path is not None:
+        try:
+            values = yaml.safe_load(Path(path).expanduser().read_text(encoding="utf-8"))
+        except yaml.YAMLError as exc:
+            raise ValueError(f"Invalid EagerMOT class configuration in {path}: {exc}") from exc
     if not isinstance(values, dict) or set(values) != set(KITTI_CLASSES.values()):
         raise ValueError("EagerMOT class configuration must contain exactly 'car' and 'pedestrian' mappings.")
     for class_id, name in KITTI_CLASSES.items():
@@ -128,6 +130,10 @@ def load_kitti_profiles(path: Path | None = None) -> dict[int, dict[str, Any]]:
         if unknown:
             raise ValueError(f"Unknown EagerMOT {name} options: {', '.join(sorted(map(str, unknown)))}")
         profile = {**profiles[class_id], **overrides}
+        if variable_dt is not None:
+            profile["kalman.variable_dt"] = variable_dt
+        if "kalman.noise.time_unit" not in overrides:
+            profile["kalman.noise.time_unit"] = "seconds" if profile["kalman.variable_dt"] else "frames"
         if profile["per_class"] is not False:
             raise ValueError("EagerMOT class profiles require per_class=false; replay already separates classes.")
         try:
@@ -191,6 +197,7 @@ def _track_frame(frame: SensorFrame, trackers: dict[int, EagerMot]) -> Multimoda
             frame.detections.select(indices),
             detections_3d=frame.detections_3d.select(spatial_indices),
             camera=frame.camera,
+            timestamp_s=frame.timestamp_s,
         )
         image = result.image_tracks
         outputs.append(
@@ -810,7 +817,11 @@ def run_eagermot_kitti(
 
     if pipeline is not None:
         pipeline.update("Loading KITTI sensor predictions and ground truth…")
-    profiles = load_kitti_profiles(getattr(args, "class_config", None))
+    profiles = load_kitti_profiles(
+        getattr(args, "class_config", None), variable_dt=getattr(args, "variable_dt", None)
+    )
+    if getattr(args, "calibrate_kf", False) and any(profile["kalman.variable_dt"] for profile in profiles.values()):
+        raise ValueError("EagerMOT 3D KF calibration uses fixed frame steps.")
     inputs = prepare_eagermot_kitti(args)
     try:
         args.sequence_workers = resolve_sequence_workers(len(inputs.sequences), getattr(args, "sequence_workers", None))

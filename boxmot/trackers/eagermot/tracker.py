@@ -107,6 +107,7 @@ class EagerMot(BaseTracker):
     _requires_camera = True
     uses_frame_dimensions_for_association = False
     supports_kalman_noise = True
+    supports_variable_dt = True
 
     def __init__(
         self,
@@ -120,7 +121,7 @@ class EagerMot(BaseTracker):
         The five covariance scales multiply the 3D Kalman filter's source
         priors. Position includes xyz, yaw, and dimensions; velocity includes
         xyz derivatives and optional object yaw velocity. Prediction advances
-        one frame per update, independent of capture timestamps and ego poses.
+        one frame by default, or elapsed seconds with ``kalman.variable_dt``.
 
         Args:
             config: Immutable algorithm settings. None selects EagerMotConfig defaults.
@@ -282,7 +283,7 @@ class EagerMot(BaseTracker):
             track.det_ind_3d = -1
 
         # Prediction must also advance on frames with no 3D detections.
-        predictions = Kalman3D.multi_predict([track.motion for track in self._tracks])
+        predictions = Kalman3D.multi_predict([track.motion for track in self._tracks], dt=self._prediction_dt)
         track_classes = np.asarray([track.cls for track in self._tracks], dtype=np.int64)
         threshold = self.iou_3d_threshold if self.first_matching_method == "iou_3d" else -self.distance_threshold
         first_matches, unmatched_3d, unmatched_tracks = greedy_association(

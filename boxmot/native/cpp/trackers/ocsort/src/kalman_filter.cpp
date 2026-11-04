@@ -1,5 +1,7 @@
 #include "ocsort/kalman_filter.hpp"
 
+#include "boxmot/trackers/base/timing.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -99,9 +101,19 @@ void KalmanFilterXYSR::EnforceStateConstraints() {
     P = 0.5 * (P + P.transpose());
 }
 
-void KalmanFilterXYSR::Predict() {
-    x = F * x;
-    P = (F * P * F.transpose()) + Q;
+void KalmanFilterXYSR::Predict(const double dt) {
+    const auto [motion, noise] = boxmot::trackers::base::ElapsedMotion(F, Q, dt);
+    if (dt != 0.0) {
+        if (prediction_steps_.empty()) {
+            prediction_origin_ = std::make_pair(x, P);
+            if (!timed_measurement_.has_value()) {
+                timed_measurement_ = H * x;
+            }
+        }
+        prediction_steps_.push_back(dt);
+    }
+    x = motion * x;
+    P = (motion * P * motion.transpose()) + noise;
     EnforceStateConstraints();
 }
 
@@ -224,12 +236,22 @@ void KalmanFilterXYSR::Update(const Vector& measurement) {
         aligned = AlignObbMeasurement(aligned);
     }
 
+    if (!prediction_steps_.empty()) {
+        UpdateTimed(aligned);
+        return;
+    }
+
     AppendHistory(aligned);
     if (!observed_) {
         Unfreeze();
     }
     observed_ = true;
 
+    ApplyMeasurement(aligned);
+    AppendHistory(aligned);
+}
+
+void KalmanFilterXYSR::ApplyMeasurement(const Vector& aligned) {
     const Matrix innovation_covariance = (H * P * H.transpose()) + R;
     Eigen::LLT<Matrix> llt(innovation_covariance);
     if (llt.info() != Eigen::Success) {
@@ -246,10 +268,52 @@ void KalmanFilterXYSR::Update(const Vector& measurement) {
         x[8] *= kAngularVelocityDamping;
     }
     EnforceStateConstraints();
-    AppendHistory(aligned);
+}
+
+void KalmanFilterXYSR::UpdateTimed(const Vector& measurement) {
+    if (prediction_steps_.size() > 1 && prediction_origin_ && timed_measurement_) {
+        const Vector first = *timed_measurement_;
+        const double w1 = std::sqrt(std::max(first[2] * first[3], 1.0e-12));
+        const double h1 = first[2] / w1;
+        const double w2 = std::sqrt(std::max(measurement[2] * measurement[3], 1.0e-12));
+        const double h2 = measurement[2] / w2;
+        double total = 0.0;
+        for (const double step : prediction_steps_) {
+            total += step;
+        }
+        x = prediction_origin_->first;
+        P = prediction_origin_->second;
+        double elapsed = 0.0;
+        for (const double step : prediction_steps_) {
+            const auto [motion, noise] = boxmot::trackers::base::ElapsedMotion(F, Q, step);
+            x = motion * x;
+            P = motion * P * motion.transpose() + noise;
+            EnforceStateConstraints();
+            elapsed += step;
+            const double fraction = elapsed / total;
+            Vector interpolated = first + fraction * (measurement - first);
+            const double width = w1 + fraction * (w2 - w1);
+            const double height = h1 + fraction * (h2 - h1);
+            interpolated[2] = width * height;
+            interpolated[3] = width / std::max(height, 1.0e-6);
+            if (is_obb_) {
+                interpolated[4] = first[4] + fraction * WrapAngle(measurement[4] - first[4]);
+            }
+            ApplyMeasurement(interpolated);
+        }
+    } else {
+        ApplyMeasurement(measurement);
+    }
+    timed_measurement_ = measurement;
+    prediction_origin_.reset();
+    prediction_steps_.clear();
+    observed_ = true;
 }
 
 void KalmanFilterXYSR::UpdateMissing() {
+    if (!prediction_steps_.empty()) {
+        return;
+    }
     AppendHistory(std::nullopt);
     if (observed_ && history_obs_.size() >= 2) {
         const auto& previous = history_obs_[history_obs_.size() - 2];

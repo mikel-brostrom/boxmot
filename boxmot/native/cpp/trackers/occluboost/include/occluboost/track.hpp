@@ -21,7 +21,7 @@ public:
 
     // Advance the predict step: bumps age + time_since_update; resets
     // hit_streak if a frame was missed; returns the predicted [x1,y1,x2,y2].
-    Eigen::Vector4d Predict();
+    Eigen::Vector4d Predict(double dt = 0.0);
 
     // Update with a new detection (no AMS damping).
     void Update(const Detection& detection);

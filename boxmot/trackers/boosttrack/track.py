@@ -151,7 +151,7 @@ class KalmanBoxTracker(SortBoxTrack):
             model = group[0].motion_model
             transform_filter_histories(
                 [track.kf for track in group],
-                lambda means, covariances: model.transform_states(means, covariances, matrix),
+                lambda means, covariances: model.transform_states(means, covariances, matrix, return_jacobian=True),
                 lambda measurements: model.transform_measurements(measurements, matrix),
             )
 

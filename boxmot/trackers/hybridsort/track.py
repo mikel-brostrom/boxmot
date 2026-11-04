@@ -240,7 +240,7 @@ class KalmanBoxTracker(SortBoxTrack):
         centers = np.asarray([np.asarray(track.kf.x).reshape(-1)[:2] for track in tracks])
         transform_filter_histories(
             [track.kf for track in tracks],
-            lambda means, covariances: model.transform_states(means, covariances, transform),
+            lambda means, covariances: model.transform_states(means, covariances, transform, return_jacobian=True),
             lambda measurements: model.transform_measurements(measurements, transform),
         )
         # HybridSORT replaces observation arrays and containers, unlike the

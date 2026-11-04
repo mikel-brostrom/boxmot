@@ -62,6 +62,13 @@ Internal held-out prediction scores do not measure identity association or
 HOTA. Evaluate the final `best.yaml` on separate sequences before claiming a
 tracking improvement.
 
+Fitted 2D profiles contain per-coordinate covariance multipliers for process,
+measurement, and initialization noise, with their five global scales set to
+`1.0`. They bind the filter's coordinate layout, geometry, and timing units;
+reuse them with the same tracker and compatible inputs. A scale selected with
+`--tune-kf` rescales its entire fitted group while retaining those coordinate
+ratios. EagerMOT's separate 3D calibration fits scalar groups instead.
+
 ## Select camera compensation
 
 `--select-cmc` requires `--select-kf`. Joint selection compares CMC off and

@@ -169,6 +169,7 @@ class PipelineTracker:
         if record.detail_text is None:
             record.detail_text = wf.detail_text
         self._step_records[label] = record
+        wf._dashboard_steps[label] = (record.detail_text, record.detail_renderable)
         return record
 
     def store_step_info(
@@ -193,6 +194,7 @@ class PipelineTracker:
             record.detail_renderable = renderable
         if text is not None:
             record.detail_text = text
+        self._workflow._dashboard_steps[label] = (record.detail_text, record.detail_renderable)
 
     @property
     def step_records(self) -> dict[str, StepRecord]:
@@ -393,7 +395,10 @@ class PipelineTracker:
             # error so it can suppress the duplicate traceback.
             exc_val._workflow_rendered_error = True  # type: ignore[union-attr]
 
-        want_interactive = exc_val is None and self._interactive_on_exit and self._step_records
+        want_interactive = (
+            exc_val is None and self._interactive_on_exit and self._step_records
+            and self._workflow._dashboard is None
+        )
 
         # Always discard the live frame and cleanly reprint one final panel.
         # Rich refreshes a normal-screen Live once from ``Live.stop()``.  If
@@ -405,9 +410,20 @@ class PipelineTracker:
         if self._workflow._live is not None:
             self._workflow._live.transient = True
 
-        self._workflow.stop(refresh_final=False)
-        if self._wire_status_fns:
-            _set_status_fns(None)
+        try:
+            if (
+                exc_val is None
+                and self._workflow._dashboard is not None
+                and self._workflow.allow_dashboard_browse
+                and all(state == "done" for _, state in self._workflow.steps)
+            ):
+                self._workflow._dashboard.finish()
+        finally:
+            try:
+                self._workflow.stop(refresh_final=False)
+            finally:
+                if self._wire_status_fns:
+                    _set_status_fns(None)
 
         if exc_val is not None:
             # On crash, print the full untruncated panel so no traceback

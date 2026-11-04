@@ -98,6 +98,29 @@ def test_covariance_storage_is_local_even_when_noise_configuration_is_shared() -
         np.testing.assert_array_equal(getattr(second, name), before)
 
 
-def test_3d_filter_rejects_seconds_without_advertising_variable_timing() -> None:
-    with pytest.raises(ValueError, match="requires kalman.noise.time_unit='frames'"):
-        Kalman3D(_box(), noise_config=KalmanNoiseConfig(time_unit="seconds"))
+@pytest.mark.parametrize("angular", [False, True])
+def test_seconds_prediction_composes_across_irregular_intervals(angular: bool) -> None:
+    """Splitting a capture gap preserves physical displacement and uncertainty."""
+    noise = KalmanNoiseConfig(time_unit="seconds", reference_dt_s=0.1)
+    direct, split = (Kalman3D(_box(), is_angular=angular, noise_config=noise) for _ in range(2))
+    for model in (direct, split):
+        model.state[7:10] = [2.0, -1.0, 0.5]
+        if angular:
+            model.state[10] = 0.2
+    direct.predict(dt=0.75)
+    for interval in (0.1, 0.25, 0.4):
+        split.predict(dt=interval)
+    np.testing.assert_allclose(direct.box[:3], _box()[:3] + np.array([2.0, -1.0, 0.5]) * 0.75)
+    assert direct.box[3] == pytest.approx(_box()[3] + (0.15 if angular else 0))
+    np.testing.assert_allclose(split.state, direct.state, atol=1e-12)
+    np.testing.assert_allclose(split.covariance, direct.covariance, rtol=1e-12, atol=1e-12)
+    assert np.linalg.eigvalsh(direct.covariance).min() > 0
+
+
+def test_seconds_filter_requires_measured_interval_and_converts_initial_velocity_uncertainty() -> None:
+    """Seconds cannot silently use a frame step or leave velocity priors in frames."""
+    fixed = Kalman3D(_box())
+    timed = Kalman3D(_box(), noise_config=KalmanNoiseConfig(time_unit="seconds", reference_dt_s=0.2))
+    np.testing.assert_allclose(timed.covariance[7:, 7:], fixed.covariance[7:, 7:] / 0.2**2)
+    with pytest.raises(ValueError, match="explicit measured dt"):
+        timed.predict()

@@ -58,6 +58,7 @@ _SENSOR_OPTIONS = frozenset(
         "eval_masks",
         "per_class",
         "verbose",
+        "variable_dt",
     }
 )
 
@@ -133,6 +134,8 @@ def _prepare_sensor_tuning(ctx: click.Context, payload: Mapping[str, Any]) -> di
         )
         if path is None:
             return None
+        if payload.get("calibrate_kf") and payload.get("variable_dt"):
+            raise ValueError("EagerMOT 3D KF calibration uses fixed frame steps; omit --variable-dt.")
         spec = parse_tracker_spec(payload["tracker"], default_backend=payload["tracker_backend"])
         validate_sensor_workflow_inputs(
             path,
@@ -308,8 +311,8 @@ def _tune_options(func):
             multiple=True,
             default=BOXMOT_DEFAULTS.tune.objectives,
             help=(
-                "metrics to track and return from each trial; accepts repeated, "
-                "comma-separated, or space-separated values"
+                "first metric supplies the default --maximize value; reports retain standard metrics. "
+                "Accepts repeated, comma-separated, or space-separated values"
             ),
         ),
         click.option(

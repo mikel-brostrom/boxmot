@@ -4,12 +4,14 @@ Common problems and their resolutions when working with BoxMOT.
 
 ## Installation
 
-### `boxmot --help` does nothing useful after install
+### A workflow reports a missing dependency
 
-The core `pip install boxmot` is enough for the Python API but not for many CLI workflows. Install the extra that matches the mode you want to use:
+The core installation includes CLI help, trackers, and the ReID stack. Detector
+and optional workflow dependencies are checked when used. Install what the
+selected workflow needs:
 
 ```bash
-boxmot install --extra yolo                   # track / materialize with YOLO backends
+boxmot install --requirement 'ultralytics>=8.4.58'  # Ultralytics detectors
 boxmot install --extra evolve                 # tune with Ray
 boxmot install --extra research               # research
 boxmot install --extra onnx                   # export --include onnx
@@ -23,6 +25,12 @@ application uses a specific Python environment, run
 `python -m boxmot.engine.cli install --extra NAME` with that interpreter.
 See [Installation](../getting-started/installation.md#mode-specific-extras)
 for the full table.
+
+YOLOX requires the repository's build and dependency overrides. Use the
+[source checkout](../getting-started/pytorch.md#source-checkout) with the `yolo`
+extra for YOLOX experiments. If the `boxmot` executable itself is missing,
+activate the environment where you installed it or use
+`python -m boxmot.engine.cli --help` with that interpreter.
 
 ### ONNX does not run on MPS
 
@@ -63,15 +71,22 @@ For PyTorch weights, use `device="mps"` directly.
 
 ### CUDA: detector or ReID falls back to CPU
 
-Confirm both PyTorch and `onnxruntime-gpu` see the GPU:
+Check the runtime used by your model. For PyTorch weights:
 
 ```bash
 python -c "import torch; print(torch.cuda.is_available())"
+```
+
+For ONNX weights, check ONNX Runtime instead:
+
+```bash
 python -c "import onnxruntime as ort; print(ort.get_available_providers())"
 ```
 
-`CUDAExecutionProvider` must appear in the second output. An explicit CUDA
-request fails during initialization when that provider is unavailable.
+`CUDAExecutionProvider` must appear for ONNX CUDA inference. The `onnx` extra
+installs the CPU `onnxruntime` distribution; CUDA inference needs a compatible
+`onnxruntime-gpu` installation. An explicit CUDA request fails during
+initialization when that provider is unavailable.
 
 ### CUDA device index is unavailable
 
@@ -129,14 +144,19 @@ When extending OBB support, prefer damping over hard-resetting angular velocity 
 
 ### `--tracker-backend cpp` fails to build on first use
 
-Native backends compile on first use. Make sure these are installed:
+Host installations compile missing native libraries on first use. The CLI
+Docker images bundle them. For a host build, install:
 
 - C++17 compiler
 - CMake 3.16+
-- OpenCV 4.x
-- Eigen3 3.3+
+- OpenCV 4.x development headers and runtime libraries
+- Eigen3 3.3+ headers
 
 Native backends are currently available for `botsort`, `bytetrack`, `ocsort`, `occluboost`, and `sfsort`.
+
+The Python `opencv-python` package does not supply C++ headers. See
+[native dependency installation](../native/index.md#install-dependencies) for
+platform commands and `boxmot build --tracker NAME` for an explicit build.
 
 ## Experiment workflows
 
@@ -164,9 +184,12 @@ Most replay runs skip image loading completely, but trackers that need live imag
 
 ### Tuning doesn't explore parameters you expect
 
-Tuning ranges live alongside runtime defaults in
-`boxmot/configs/trackers/<tracker>.yaml`. Runtime construction extracts each
-parameter's `default`; the tuner reads its search metadata.
+Algorithm defaults are owned by `boxmot/trackers/<tracker>/config.py`.
+`boxmot/configs/trackers/<tracker>.yaml` declares search ranges and matching
+defaults, while presets supply tuned overrides. Parameters may be excluded by
+geometry, association, conditional cases, or the selected search profile.
+Inspect the [tracker configuration](../config/trackers.md) and the effective
+search space recorded by [Tune](../modes/tune.md).
 
 ## Reporting a problem
 

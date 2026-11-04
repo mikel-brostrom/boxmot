@@ -161,10 +161,23 @@ def test_observation_cmc_warps_frozen_and_timed_measurements_together(family):
         else:
             assert track.last_observation is track.observations[1]
         assert len(track.kf._prediction_steps) == len(original.kf._prediction_steps)
+        reference_mean, reference_covariance = original.kf._prediction_origin
+        replay_mean, replay_covariance = track.kf._prediction_origin
         for current, previous in zip(track.kf._prediction_steps, original.kf._prediction_steps):
             assert current[0] == previous[0]
-            np.testing.assert_array_equal(current[1], previous[1])
-            np.testing.assert_array_equal(current[2], previous[2])
+            reference_mean = previous[1] @ reference_mean
+            if previous[3] is not None:
+                reference_mean += previous[3]
+            reference_covariance = previous[1] @ reference_covariance @ previous[1].T + previous[2]
+            replay_mean = current[1] @ replay_mean
+            if current[3] is not None:
+                replay_mean += current[3]
+            replay_covariance = current[1] @ replay_covariance @ current[1].T + current[2]
+            expected_mean, expected_covariance = original.motion_model.transform_states(
+                reference_mean.reshape(1, -1), reference_covariance[None], transform
+            )
+            np.testing.assert_allclose(replay_mean.reshape(-1), expected_mean[0], atol=1e-9)
+            np.testing.assert_allclose(replay_covariance, expected_covariance[0], atol=1e-9)
         assert track.kf._prediction_origin[0].shape == original.kf._prediction_origin[0].shape
         assert track.kf.x.shape == original.kf.x.shape
         assert track.age == original.age
