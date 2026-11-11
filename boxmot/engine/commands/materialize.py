@@ -87,11 +87,31 @@ from boxmot.engine.config.runtime import BOXMOT_DEFAULTS, get_mode_default
     help="YAML file containing local executor stage settings.",
 )
 @click.option(
+    "--auto-batch",
+    is_flag=True,
+    default=BOXMOT_DEFAULTS.materialize.auto_batch,
+    help="Measure and apply CUDA detector/ReID batch sizes before uncached materialization (one worker per stage).",
+)
+@click.option(
+    "--auto-batch-max-size",
+    type=click.IntRange(min=1),
+    default=get_mode_default("materialize", "auto_batch_max_size"),
+    show_default=True,
+    help="Largest detector/ReID candidate when automatic batch sizing is selected.",
+)
+@click.option(
+    "--auto-batch-memory-fraction",
+    type=click.FloatRange(min=0, max=1, min_open=True, max_open=True),
+    default=get_mode_default("materialize", "auto_batch_memory_fraction"),
+    show_default=True,
+    help="Fraction of available CUDA memory allowed for batch allocations during automatic sizing.",
+)
+@click.option(
     "--set",
     "plan_overrides",
     multiple=True,
     metavar="STAGE.FIELD=VALUE",
-    help="Override one executor plan value; repeat as needed.",
+    help="Override one executor plan value; detect/embed.batch_size also accept auto. Repeat as needed.",
 )
 @click.option(
     "--resume/--no-resume",
@@ -118,6 +138,9 @@ def materialize(
     data_root: Path | None,
     build_root: Path | None,
     plan_path: Path | None,
+    auto_batch: bool,
+    auto_batch_max_size: int,
+    auto_batch_memory_fraction: float,
     plan_overrides: tuple[str, ...],
     resume: bool,
 ) -> None:
@@ -133,6 +156,9 @@ def materialize(
             "publish_masks": "--publish-masks/--no-publish-masks",
             "publish_embeddings": "--publish-embeddings/--no-publish-embeddings",
             "plan_path": "--plan",
+            "auto_batch": "--auto-batch",
+            "auto_batch_max_size": "--auto-batch-max-size",
+            "auto_batch_memory_fraction": "--auto-batch-memory-fraction",
             "plan_overrides": "--set",
             "resume": "--resume/--no-resume",
         }
@@ -188,6 +214,9 @@ def materialize(
             "data_root": data_root,
             "build_root": build_root,
             "plan_path": plan_path,
+            "auto_batch": auto_batch,
+            "auto_batch_max_size": auto_batch_max_size,
+            "auto_batch_memory_fraction": auto_batch_memory_fraction,
             "plan_overrides": tuple(plan_overrides),
             "resume": resume,
         },

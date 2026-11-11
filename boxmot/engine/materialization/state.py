@@ -1,4 +1,4 @@
-"""Atomic resumability state for local materialization runs."""
+"""Atomic state snapshots and incremental durable materialization checkpoints."""
 
 from __future__ import annotations
 
@@ -58,13 +58,14 @@ class StageState:
             not isinstance(shard, str) or re.fullmatch(r"[0-9]{5,}", shard) is None for shard in self.completed_shards
         ):
             raise StateError(f"Stage {self.name!r} has invalid persisted shard IDs.")
-        if len(set(self.completed_shards)) != len(self.completed_shards):
+        completed_shards = set(self.completed_shards)
+        if len(completed_shards) != len(self.completed_shards):
             raise StateError(f"Stage {self.name!r} has duplicate persisted shard IDs.")
         if not isinstance(self.shard_hashes, tuple) or any(
             not isinstance(item, tuple)
             or len(item) != 3
             or not isinstance(item[0], str)
-            or item[0] not in self.completed_shards
+            or item[0] not in completed_shards
             or not isinstance(item[1], str)
             or re.fullmatch(r"[a-z][a-z0-9_-]*", item[1]) is None
             or not isinstance(item[2], str)
@@ -188,23 +189,84 @@ class BuildState:
 
 
 class MaterializationStateStore:
-    """Thread-safe state transitions persisted by atomic file replacement."""
+    """Persist stage transitions atomically and append individual checkpoints.
+
+    The journal is never rotated during a build. Snapshots record the consumed
+    byte offset, so a crash on either side of snapshot replacement cannot replay
+    an invalidated checkpoint or lose an acknowledged image.
+    """
 
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
         self._lock = threading.RLock()
         self._state: BuildState | None = None
+        self.journal_path = self.path.with_suffix(".jsonl")
+        self._journal_offset = 0
+        self._journal_usable = True
+        self._checkpoints: dict[str, dict[str, dict[str, str]]] = {}
+        self._dirty_stages: set[str] = set()
 
     @property
     def state(self) -> BuildState:
-        if self._state is None:
-            raise StateError("Materialization state has not been initialized.")
-        return self._state
+        """Materialize an immutable view only when a caller requests all state."""
+
+        with self._lock:
+            if self._state is None:
+                raise StateError("Materialization state has not been initialized.")
+            if self._dirty_stages:
+                stages = tuple(
+                    replace(
+                        stage,
+                        completed_shards=tuple(self._checkpoints[stage.name]),
+                        shard_hashes=tuple(
+                            (shard, artifact, digest)
+                            for shard, hashes in self._checkpoints[stage.name].items()
+                            for artifact, digest in hashes.items()
+                        ),
+                    )
+                    if stage.name in self._dirty_stages
+                    else stage
+                    for stage in self._state.stages
+                )
+                self._state = replace(self._state, stages=stages)
+                self._dirty_stages.clear()
+            return self._state
+
+    def completed_shards(self, stage_name: str) -> frozenset[str]:
+        """Return checkpoint IDs without constructing or validating full state."""
+
+        with self._lock:
+            self._stage_metadata(stage_name)
+            return frozenset(self._checkpoints[stage_name])
+
+    def completed_shard_count(self, stage_name: str) -> int:
+        """Return the durable checkpoint count in constant time."""
+
+        with self._lock:
+            self._stage_metadata(stage_name)
+            return len(self._checkpoints[stage_name])
+
+    def shard_hashes(self, stage_name: str, shard_id: str) -> dict[str, str]:
+        """Look up one checkpoint's hashes without scanning previous images."""
+
+        with self._lock:
+            self._stage_metadata(stage_name)
+            return dict(self._checkpoints[stage_name].get(shard_id, {}))
+
+    def _index_checkpoints(self, state: BuildState) -> None:
+        """Index a validated snapshot for incremental checkpoint updates."""
+
+        self._checkpoints = {stage.name: {shard: {} for shard in stage.completed_shards} for stage in state.stages}
+        for stage in state.stages:
+            for shard, artifact, digest in stage.shard_hashes:
+                self._checkpoints[stage.name][shard][artifact] = digest
+        self._dirty_stages.clear()
 
     def initialize(self, plan: BuildPlan) -> BuildState:
         """Create state or validate that persisted state belongs to this plan."""
 
         with self._lock:
+            self._journal_usable = True
             if self.path.exists():
                 try:
                     raw = json.loads(self.path.read_text(encoding="utf-8"))
@@ -217,30 +279,57 @@ class MaterializationStateStore:
                 except (KeyError, TypeError, ValueError) as exc:
                     raise StateError(f"Invalid materialization state: {self.path}") from exc
                 self._validate_plan(state, plan)
+                offset = raw.get("journal_offset", 0)
+                if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+                    raise StateError("Invalid checkpoint journal offset.")
+                self._state = state
+                self._index_checkpoints(state)
+                self._journal_offset = offset
+                self._replay_journal()
+                state = self.state
                 # A process death while running leaves completed shards reusable,
                 # but the stage itself must be entered again.
+                # Ordinal detection/segmentation checkpoints fix sample grouping
+                # once committed. Embedding checkpoints each cover one image, so
+                # their inference crop batches can change independently on resume.
+                requested_stages = plan.stage_by_name
                 recovered = tuple(
-                    replace(stage, status="pending", error=None) if stage.status == "running" else stage
+                    replace(
+                        stage,
+                        status="pending" if stage.status == "running" else stage.status,
+                        error=None if stage.status == "running" else stage.error,
+                        batch_size=(
+                            requested_stages[stage.name].batch_size
+                            if stage.status != "completed" and (stage.name == "embed" or not stage.completed_shards)
+                            else stage.batch_size
+                        ),
+                    )
                     for stage in state.stages
                 )
                 state = replace(state, stages=recovered, updated_at=utc_now_iso())
             else:
+                if self.journal_path.exists() and self.journal_path.stat().st_size:
+                    raise StateError("Checkpoint journal has no materialization state snapshot.")
+                self._journal_offset = 0
                 state = BuildState(
                     build_id=plan.build_id,
                     stages=tuple(
                         StageState(
-                            name=stage.name, fingerprint=stage.fingerprint,
-                            depends_on=stage.depends_on, batch_size=stage.batch_size,
+                            name=stage.name,
+                            fingerprint=stage.fingerprint,
+                            depends_on=stage.depends_on,
+                            batch_size=stage.batch_size,
                         )
                         for stage in plan.ordered_stages()
                     ),
                 )
             self._state = state
+            self._index_checkpoints(state)
             self._write()
             return state
 
     def is_completed(self, stage_name: str) -> bool:
-        return self._stage(stage_name).status == "completed"
+        return self._stage_metadata(stage_name).status == "completed"
 
     def begin(self, stage_name: str) -> StageState:
         with self._lock:
@@ -267,21 +356,17 @@ class MaterializationStateStore:
         shard_id: str,
         *,
         hashes: Mapping[str, str] | None = None,
-    ) -> StageState:
+    ) -> None:
+        """Durably append one checkpoint without rewriting preceding images."""
+
         with self._lock:
-            if not shard_id:
-                raise StateError("shard_id must not be empty.")
-            current = self._stage(stage_name)
+            current = self._stage_metadata(stage_name)
             if current.status != "running":
                 raise StateError(f"Cannot record a shard while stage {stage_name!r} is {current.status}.")
-            completed = current.completed_shards
-            if shard_id not in completed:
-                completed = (*completed, shard_id)
-            shard_hashes = tuple(item for item in current.shard_hashes if item[0] != shard_id)
-            shard_hashes += tuple((shard_id, artifact, digest) for artifact, digest in sorted((hashes or {}).items()))
-            updated = replace(current, completed_shards=completed, shard_hashes=shard_hashes)
-            self._replace(updated)
-            return updated
+            resolved = dict(sorted((hashes or {}).items()))
+            self._validate_checkpoint(shard_id, resolved)
+            self._append_checkpoint(stage_name, shard_id, resolved)
+            self._apply_checkpoint(stage_name, shard_id, resolved)
 
     def replace_shards(
         self,
@@ -317,24 +402,14 @@ class MaterializationStateStore:
             self._replace(updated)
             return updated
 
-    def discard_shard(self, stage_name: str, shard_id: str) -> StageState:
+    def discard_shard(self, stage_name: str, shard_id: str) -> None:
         """Forget an unreadable staging shard so the owning stage can rebuild it."""
 
         with self._lock:
-            current = self._stage(stage_name)
-            completed = tuple(item for item in current.completed_shards if item != shard_id)
-            shard_hashes = tuple(item for item in current.shard_hashes if item[0] != shard_id)
-            updated = replace(
-                current,
-                status="running",
-                completed_shards=completed,
-                shard_hashes=shard_hashes,
-                artifacts=(),
-                completed_at=None,
-                error=None,
-            )
-            self._replace(updated)
-            return updated
+            self._stage_metadata(stage_name)
+            self._validate_checkpoint(shard_id, None)
+            self._append_checkpoint(stage_name, shard_id, None)
+            self._apply_checkpoint(stage_name, shard_id, None)
 
     def invalidate(self, stage_names: tuple[str, ...]) -> BuildState:
         """Reset transitive downstream stages after an upstream shard repair."""
@@ -359,8 +434,7 @@ class MaterializationStateStore:
                 else stage
                 for stage in self.state.stages
             )
-            self._state = replace(self.state, stages=stages, updated_at=utc_now_iso())
-            self._write()
+            self._save_state(replace(self.state, stages=stages, updated_at=utc_now_iso()))
             return self.state
 
     def complete(self, stage_name: str, *, artifacts: tuple[str, ...] = ()) -> StageState:
@@ -396,9 +470,138 @@ class MaterializationStateStore:
         except KeyError as exc:
             raise StateError(f"Unknown materialization stage {stage_name!r}.") from exc
 
+    def _stage_metadata(self, stage_name: str) -> StageState:
+        """Read lifecycle fields without materializing checkpoint tuples."""
+
+        if self._state is None:
+            raise StateError("Materialization state has not been initialized.")
+        try:
+            return self._state.by_name[stage_name]
+        except KeyError as exc:
+            raise StateError(f"Unknown materialization stage {stage_name!r}.") from exc
+
     def _replace(self, stage: StageState) -> None:
-        self._state = self.state.replace_stage(stage)
-        self._write()
+        self._save_state(self.state.replace_stage(stage))
+
+    def _save_state(self, updated: BuildState) -> None:
+        """Restore the previous view if an atomic snapshot cannot be written."""
+
+        previous = self.state
+        checkpoints = self._checkpoints
+        self._state = updated
+        self._index_checkpoints(updated)
+        try:
+            self._write()
+        except BaseException:
+            self._state = previous
+            self._checkpoints = checkpoints
+            raise
+
+    @staticmethod
+    def _validate_checkpoint(shard_id: str, hashes: Mapping[str, str] | None) -> None:
+        """Validate only the changed checkpoint, independently of build size."""
+
+        if not isinstance(shard_id, str) or re.fullmatch(r"[0-9]{5,}", shard_id) is None:
+            raise StateError(f"Invalid checkpoint shard ID {shard_id!r}.")
+        if hashes is not None and (
+            not isinstance(hashes, Mapping)
+            or any(
+                not isinstance(artifact, str)
+                or re.fullmatch(r"[a-z][a-z0-9_-]*", artifact) is None
+                or not isinstance(digest, str)
+                or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+                for artifact, digest in hashes.items()
+            )
+        ):
+            raise StateError("Invalid checkpoint artifact hashes.")
+
+    def _apply_checkpoint(self, stage_name: str, shard_id: str, hashes: dict[str, str] | None) -> None:
+        """Apply an acknowledged journal record to the in-memory index."""
+
+        current = self._stage_metadata(stage_name)
+        assert self._state is not None
+        if hashes is None:
+            self._checkpoints[stage_name].pop(shard_id, None)
+            self._state = self._state.replace_stage(
+                replace(
+                    current,
+                    status="running",
+                    completed_shards=(),
+                    shard_hashes=(),
+                    artifacts=(),
+                    completed_at=None,
+                    error=None,
+                )
+            )
+        else:
+            self._checkpoints[stage_name][shard_id] = hashes
+        self._dirty_stages.add(stage_name)
+        self._state = replace(self._state, updated_at=utc_now_iso())
+
+    def _append_checkpoint(self, stage_name: str, shard_id: str, hashes: dict[str, str] | None) -> None:
+        """Flush one record before acknowledging it; roll back failed appends."""
+
+        self._require_usable_journal()
+        payload = (json.dumps([stage_name, shard_id, hashes], separators=(",", ":"), allow_nan=False) + "\n").encode()
+        created = not self.journal_path.exists()
+        with self.journal_path.open("a+b") as stream:
+            stream.seek(0, os.SEEK_END)
+            if stream.tell() != self._journal_offset:
+                raise StateError("Checkpoint journal changed outside the materialization store.")
+            try:
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+                if created:
+                    self._fsync_directory()
+            except BaseException as error:
+                try:
+                    stream.seek(self._journal_offset)
+                    stream.truncate()
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                except BaseException as rollback_error:
+                    self._journal_usable = False
+                    raise error from rollback_error
+                raise
+        self._journal_offset += len(payload)
+
+    def _replay_journal(self) -> None:
+        """Replay changes beyond the snapshot, discarding only a torn final line."""
+
+        if not self.journal_path.exists():
+            if self._journal_offset:
+                raise StateError("Checkpoint journal is missing for its recorded offset.")
+            return
+        with self.journal_path.open("r+b") as stream:
+            stream.seek(0, os.SEEK_END)
+            if self._journal_offset > stream.tell():
+                raise StateError("Checkpoint journal offset exceeds its size.")
+            if self._journal_offset:
+                stream.seek(self._journal_offset - 1)
+                if stream.read(1) != b"\n":
+                    raise StateError("Checkpoint journal offset is not a record boundary.")
+            stream.seek(self._journal_offset)
+            while line := stream.readline():
+                if not line.endswith(b"\n"):
+                    stream.seek(self._journal_offset)
+                    stream.truncate()
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                    break
+                try:
+                    record = json.loads(line)
+                    if not isinstance(record, list) or len(record) != 3 or not isinstance(record[0], str):
+                        raise StateError("Invalid checkpoint journal record.")
+                    stage_name, shard_id, hashes = record
+                    current = self._stage_metadata(stage_name)
+                    self._validate_checkpoint(shard_id, hashes)
+                    if hashes is not None and current.status != "running":
+                        raise StateError(f"Checkpoint journal records a shard for inactive stage {stage_name!r}.")
+                    self._apply_checkpoint(stage_name, shard_id, hashes)
+                except (UnicodeError, ValueError, TypeError) as exc:
+                    raise StateError("Invalid checkpoint journal record.") from exc
+                self._journal_offset = stream.tell()
 
     def _validate_plan(self, state: BuildState, plan: BuildPlan) -> None:
         if state.build_id != plan.build_id:
@@ -409,8 +612,10 @@ class MaterializationStateStore:
             raise StateError("Persisted stage fingerprints/dependencies do not match the build plan.")
 
     def _write(self) -> None:
+        self._require_usable_journal()
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        payload = json.dumps(self.state.to_dict(), indent=2, sort_keys=True, allow_nan=False) + "\n"
+        snapshot = {**self.state.to_dict(), "journal_offset": self._journal_offset}
+        payload = json.dumps(snapshot, separators=(",", ":"), sort_keys=True, allow_nan=False) + "\n"
         tmp_path: Path | None = None
         try:
             with tempfile.NamedTemporaryFile(
@@ -425,6 +630,19 @@ class MaterializationStateStore:
             if tmp_path is not None:
                 tmp_path.unlink(missing_ok=True)
             raise
+        self._fsync_directory()
+
+    def _require_usable_journal(self) -> None:
+        """Prevent snapshots from acknowledging a journal with uncertain contents."""
+
+        if not self._journal_usable:
+            raise StateError(
+                "Checkpoint journal recovery is required after a failed append rollback; reopen the store."
+            )
+
+    def _fsync_directory(self) -> None:
+        """Persist new journal files and atomic snapshot replacements."""
+
         try:
             directory_fd = os.open(self.path.parent, os.O_RDONLY)
             try:

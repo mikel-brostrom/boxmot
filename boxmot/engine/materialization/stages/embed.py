@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from typing import Any
+from dataclasses import replace
 
 import torch
 
@@ -21,7 +21,7 @@ from ._runtime import release_accelerator_memory
 from .base import MaterializationContext, StageOutcome
 from .detect import _batches
 
-_WORKER_ENCODERS: dict[ReIDEncoderSpec, Any] = {}
+_WORKER_ENCODERS: dict[tuple[ReIDEncoderSpec, int, bool], AppearanceEncoder] = {}
 
 
 def _encode_bounded(
@@ -33,11 +33,9 @@ def _encode_bounded(
 ) -> list[torch.Tensor]:
     """Encode at most ``max_rows`` detection crops in one model call.
 
-    Materialization shards are grouped by source samples, whose detection
-    cardinality is data-dependent. Treating the stage batch size as a frame
-    count can therefore turn a nominal batch of 64 into several thousand ReID
-    crops. Keep checkpoint shards sample-aligned while independently bounding
-    accelerator inference by detection rows.
+    Each image is checkpointed independently, but may contain more detection
+    crops than fit in one model call. Bound inference by detection rows without
+    changing the image's checkpoint identity.
     """
 
     if len(frames) != len(detections):
@@ -111,12 +109,20 @@ def _encode_bounded(
     ]
 
 
-def _encode_from_spec(item):
-    spec, shard_index, frames, detections, max_rows = item
-    encoder = _WORKER_ENCODERS.get(spec)
+def _encode_from_spec(
+    item: tuple[ReIDEncoderSpec, int, Sequence[Frame], Sequence[Detections], int, bool],
+) -> tuple[int, int, list[torch.Tensor]]:
+    """Apply the stage crop limit while respecting explicitly authored caps."""
+    spec, shard_index, frames, detections, max_rows, override_batch_size = item
+    cache_key = (spec, max_rows, override_batch_size)
+    encoder = _WORKER_ENCODERS.get(cache_key)
     if encoder is None:
-        encoder = create_reid_encoder(spec)
-        _WORKER_ENCODERS[spec] = encoder
+        options = spec.option_values()
+        if override_batch_size or "batch_size" not in options:
+            options["batch_size"] = max_rows
+        inference_spec = replace(spec, options=tuple(sorted(options.items())))
+        encoder = create_reid_encoder(inference_spec)
+        _WORKER_ENCODERS[cache_key] = encoder
     return (
         shard_index,
         int(encoder.embedding_dim),
@@ -130,7 +136,13 @@ def _encode_from_spec(item):
 
 
 class EmbedStage:
-    """Run a reusable appearance encoder and persist fixed-size vectors."""
+    """Run a reusable appearance encoder and checkpoint vectors per image.
+
+    The stage crop limit fills omitted encoder batch settings. Set
+    ``override_batch_size`` after automatic sizing to replace an authored cap
+    with the measured stage limit. Supplied encoder instances retain their
+    own inference settings.
+    """
 
     name = "embed"
 
@@ -141,6 +153,7 @@ class EmbedStage:
         *,
         encoder_fingerprint: str,
         use_masks: bool = False,
+        override_batch_size: bool = False,
         decode_workers: int = 1,
         source_digest_resolver: SourceDigestResolver | None = None,
     ) -> None:
@@ -153,12 +166,15 @@ class EmbedStage:
             raise ValueError("encoder_fingerprint must be a full SHA-256 digest.")
         if not isinstance(use_masks, bool):
             raise TypeError("use_masks must be a boolean.")
+        if not isinstance(override_batch_size, bool):
+            raise TypeError("override_batch_size must be a boolean.")
         if isinstance(decode_workers, bool) or not isinstance(decode_workers, int) or decode_workers <= 0:
             raise ValueError("decode_workers must be a positive integer.")
         self.encoder = encoder
         self.samples = samples
         self.encoder_fingerprint = encoder_fingerprint
         self.use_masks = use_masks
+        self.override_batch_size = override_batch_size
         self.decode_workers = decode_workers
         self.source_digest_resolver = source_digest_resolver
 
@@ -191,6 +207,7 @@ class EmbedStage:
                     frames,
                     detections,
                     context.stage_plan.batch_size,
+                    self.override_batch_size,
                 )
                 for shard_index, frames, detections in pending
             ]
@@ -212,24 +229,28 @@ class EmbedStage:
     def run(self, context: MaterializationContext) -> StageOutcome:
         if context.stage_plan.name != self.name:
             raise ValueError(f"EmbedStage cannot execute plan stage {context.stage_plan.name!r}.")
-        context.validate_completed_shards(EMBEDDINGS_ARTIFACT)
         staged = read_detection_batches(context.staging_root, context.build_plan.box_type)
         if self.use_masks:
             staged = attach_masks(context.staging_root, staged)
+        context.validate_completed_shards(
+            EMBEDDINGS_ARTIFACT,
+            expected_detections={f"{index:05d}": staged[sample.sample_id] for index, sample in enumerate(self.samples)},
+        )
         writer = ParquetShardWriter(context.staging_root, box_type=context.build_plan.box_type)
         expected_dimension = None if isinstance(self.encoder, ReIDEncoderSpec) else int(self.encoder.embedding_dim)
         if expected_dimension is not None and expected_dimension <= 0:
             raise ValueError("Appearance encoder embedding_dim must be positive.")
 
         embedding_count = 0
+        completed = context.completed_shards
         pending = [
             (
                 shard_index,
                 batch,
                 [staged[sample.sample_id] for sample in batch],
             )
-            for shard_index, batch in _batches(self.samples, context.stage_plan.batch_size)
-            if f"{shard_index:05d}" not in context.completed_shards
+            for shard_index, batch in _batches(self.samples, 1)
+            if f"{shard_index:05d}" not in completed
         ]
         with BoundedFrameDecoder(
             self.decode_workers,
@@ -301,9 +322,10 @@ class EmbedStage:
         """Release a lazily constructed encoder after all retries finish."""
 
         if isinstance(self.encoder, ReIDEncoderSpec):
-            runtime = _WORKER_ENCODERS.pop(self.encoder, None)
-            if runtime is not None:
-                del runtime
+            cache_keys = [key for key in _WORKER_ENCODERS if key[0] == self.encoder]
+            for key in cache_keys:
+                del _WORKER_ENCODERS[key]
+            if cache_keys:
                 release_accelerator_memory(self.encoder.device)
 
 

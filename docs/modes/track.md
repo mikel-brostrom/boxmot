@@ -39,7 +39,42 @@ The default tracker is ByteTrack and the default inference device is CPU.
 Appearance-enabled trackers such as BoT-SORT resolve the selected `--reid`
 encoder lazily when the first nonempty detection batch needs embeddings.
 
+## Track from boxes or points
+
+Use the [terminal UI](ui.md#track-selected-objects-with-edgetam) to select
+`edgetam`, or launch its interactive video window directly:
+
+```bash
+boxmot track --tracker edgetam --source video.mp4 --prompt-weights edgetam.pt --save
+```
+
+For a local camera, first press Space or Enter in the live preview to choose
+the frame to annotate. Draw a box or click points on the paused frame, then
+press Space to propagate masks and object IDs. Press Space again to pause and
+add or correct prompts. Press `r` while paused to choose another camera frame.
+
+Local camera capture continues in the background during annotation and
+inference. The selected prompt frame stays frozen until processed, then the
+next update uses the latest available camera frame and skips older captures.
+This reduces backlog, while tracking and display speed remain limited by
+model inference, especially on CPU. Video files are processed sequentially.
+Saved outputs include only processed frames. Source frame identities and
+timestamps are preserved where available, including gaps from skipped captures.
+
+No detector, ReID encoder, or detection masks are needed. This mode always
+opens a video window, requires the Python backend, and uses AABB prompts
+automatically.
+See [EdgeTAM](../trackers/edgetam.md) for installation and all controls.
+
 ## Save or display results
+
+Detection-based tracking discards the first two seconds of local webcam frames
+so automatic exposure can adjust before tracking begins. This also applies
+after a camera reconnect. EdgeTAM instead starts a live preview immediately
+and lets you choose the prompt frame with Space or Enter. Video files and URLs
+retain their first frame. Python
+callers can set `camera_warmup_s` on `create_frame_source()` or `VideoSource`
+to change the duration, or set it to `0` to disable warmup.
 
 For a file or directory source, request an output explicitly:
 
@@ -165,16 +200,22 @@ the overlay lifecycle and its distinction from detection masks.
 
 ## Geometry
 
-Select a fixed tracker geometry with `--geometry aabb|obb`. Detector output and
-tracker mode must agree:
+Tracking geometry defaults to `auto` in the CLI and `run_track()`. The loaded
+detector's output format selects AABB or OBB before the tracker is created:
+`yolov8n` produces AABB, while an OBB detector produces oriented boxes.
+This also works with custom checkpoint names and frames without detections.
 
 ```bash
 boxmot track \
   --source aerial.mp4 \
   --detector yolo11n-obb.pt \
-  --geometry obb \
   --tracker ocsort
 ```
+
+`--imgsz` controls inference resolution; it does not select AABB or OBB.
+Optionally use `--geometry aabb` or `--geometry obb` to require a specific
+detector output format. A mismatch raises an error; the option cannot convert
+an AABB detector's predictions into oriented boxes.
 
 Canonical OBB angles are radians and remain unwrapped for temporal continuity.
 Pipeline values remain typed; `to_obb_rows()` produces the 9-column output
@@ -187,7 +228,7 @@ and `--save` overlay masks for tracked detections using the same distinct
 identity colors as their boxes:
 
 ```bash
-boxmot --dashboard track --source 0 --detector yolov8s-seg --show --geometry aabb
+boxmot --dashboard track --source 0 --detector yolov8s-seg --show
 ```
 
 No separate `--segmentor` is needed for these detectors. The mask fill is
@@ -356,7 +397,12 @@ for frame in frames:  # Sequence[boxmot.structures.Frame]
 ```
 
 For externally supplied detections, construct the pipeline with
-`detector=None` and call `step_detections(frame, detections)`.
+`detector=None` and call `step_detections(frame, detections)`. Create its tracker
+with `create_tracker("bytetrack", detections=first_batch)` to infer geometry
+from typed boxes or packed NumPy `N x 6` / `N x 7` rows. The factory only
+inspects the batch, so pass it to `step_detections()` to process the first frame.
+Geometry is fixed at construction and checked on every update; see
+[geometry from detections](../config/trackers.md#geometry-from-detections).
 
 For an appearance-enabled tracker adapter, `TrackingPipeline` may omit `reid`;
 the tracker then extracts missing embeddings from each live frame. Pass a

@@ -94,14 +94,16 @@ def _source_count(plan: BuildPlan) -> int | None:
     return value
 
 
-def _total_shards(plan: BuildPlan, stage: StagePlan) -> int | None:
+def _total_checkpoints(plan: BuildPlan, stage: StagePlan) -> int | None:
+    """Count saved images for embedding and batch shards for other stages."""
+
     if stage.name == "finalize":
         return 1
     if stage.name not in {"detect", "segment", "embed"}:
         return None
     count = _source_count(plan)
-    if count is None:
-        return None
+    if count is None or stage.name == "embed":
+        return count
     return (count + stage.batch_size - 1) // stage.batch_size
 
 
@@ -171,17 +173,18 @@ class MaterializationProgress:
     def stage_started(self, plan: BuildPlan, stage: StagePlan, *, completed_shards: int) -> None:
         """Start elapsed-time accounting and report resume state."""
 
-        total = _total_shards(plan, stage)
+        total = _total_checkpoints(plan, stage)
         self._timings[stage.name] = _StageTiming(
             started_s=self._clock(),
             total_shards=total,
             initial_completed_shards=completed_shards,
         )
+        unit = "images" if stage.name == "embed" else "shards"
         if total is None:
-            progress = f"{completed_shards} shards already complete"
+            progress = f"{completed_shards} {unit} already complete"
         else:
             pending = max(total - completed_shards, 0)
-            progress = f"{completed_shards}/{total} shards complete, {pending} pending"
+            progress = f"{completed_shards}/{total} {unit} complete, {pending} pending"
         self._logger.info(
             f"Stage {stage.name} starting: {progress}; batch={stage.batch_size}, "
             f"workers={stage.workers}, executor={stage.executor}."
@@ -196,12 +199,13 @@ class MaterializationProgress:
         items: int | None = None,
         rows: int | None = None,
     ) -> None:
-        """Report one durable shard checkpoint, never individual frames."""
+        """Report one durable checkpoint, covering an image or inference batch."""
 
         timing = self._timings.get(stage_name)
         if timing is None:
             return
         elapsed = max(self._clock() - timing.started_s, 0.0)
+        unit = "image" if stage_name == "embed" else "shard"
         processed = max(completed_shards - timing.initial_completed_shards, 1)
         rate = processed / elapsed if elapsed > 0.0 else None
         details: list[str] = []
@@ -210,7 +214,7 @@ class MaterializationProgress:
         else:
             percent = min(100.0, 100.0 * completed_shards / max(timing.total_shards, 1))
             details.append(f"{completed_shards}/{timing.total_shards} ({percent:.1f}%)")
-        if items is not None:
+        if items is not None and stage_name != "embed":
             details.append(f"items={items}")
         if rows is not None:
             details.append(f"rows={rows}")
@@ -218,27 +222,28 @@ class MaterializationProgress:
         if rate is None:
             details.extend(("rate=n/a", "ETA=n/a"))
         else:
-            details.append(f"rate={rate:.2f} shards/s")
+            details.append(f"rate={rate:.2f} {unit}s/s")
             if timing.total_shards is None:
                 details.append("ETA=n/a")
             else:
                 remaining = max(timing.total_shards - completed_shards, 0)
                 details.append(f"ETA={remaining / rate:.1f}s")
-        self._logger.info(f"Stage {stage_name} shard {shard_id}: {', '.join(details)}.")
+        self._logger.info(f"Stage {stage_name} {unit} {shard_id}: {', '.join(details)}.")
 
     def stage_completed(self, stage: StagePlan, outcome: StageOutcome, *, completed_shards: int) -> None:
         """Report stage completion and small outcome counters."""
 
         timing = self._timings.get(stage.name)
         elapsed = 0.0 if timing is None else max(self._clock() - timing.started_s, 0.0)
+        unit = "images" if stage.name == "embed" else "shards"
         cache_hit = stage.name == "detect" and outcome.metrics.get("cache") == "hit"
         if cache_hit:
             progress = f"{completed_shards} cached artifact shards"
         elif timing is None or timing.total_shards is None:
-            progress = f"{completed_shards} shards"
+            progress = f"{completed_shards} {unit}"
         else:
             completed = timing.total_shards if stage.name == "finalize" else completed_shards
-            progress = f"{completed}/{timing.total_shards} shards"
+            progress = f"{completed}/{timing.total_shards} {unit}"
         metrics = self._format_metrics(outcome.metrics)
         suffix = "" if not metrics else f"; {metrics}"
         self._logger.info(f"Stage {stage.name} complete: {progress}; elapsed={elapsed:.1f}s{suffix}.")

@@ -15,6 +15,7 @@ _WORKFLOW_SETUP_TITLES = {
     "boxmot.engine.materialization.workflow": "Dataset Materialization",
     "boxmot.engine.eval.evaluator": "Evaluation",
     "boxmot.engine.eval.saved_detections": "Evaluation",
+    "boxmot.engine.eval.prompted": "Prompted Evaluation",
 }
 
 
@@ -87,7 +88,10 @@ def _run_engine_workflow(module_name: str, args: Any) -> Any:
         from boxmot.engine.config.trackers import validate_image_tracker
 
         try:
-            validate_image_tracker(str(args.tracker))
+            validate_image_tracker(
+                str(args.tracker),
+                allow_prompted=module_name in {"boxmot.engine.tracking.workflow", "boxmot.engine.eval.prompted"},
+            )
         except ValueError as exc:
             raise click.UsageError(str(exc)) from exc
 

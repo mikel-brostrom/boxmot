@@ -35,9 +35,13 @@ runtime:
   target_id: null
 track:
   source: '0'
+  geometry: auto
   benchmark: ''
   split: ''
 materialize:
+  auto_batch: false
+  auto_batch_max_size: 256
+  auto_batch_memory_fraction: 0.8
   dataset: mot17
   split: ablation
   name: null

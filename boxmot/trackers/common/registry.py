@@ -47,6 +47,12 @@ _TRACKER_CAPABILITIES: dict[str, TrackerCapabilities] = {
         accepts_camera=True,
         accepts_ego_motion=True,
     ),
+    "edgetam": TrackerCapabilities(
+        family=TrackerFamily.MULTIMODAL,
+        geometry_kinds=frozenset({GeometryKind.AABB}),
+        requires_frame=True,
+        accepts_frame=True,
+    ),
     "hybridsort": TrackerCapabilities(
         family=TrackerFamily.BOX,
         geometry_kinds=_BOX_GEOMETRIES,
@@ -132,6 +138,7 @@ TRACKER_DEFINITIONS = {
         name=name,
         class_path=entry.class_path,
         capabilities=_TRACKER_CAPABILITIES[name],
+        accepts_per_class=name != "edgetam",
         native_class_path=entry.native_class_path,
         native_geometry_kinds=(
             frozenset(GeometryKind(mode) for mode in entry.native_geometry_modes)

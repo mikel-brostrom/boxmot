@@ -11,7 +11,7 @@ from boxmot.trackers.common.association.strongsort import gate_cost_matrix
 from boxmot.trackers.common.motion.models import MotionModelKind, create_motion_model, supported_motion_model_kinds
 from boxmot.trackers.common.tracking.track import TrackIdAllocator
 from boxmot.trackers.strongsort.track import Track as StrongTrack
-from boxmot.trackers.strongsort.tracker import _Detection
+from boxmot.trackers.strongsort.track import _Detection
 
 MODEL_MODES = [(kind, is_obb) for is_obb in (False, True) for kind in supported_motion_model_kinds(is_obb=is_obb)]
 
@@ -107,9 +107,7 @@ def test_strongsort_selected_filter_batches_gates_and_compensates_camera(kind, i
             np.testing.assert_allclose(actual.covariance, expected.covariance, rtol=1e-10, atol=1e-10)
             assert (actual.age, actual.hits) == (expected.age, expected.hits)
     blocked = np.zeros((3, 3), dtype=bool)
-    costs = gate_cost_matrix(
-        np.zeros((3, 3)), tracks, observations, list(range(3)), list(range(3)), 0.5, gated_mask=blocked
-    )
+    costs = gate_cost_matrix(np.zeros((3, 3)), tracks, observations, 0.5, gated_mask=blocked)
     assert np.isfinite(costs).all()
     assert not np.diag(blocked).any()
     assert blocked[0, 2]

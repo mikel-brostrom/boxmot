@@ -417,7 +417,7 @@ def test_sequence_stream_validates_all_embedding_keys_before_first_sample(
     table = pq.read_table(path)
     rows = table.to_pylist()
     if mode == "missing":
-        rows.pop()
+        rows.pop(next(index for index, row in enumerate(rows) if row["sample_id"] == "sample-a"))
     elif mode == "duplicate":
         rows.append(dict(rows[0]))
     else:
@@ -827,17 +827,17 @@ def test_validation_rejects_unpublished_optional_artifact_directory(materialized
 
 def test_validation_checks_each_manifest_shard_row_count(materialized_build) -> None:
     manifest = DatasetManifest.load(materialized_build["root"])
-    embeddings = manifest.artifact(EMBEDDINGS_ARTIFACT)
-    assert [shard.rows for shard in embeddings.shards] == [2, 1]
+    instances = manifest.artifact(INSTANCES_ARTIFACT)
+    assert [shard.rows for shard in instances.shards] == [2, 1]
     swapped = (
-        replace(embeddings.shards[0], rows=1),
-        replace(embeddings.shards[1], rows=2),
+        replace(instances.shards[0], rows=1),
+        replace(instances.shards[1], rows=2),
     )
-    modified = replace(embeddings, shards=swapped)
+    modified = replace(instances, shards=swapped)
     bad_manifest = replace(
         manifest,
         artifacts=tuple(
-            modified if artifact.name == EMBEDDINGS_ARTIFACT else artifact for artifact in manifest.artifacts
+            modified if artifact.name == INSTANCES_ARTIFACT else artifact for artifact in manifest.artifacts
         ),
     )
 

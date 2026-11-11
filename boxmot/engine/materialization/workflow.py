@@ -44,7 +44,8 @@ from boxmot.engine.materialization.catalog import (
 from boxmot.engine.materialization.ids import component_content
 from boxmot.engine.materialization.progress import MaterializationProgress, MaterializationProgressReporter
 from boxmot.engine.materialization.resources import ensure_dataset_split_available
-from boxmot.engine.materialization.settings import load_executor_settings
+from boxmot.engine.materialization.settings import DEFAULT_EXECUTOR_SETTINGS, load_executor_settings
+from boxmot.engine.profiling.batching import profile_detector, profile_reid
 from boxmot.engine.ui.core.ui import get_console
 from boxmot.engine.ui.logging import suppress_boxmot_logs
 from boxmot.engine.ui.reporters.materialize import MaterializeWorkflowReporter
@@ -190,13 +191,18 @@ def _stage_plan(
     semantic_config: Mapping[str, Any] | None = None,
 ) -> StagePlan:
     values = settings[name]
+    batch_size = values["batch_size"]
+    if batch_size == "auto":
+        # Batch sizes do not affect content identity. Keep this preliminary plan
+        # numeric while checking caches; the locked builder profiles pending work.
+        batch_size = DEFAULT_EXECUTOR_SETTINGS[name]["batch_size"]
     return StagePlan.create(
         name,
         config={} if semantic_config is None else semantic_config,
         component=component,
         upstream_fingerprints=upstream,
         depends_on=depends_on,
-        batch_size=int(values["batch_size"]),
+        batch_size=int(batch_size),
         workers=int(values["workers"]),
         executor=str(values["executor"]),
         max_attempts=int(values["retries"]) + 1,
@@ -453,13 +459,51 @@ def materialize(
             target_shard_rows=int(settings["writer"]["instance_rows_per_shard"]),
         )
 
-    # Keep every runtime as its immutable specification until the first pending
-    # shard reaches that stage. The stage worker then constructs and caches the
-    # model and validates its device. Completed stages and published builds
-    # therefore do not require the requested accelerator merely to reuse data.
+    # Keep stage runtimes lazy. Optional profiling loads and releases a separate
+    # model under the build lock only when pending work needs a new batch size.
+    # Completed stages and published builds can still reuse data without CUDA.
     source_metadata_cache = FileMetadataCache(
         default_source_metadata_cache_path(catalog.source_root),
     )
+    detection_cache = DetectionCache.from_plan(plan, samples)
+    batch_size_resolvers: dict[str, Callable[[], int]] = {}
+    auto_batch = bool(getattr(args, "auto_batch", False))
+    profiling_options = {
+        "max_batch_size": getattr(args, "auto_batch_max_size", 256),
+        "memory_fraction": getattr(args, "auto_batch_memory_fraction", 0.8),
+    }
+    for name in ("detect", "embed"):
+        if name not in plan.stage_by_name or not (auto_batch or settings[name]["batch_size"] == "auto"):
+            continue
+        if plan.stage_by_name[name].workers != 1:
+            raise ValueError(
+                f"Automatic {name} batching requires workers=1; independent worker models share GPU memory."
+            )
+
+        def resolve_batch_size(stage_name: str = name) -> int:
+            """Resolve GPU batching only after build reuse and resume checks."""
+
+            cache_eligible = not (publish.masks and segmentor_spec is None) and not (
+                publish.embeddings and encoder_spec is None
+            )
+            if stage_name == "detect" and cache_eligible and detection_cache.available():
+                progress.setup_status("Reusing cached detections; skipping detector batch profiling…")
+                return plan.stage_by_name[stage_name].batch_size
+            progress.setup_status(f"Profiling CUDA {stage_name} batch size…")
+            if stage_name == "detect":
+                profile = profile_detector(detector_spec, **profiling_options)
+            else:
+                assert encoder_spec is not None
+                profile = profile_reid(encoder_spec, **profiling_options)
+            measurement = next(item for item in profile.measurements if item.batch_size == profile.batch_size)
+            unit = "frames" if stage_name == "detect" else "crops"
+            progress.setup_status(
+                f"Selected {stage_name} batch size {profile.batch_size} {unit} "
+                f"({measurement.items_per_second:.1f} {unit}/s; synthetic estimate)…"
+            )
+            return profile.batch_size
+
+        batch_size_resolvers[name] = resolve_batch_size
     stage_objects: list[object] = [
         DetectStage(
             detector_spec,
@@ -469,7 +513,7 @@ def materialize(
             native_embedding_dim=native_embedding_dim,
             decode_workers=int(settings["decode"]["workers"]),
             source_digest_resolver=source_metadata_cache.resolve_digest,
-            cache=DetectionCache.from_plan(plan, samples),
+            cache=detection_cache,
         )
     ]
     if segmentor_spec is not None:
@@ -488,6 +532,7 @@ def materialize(
                 encoder_spec,
                 samples,
                 encoder_fingerprint=encoder_fingerprint,
+                override_batch_size="embed" in batch_size_resolvers,
                 decode_workers=int(settings["decode"]["workers"]),
                 source_digest_resolver=source_metadata_cache.resolve_digest,
             )
@@ -501,7 +546,8 @@ def materialize(
 
     progress.setup_status("Build plan resolved; preparing resumable stage state…")
     with source_metadata_cache:
-        result = DatasetMaterializer(plan, stage_objects, progress=progress).run()
+        materializer_options = {"batch_size_resolvers": batch_size_resolvers} if batch_size_resolvers else {}
+        result = DatasetMaterializer(plan, stage_objects, progress=progress, **materializer_options).run()
     if result != plan.output_root:
         raise RuntimeError(f"Materialization stopped before publication; resumable state remains at {result}.")
     return result

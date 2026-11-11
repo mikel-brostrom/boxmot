@@ -102,12 +102,12 @@ def compact_artifact(
 
 
 def compact_build(plan: BuildPlan, *, target_rows: int = 50_000, root: Path | None = None) -> None:
-    """Compact every selected artifact before checksums and publication."""
+    """Compact selected artifacts while preserving per-image ReID embedding files."""
 
     selected = [SAMPLES_ARTIFACT, INSTANCES_ARTIFACT]
     if plan.publish.masks:
         selected.append(MASKS_ARTIFACT)
-    if plan.publish.embeddings:
+    if plan.publish.embeddings and "embed" not in plan.stage_by_name:
         selected.append(EMBEDDINGS_ARTIFACT)
     for artifact_name in selected:
         compact_artifact(
@@ -211,9 +211,7 @@ def _write_success(root: Path, build_id: str) -> None:
     payload = json.dumps({"schema": SCHEMA_ID, "build_id": build_id}, sort_keys=True) + "\n"
     tmp_path: Path | None = None
     try:
-        with tempfile.NamedTemporaryFile(
-            "w", encoding="utf-8", dir=root, prefix=".success-", delete=False
-        ) as tmp:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=root, prefix=".success-", delete=False) as tmp:
             tmp_path = Path(tmp.name)
             tmp.write(payload)
             tmp.flush()
@@ -256,13 +254,22 @@ def finalize_build(
         shutil.rmtree(candidate)
 
     def ignore_checkpoint_metadata(directory: str, _names: list[str]) -> set[str]:
-        """Exclude publication scratch and metadata owned by this finalization."""
+        """Keep recovery metadata in staging; the manifest describes published files."""
         if Path(directory) == plan.staging_root:
-            return {candidate.name, MANIFEST_FILENAME, SUCCESS_FILENAME, plan.state_path.name}
+            return {
+                candidate.name,
+                MANIFEST_FILENAME,
+                SUCCESS_FILENAME,
+                plan.state_path.name,
+                plan.state_path.with_suffix(".jsonl").name,
+            }
         return set()
 
     shutil.copytree(
-        plan.staging_root, candidate, copy_function=os.link, symlinks=True,
+        plan.staging_root,
+        candidate,
+        copy_function=os.link,
+        symlinks=True,
         ignore=ignore_checkpoint_metadata,
     )
     compact_build(plan, target_rows=target_shard_rows, root=candidate)
@@ -277,8 +284,6 @@ def finalize_build(
     _remove_unpublished_artifacts(plan, root=candidate)
     if before_publish is not None:
         before_publish()
-    if plan.state_path.is_file():
-        os.link(plan.state_path, candidate / plan.state_path.name)
     _write_success(candidate, plan.build_id)
     _fsync_directory(candidate)
 

@@ -171,20 +171,19 @@ def test_strongsort_preserves_motion_gate_even_when_mask_bonus_would_admit_pair(
     mc_lambda: float,
 ) -> None:
     """A mask covering the observation cannot rescue a real just-outside-gate displacement."""
-    tracker, _ = _tracker("strongsort", guided=True, mc_lambda=mc_lambda, max_cos_dist=9.0)
+    tracker, propagator = _tracker("strongsort", guided=True, mc_lambda=mc_lambda, max_cos_dist=9.0)
     identity = int(_update(tracker, _rows()[:1])[0, 4])
-    track = tracker.tracks[0]
-    track.time_since_update = 2  # Lost candidates do not enter the one-frame IoU fallback.
-    _, uncertainty = track.motion_model.project(track.kf, track.mean, track.covariance)
-    box = _rows()[0, :4].astype(float)
-    box[[0, 2]] += np.sqrt(9.6 * uncertainty[0, 0])
-    tracker._mask_guidance._masks = {identity: _mask(box)}
-    detection = type("Detection", (), {})()
-    detection.feat = np.array([1.0, 0.0])
-    detection.xyxy = box
+    track = tracker.active_tracks[0]
+    track.time_since_update = 1  # The next prediction excludes it from one-frame IoU fallback.
+    mean, covariance = track.motion_model.predict(track.kf, track.mean, track.covariance)
+    _, uncertainty = track.motion_model.project(track.kf, mean, covariance)
+    moved = _rows()[:1].copy()
+    moved[:, [0, 2]] += np.sqrt(9.6 * uncertainty[0, 0])
+    propagator.masks[identity] = _mask(moved[0, :4])
 
-    matches, unmatched_tracks, unmatched_detections = tracker._match([detection])
+    actual = _update(tracker, moved)
 
-    assert matches == []
-    assert unmatched_tracks == [0]
-    assert unmatched_detections == [0]
+    assert actual.shape == (1, 8)
+    assert actual[0, 4] != identity
+    assert track in tracker.active_tracks
+    assert track.time_since_update == 2

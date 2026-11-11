@@ -63,8 +63,8 @@ class EdgeTAMSegmentor:
             if exc.name not in {"sam2", "sam2.sam2_image_predictor"}:
                 raise
             raise ImportError(
-                "EdgeTAM segmentation requires the optional mask-guidance dependencies. "
-                "Install with 'uv sync --extra cpu --group mask-guidance' "
+                "EdgeTAM segmentation requires the optional EdgeTAM dependency group. "
+                "Install with 'uv sync --extra cpu --group edgetam' "
                 "(use --extra cu130 instead of --extra cpu on CUDA hosts)."
             ) from exc
         self.model = (
@@ -80,9 +80,7 @@ class EdgeTAMSegmentor:
         detections: Sequence[Detections],
     ) -> list[MaskBatch]:
         """Segment sequential boxes in RGB frames and release each image's state."""
-        frame_batch, detection_batch = validate_inputs(
-            frames, detections, geometry_mode=self.spec.geometry_mode
-        )
+        frame_batch, detection_batch = validate_inputs(frames, detections, geometry_mode=self.spec.geometry_mode)
         outputs: list[MaskBatch] = []
         with torch.inference_mode(), inference_context(self.device, self.spec.precision):
             for frame, frame_detections in zip(frame_batch, detection_batch):
@@ -95,14 +93,10 @@ class EdgeTAMSegmentor:
                     self._predictor.set_image(image)
                     del image
                     for index, box in enumerate(enclosing_boxes(frame_detections).numpy()):
-                        prediction = self._predictor.predict(
-                            box=box, multimask_output=False, return_logits=False
-                        )
+                        prediction = self._predictor.predict(box=box, multimask_output=False, return_logits=False)
                         # Upstream applies the configured logit threshold and
                         # returns binary masks as float arrays from predict().
-                        values[index] = normalize_masks(
-                            prediction[0], count=1, frame=frame, threshold=0.5
-                        ).values[0]
+                        values[index] = normalize_masks(prediction[0], count=1, frame=frame, threshold=0.5).values[0]
                         del prediction
                 finally:
                     self._predictor.reset_predictor()

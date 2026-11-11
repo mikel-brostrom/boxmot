@@ -57,9 +57,7 @@ def resolve_device(value: str | torch.device) -> torch.device:
                 if count == 0
                 else "Select an available logical CUDA index or use device=cpu."
             )
-            raise RuntimeError(
-                f"Device {device} is unavailable; PyTorch reports {count} CUDA device(s). {hint}"
-            )
+            raise RuntimeError(f"Device {device} is unavailable; PyTorch reports {count} CUDA device(s). {hint}")
     elif device == "mps":
         if not torch.backends.mps.is_built() or not torch.backends.mps.is_available():
             raise RuntimeError(

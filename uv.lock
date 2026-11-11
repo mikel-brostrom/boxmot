@@ -487,8 +487,13 @@ docs = [
     { name = "mkdocstrings-python" },
     { name = "ruff" },
 ]
+edgetam = [
+    { name = "edgetam" },
+    { name = "setuptools" },
+]
 mask-guidance = [
     { name = "edgetam" },
+    { name = "setuptools" },
 ]
 service-runtime = [
     { name = "fastapi" },

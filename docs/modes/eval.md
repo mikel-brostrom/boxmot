@@ -1,6 +1,7 @@
 # Evaluate
 
-`eval` measures tracking performance from perception builds or saved detections.
+`eval` measures tracking performance from perception builds, saved detections,
+or [EdgeTAM ground-truth prompts](#edgetam-with-ground-truth-prompts).
 For existing KITTI 2D predictions, use the [saved-box workflow](#saved-2d-detections).
 For synchronized 2D/3D predictions and calibration, use
 [EagerMOT sensor evaluation](#eagermot-with-saved-sensor-inputs). These direct
@@ -33,7 +34,7 @@ the same experiment:
     ```
 
 `run_eval` returns a `ValidationResult` with metrics and the output directory.
-The direct Python API requires a prepared build for image evaluation. Keep the
+The Python example above requires a prepared perception build. Keep the
 `__main__` guard in scripts so sequence workers can start safely.
 
 For perception-build evaluation, it streams an immutable materialized build
@@ -141,7 +142,7 @@ After materialization completes, evaluation consumes the exact path returned
 by that build operation. It does not scan `--build-root`, select a latest
 directory, or risk replaying another configuration's build.
 
-Pass `--build` to reuse a specific build. Image-dataset evaluation requires
+Pass `--build` to reuse a specific build. Detector-driven image evaluation requires
 `--build` when no detector is selected, because the dataset config alone does
 not select the perception components needed for materialization:
 
@@ -175,6 +176,47 @@ from track identities and previous-frame prompts during replay, using the
 source images. Published detection masks do not replace this inference.
 See [temporal mask guidance](../tasks/masks.md#use-temporal-masks-in-association)
 for requirements and settings.
+
+## EdgeTAM with ground-truth prompts
+
+Initialize each pedestrian once using its first fully visible, fully in-frame
+MOT annotation, then propagate EdgeTAM without detector input:
+
+```bash
+boxmot eval --dataset mot17-mini --split train --tracker edgetam \
+  --prompt-source first-visible --device cpu --save
+```
+
+Follow the [EdgeTAM setup](../trackers/edgetam.md#setup-and-ui) first. This
+workflow requires `--dataset` with MOT-style AABB ground truth and pedestrian
+labels. Use `--data-root` for an existing dataset and repeat `--sequence NAME`
+to select sequences. `--prompt-weights` defaults to `edgetam.pt`; `--device`
+controls EdgeTAM inference. Only the Python backend with one sequence worker
+is supported.
+
+By default, `--prompt-min-visibility 1.0` requires a marked person with full
+annotated visibility and a box entirely within the actual image dimensions.
+For each identity, the first qualifying frame supplies one ground-truth box
+prompt. Lower the threshold explicitly to allow some occlusion. No later
+ground-truth annotation corrects the track, removes an object, or prompts the
+same identity again.
+
+The tracker retains object memory after disappearance. Set `max_objects` in
+`--tracker-config` high enough for all prompted identities in a sequence; the
+default is 32 and capacity is checked before model loading. The
+[tracker example](../trackers/edgetam.md#evaluate-first-visible-people) shows
+the configuration format.
+
+Scoring uses the original ground truth across every frame. Waiting for a
+person to qualify and people who never qualify contribute missed detections.
+Ground-truth initialization makes this a different evaluation protocol from
+detector-driven tracking. Outputs include MOT track files, `metrics.json`,
+`eval_manifest.json`, and `prompts.json` with initialization details.
+
+`--show`, `--save`, `--project`, and `--cache-inputs` are supported. This
+workflow does not accept perception experiments or builds, detector/ReID
+selectors, FPS resampling, mask/3D scoring, postprocessing, Kalman calibration,
+or camera-motion policies.
 
 ## Cache replay inputs for repeated runs
 

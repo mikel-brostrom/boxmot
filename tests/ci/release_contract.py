@@ -18,6 +18,7 @@ EXPECTED_TRACKERS = (
     ("bytetrack", "ByteTrack"),
     ("deepocsort", "DeepOcSort"),
     ("eagermot", "EagerMot"),
+    ("edgetam", "EdgeTAM"),
     ("hybridsort", "HybridSort"),
     ("maf_hda", "MafHda"),
     ("occluboost", "OccluBoost"),
@@ -32,6 +33,7 @@ EXPECTED_PUBLIC_API = (
     "AbnormalMotionSuppressionConfig",
     "KalmanNoiseConfig",
     "ReIDConfig",
+    "EdgeTAMModelConfig",
     *(f"{public_name}Config" for _, public_name in EXPECTED_TRACKERS),
     *(public_name for _, public_name in EXPECTED_TRACKERS),
 )
@@ -114,6 +116,10 @@ def check_typing_metadata() -> None:
         for overload in get_overloads(boxmot.ReIDConfig.__init__)
     ), "ReIDConfig.model must retain Literal autocomplete suggestions"
     assert boxmot.ReIDConfig().model == "osnet-x0-25-msmt17", "ReIDConfig must retain its default model"
+    assert is_dataclass(boxmot.EdgeTAMModelConfig), "EdgeTAMModelConfig must be publicly available"
+    assert boxmot.EdgeTAMModelConfig.__dataclass_params__.frozen, "EdgeTAMModelConfig must remain immutable"
+    assert {"checkpoint", "device"} == get_type_hints(boxmot.EdgeTAMModelConfig).keys()
+    assert get_type_hints(boxmot.EdgeTAM.__init__)["prompt_model"] == boxmot.EdgeTAMModelConfig | None
 
 
 def check_tracker_constructor_docs() -> None:
@@ -330,6 +336,9 @@ def check_tracker_api() -> None:
     from boxmot import ByteTrack
 
     for name, tracker_class in check_tracker_imports().items():
+        if name == "edgetam":
+            check_prompt_tracker_tracking(tracker_class)
+            continue
         for geometry in sorted(kind.value for kind in tracker_class.capabilities.geometry_kinds):
             check_tracker_tracking(name, tracker_class, geometry)
 
@@ -343,6 +352,91 @@ def check_tracker_api() -> None:
         assert output.dtype == np.float64 and output.flags.c_contiguous, "ByteTrack: invalid packed layout"
         assert np.isfinite(output).all(), "ByteTrack: non-finite NumPy output"
     np.testing.assert_array_equal(first[:, 4], second[:, 4])
+
+
+def check_prompt_tracker_tracking(tracker_class: type) -> None:
+    """Exercise installed prompt tracking with an injected backend and no model downloads."""
+    import numpy as np
+    import torch
+
+    from boxmot import EdgeTAMModelConfig, create_tracker
+    from boxmot.structures import Boxes, Detections, Frame, Tracks
+
+    class PromptBackend:
+        """Keep deterministic synthetic masks behind the public backend contract."""
+
+        def __init__(self) -> None:
+            self.masks: dict[int, torch.Tensor] = {}
+            self.frame_index = -1
+
+        def process(self, frame_index, frame, prompts=()):
+            assert frame_index == self.frame_index + 1
+            height, width = frame.shape[:2]
+            for prompt in prompts:
+                mask = torch.zeros((height, width), dtype=torch.bool)
+                if prompt.box is not None:
+                    x1, y1, x2, y2 = map(int, prompt.box)
+                    mask[y1:y2, x1:x2] = True
+                for (x, y), label in zip(prompt.points, prompt.labels):
+                    mask[int(y), int(x)] = bool(label)
+                self.masks[prompt.object_id] = mask
+            self.frame_index = frame_index
+            return dict(self.masks)
+
+        def remove_object(self, object_id):
+            self.masks.pop(object_id, None)
+
+        def reset(self):
+            self.masks.clear()
+            self.frame_index = -1
+
+    # An explicit nonexistent checkpoint cannot trigger the default weight download.
+    model = EdgeTAMModelConfig(checkpoint="missing-release-checkpoint.pt", device="cpu")
+    backend = PromptBackend()
+    tracker = tracker_class(prompt_model=model, propagator=backend)
+    height, width = 24, 32
+
+    def update(selected_tracker, frame_index: int, sequence: str = "prompt-release") -> Tracks:
+        sample_id = f"{sequence}/{frame_index}"
+        detections = Detections(
+            geometry=Boxes(torch.empty((0, 4), dtype=torch.float32)),
+            scores=torch.empty(0, dtype=torch.float32),
+            class_ids=torch.empty(0, dtype=torch.int64),
+            sample_id=sample_id,
+        )
+        frame = Frame(
+            image=torch.zeros((3, height, width), dtype=torch.uint8),
+            sample_id=sample_id,
+            sequence_id=sequence,
+            frame_index=frame_index,
+        )
+        output = selected_tracker.update(detections, frame)
+        assert isinstance(output, Tracks), "EdgeTAM: canonical prompts did not return Tracks"
+        assert output.sample_id == sample_id, "EdgeTAM: output belongs to a different frame"
+        assert output.masks is not None and output.masks.values.shape == (len(output), height, width)
+        assert torch.all(output.detection_indices == -1), "EdgeTAM: prompts invented detector associations"
+        assert torch.isfinite(output.geometry.values).all(), "EdgeTAM: non-finite prompt geometry"
+        return output
+
+    factory_tracker = create_tracker("edgetam", prompt_model=model)
+    assert type(factory_tracker) is tracker_class
+    assert len(update(factory_tracker, 0)) == 0, "EdgeTAM: empty selection produced tracks or loaded a model"
+    assert len(update(tracker, 0)) == 0 and backend.frame_index == -1
+    assert tracker.add_box((2, 3, 12, 15), object_id=7, class_id=65) == 7
+    assert tracker.add_points(((20, 10),), object_id=9) == 9
+    first = update(tracker, 1)
+    second = update(tracker, 2)
+    assert first.track_ids.tolist() == second.track_ids.tolist() == [7, 9]
+    assert first.class_ids.tolist() == [65, 0], "EdgeTAM: manual class IDs changed"
+    np.testing.assert_array_equal(first.geometry.values.numpy(), [[2, 3, 12, 15], [20, 10, 21, 11]])
+    assert torch.equal(first.masks.values, second.masks.values), "EdgeTAM: propagated masks changed unexpectedly"
+    tracker.remove_object(7)
+    assert update(tracker, 3).track_ids.tolist() == [9]
+    tracker.reset()
+    assert not tracker.object_ids and not backend.masks and backend.frame_index == -1
+    assert tracker.add_box((1, 1, 5, 5)) == 0, "EdgeTAM: reset did not restart identity allocation"
+    assert update(tracker, 0, "prompt-release-reset").track_ids.tolist() == [0]
+    print("Tracker smoke passed: edgetam/manual-prompts", flush=True)
 
 
 if __name__ == "__main__":

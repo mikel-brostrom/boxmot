@@ -65,6 +65,41 @@ def _apply_track_cli_defaults(ctx: click.Context, payload: dict[str, Any]) -> di
     return resolved
 
 
+def _validate_prompt_options(ctx: click.Context, payload: dict[str, Any]) -> None:
+    """Reject irrelevant controls before opening an interactive tracking session."""
+    if payload.get("tracker") != "edgetam":
+        if _is_option_explicit(ctx, "prompt_weights"):
+            raise click.UsageError("--prompt-weights requires --tracker edgetam.")
+        return
+    if payload.get("tracker_backend") != "python" or payload.get("geometry") not in {"auto", "aabb"}:
+        raise click.UsageError("EdgeTAM prompt tracking requires --tracker-backend python and AABB geometry.")
+    if payload.get("per_class"):
+        raise click.UsageError("EdgeTAM prompt tracking does not support --per-class.")
+    unsupported = _explicit_cli_keys(ctx).intersection(
+        {
+            "detector",
+            "reid",
+            "segmentor",
+            "classes",
+            "conf",
+            "iou",
+            "imgsz",
+            "half",
+            "agnostic_nms",
+            "asso_func",
+            "variable_dt",
+            "save_crop",
+            "show_kf_preds",
+            "edgetam",
+            "mask_guidance_weights",
+            "mask_guidance_max_objects",
+        }
+    )
+    if unsupported:
+        flags = ", ".join("--" + name.replace("_", "-") for name in sorted(unsupported))
+        raise click.UsageError(f"EdgeTAM uses manual box or point prompts and does not use {flags}.")
+
+
 def _track_saved_detections(ctx: click.Context, payload: dict[str, Any]) -> None:
     """Replay saved TrackR-CNN predictions using the shared track command."""
     required = ("detections", "images", "instances")
@@ -100,7 +135,7 @@ def _track_saved_detections(ctx: click.Context, payload: dict[str, Any]) -> None
         resolved["tracker"] = "maf_hda"
     if not _is_option_explicit(ctx, "project"):
         resolved["project"] = Path("runs/trackrcnn")
-    resolved.update(tracker_backend="python", per_class=True, workflow_mode="track")
+    resolved.update(tracker_backend="python", geometry="aabb", per_class=True, workflow_mode="track")
     try:
         from boxmot.engine.eval.trackrcnn import run_trackrcnn
 
@@ -121,7 +156,20 @@ def _track_saved_detections(ctx: click.Context, payload: dict[str, Any]) -> None
 @mask_guidance_weights_option
 @edgetam_option
 @mask_guidance_max_objects_option
-@click.option("--geometry", type=click.Choice(("aabb", "obb")), default="aabb", show_default=True)
+@click.option(
+    "--prompt-weights",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=Path("edgetam.pt"),
+    show_default=True,
+    help="EdgeTAM checkpoint for --tracker edgetam; draw boxes or click points in its video window.",
+)
+@click.option(
+    "--geometry",
+    type=click.Choice(("auto", "aabb", "obb")),
+    default=BOXMOT_DEFAULTS.track.geometry,
+    show_default=True,
+    help="Infer box geometry from the detector; aabb/obb require matching detector output.",
+)
 @click.option("--save-json", is_flag=True, default=False, help="Write canonical JSON Lines track output.")
 @click.option(
     "--detections",
@@ -183,6 +231,10 @@ def track(
     if any(_is_option_explicit(ctx, name) for name in ("images", "instances", "split", "sequence_names")):
         raise click.UsageError("--images, --instances, --split, and --sequence require --detections.")
 
+    _validate_prompt_options(ctx, {**kwargs, "geometry": geometry})
+    if kwargs.get("tracker") == "edgetam":
+        detector = reid = segmentor = None
+        kwargs["show"] = True
     source = kwargs.pop("source")
     _dispatch_cli_workflow(
         ctx,

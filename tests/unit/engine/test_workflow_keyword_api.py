@@ -89,9 +89,7 @@ def test_replay_workflows_accept_minimal_keywords(monkeypatch: pytest.MonkeyPatc
 
 
 @pytest.mark.parametrize("explicit_device", (False, True))
-def test_materialize_keywords_preserve_authored_device(
-    monkeypatch: pytest.MonkeyPatch, explicit_device: bool
-) -> None:
+def test_materialize_keywords_preserve_authored_device(monkeypatch: pytest.MonkeyPatch, explicit_device: bool) -> None:
     """The default CPU policy must not override an experiment's authored device."""
     from boxmot.engine.materialization import workflow
 
@@ -165,9 +163,10 @@ def test_time_variant_keywords_default_optional_roots(monkeypatch: pytest.Monkey
 @pytest.mark.parametrize("prepared_args", (False, True))
 def test_track_preserves_injected_components(monkeypatch: pytest.MonkeyPatch, prepared_args: bool) -> None:
     """Component instances stay injectable with either prepared args or keyword options."""
+    from boxmot.detectors import DetectorCapabilities
     from boxmot.engine.tracking import workflow
 
-    detector = SimpleNamespace(capabilities=SimpleNamespace(provides_masks=False, provides_embeddings=False))
+    detector = SimpleNamespace(capabilities=DetectorCapabilities())
     tracker = SimpleNamespace(requirements=SimpleNamespace(embeddings=False, masks=False), generates_embeddings=False)
     source = object()
     segmentor = object()
@@ -197,7 +196,7 @@ def test_track_accepts_component_names_and_source_options(monkeypatch: pytest.Mo
     from boxmot.engine.tracking import workflow
 
     capture = Mock(side_effect=_StopWorkflow)
-    monkeypatch.setattr(workflow, "_tracker_spec", capture)
+    monkeypatch.setattr(workflow, "_detector_spec", capture)
 
     with pytest.raises(_StopWorkflow):
         workflow.run_track(

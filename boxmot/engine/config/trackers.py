@@ -18,11 +18,16 @@ def edgetam_checkpoint(args: Any) -> str | Path | None:
     return getattr(args, "mask_guidance_weights", None) or Path("edgetam.pt")
 
 
-def validate_image_tracker(tracker_name: str) -> None:
+def validate_image_tracker(tracker_name: str, *, allow_prompted: bool = False) -> None:
     """Reject tracker inputs that current image-only engine workflows cannot supply."""
     from boxmot.trackers.common.registry import get_tracker_definition
 
     capabilities = get_tracker_definition(tracker_name).capabilities
+    if tracker_name == "edgetam" and not allow_prompted:
+        raise ValueError(
+            "EdgeTAM requires manual box or point prompts. Use 'boxmot ui' with the track command "
+            "and tracker edgetam, or the EdgeTAM Python prompt API."
+        )
     if capabilities.requires_detections_3d or capabilities.requires_camera:
         raise ValueError(
             f"Tracker {tracker_name!r} requires 3D detections and a CameraModel. "
@@ -38,6 +43,7 @@ def resolve_tracker_options(
     include_defaults: bool = False,
     stamp_timing: bool = False,
     factory_options: bool = False,
+    allow_prompted: bool = False,
 ) -> dict[str, Any]:
     """Apply configuration and explicit flags, then validate the final time basis.
 
@@ -54,7 +60,7 @@ def resolve_tracker_options(
 
     tracker_name = getattr(args, "tracker", None)
     if tracker_name is not None:
-        validate_image_tracker(str(tracker_name))
+        validate_image_tracker(str(tracker_name), allow_prompted=allow_prompted)
     backend = str(getattr(args, "tracker_backend", "python"))
     sparse_native = factory_options and backend == "cpp"
     reference = getattr(args, "tracker_config", None)

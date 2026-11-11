@@ -19,7 +19,9 @@ from boxmot.trackers.ocsort.tracker import OcSort
 from boxmot.trackers.sfsort.tracker import SFSORT
 
 TRACKER_NAMES = tuple(
-    name for name, definition in TRACKER_DEFINITIONS.items() if not definition.capabilities.requires_detections_3d
+    name
+    for name, definition in TRACKER_DEFINITIONS.items()
+    if not definition.capabilities.requires_detections_3d and name != "edgetam"
 )
 TRACKER_GEOMETRIES = tuple(
     (name, kind.value)
@@ -124,7 +126,9 @@ def _output_after_hits(tracker: Tracker, rows: np.ndarray, *, attempts: int = 6)
     return result
 
 
-@pytest.mark.parametrize(("tracker_name", "geometry"), TRACKER_GEOMETRIES)
+@pytest.mark.parametrize(
+    ("tracker_name", "geometry"), [(name, geometry) for name, geometry in TRACKER_GEOMETRIES if name != "edgetam"]
+)
 def test_trackers_emit_structured_rows_for_supported_geometry_modes(tracker_name: str, geometry: str) -> None:
     tracker = create_tracker(TrackerSpec(tracker_name, geometry=geometry, options=(("min_hits", 1),)))
     rows = _obb_rows() if geometry == "obb" else _aabb_rows()

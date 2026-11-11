@@ -132,8 +132,18 @@ def test_track_flag_controls_guidance_independently_of_checkpoint(monkeypatch, t
     monkeypatch.setattr(workflow, "main", received.append)
     result = CliRunner().invoke(
         boxmot,
-        ["track", "--source", "0", "--tracker", "bytetrack", "--device", "cpu",
-         "--mask-guidance-weights", str(checkpoint), *flags],
+        [
+            "track",
+            "--source",
+            "0",
+            "--tracker",
+            "bytetrack",
+            "--device",
+            "cpu",
+            "--mask-guidance-weights",
+            str(checkpoint),
+            *flags,
+        ],
     )
 
     assert result.exit_code == 0, (result.output, result.exception)
@@ -162,7 +172,7 @@ def test_disabled_guidance_skips_checkpoint_resolution_and_component_creation(mo
     monkeypatch.setattr(workflow, "create_tracker", create_tracker)
     args = _args(tmp_path, tracker=tracker_name, edgetam=False, mask_guidance_weights=tmp_path / "missing.pt")
     with pytest.raises(CreatedTracker):
-        workflow.run_track(args, detector=object())
+        workflow.run_track(args, detector=SimpleNamespace(capabilities=DetectorCapabilities()))
 
 
 def test_edgetam_flag_uses_standard_checkpoint_when_no_weights_are_selected(monkeypatch, tmp_path):
@@ -223,7 +233,7 @@ def test_workflow_configures_guidance_independently_of_source(
 
     monkeypatch.setattr(workflow, "create_tracker", create_tracker)
     with pytest.raises(CreatedTracker):
-        workflow.run_track(args, detector=object())
+        workflow.run_track(args, detector=SimpleNamespace(capabilities=DetectorCapabilities()))
 
     spec, config = received[0]
     assert spec.name == tracker_name
@@ -247,7 +257,7 @@ def test_workflow_resolves_guidance_checkpoint_before_creating_tracker(monkeypat
         return resolved
 
     class CreatedTracker(Exception):
-        """Stop before loading a detector or opening a webcam."""
+        """Stop after the injected detector selects geometry, before opening a webcam."""
 
     def create_tracker(spec, *, mask_guidance):
         assert spec.name == "bytetrack"
@@ -262,7 +272,7 @@ def test_workflow_resolves_guidance_checkpoint_before_creating_tracker(monkeypat
     args.mask_guidance_weights = Path("edgetam.pt")
 
     with pytest.raises(CreatedTracker):
-        workflow.run_track(args, detector=object())
+        workflow.run_track(args, detector=SimpleNamespace(capabilities=DetectorCapabilities()))
 
     assert requests == [Path("edgetam.pt")]
 
@@ -279,15 +289,12 @@ def test_workflow_uses_mask_settings_from_tracker_profile(
 ) -> None:
     """Saved tuning profiles control the effective guidance config before model loading."""
     profile = tmp_path / "best.yaml"
-    profile.write_text(
-        "edgetam:\n"
-        "  min_coverage: 0.75\n"
-        "  min_fill: 0.12\n"
-        "  prompt_overlap: 0.25\n"
-        "  max_objects: 8\n"
-    )
+    profile.write_text("edgetam:\n  min_coverage: 0.75\n  min_fill: 0.12\n  prompt_overlap: 0.25\n  max_objects: 8\n")
     args = _args(
-        tmp_path, tracker=tracker_name, tracker_config=str(profile), asso_func="iou",
+        tmp_path,
+        tracker=tracker_name,
+        tracker_config=str(profile),
+        asso_func="iou",
         mask_guidance_max_objects=cap_override,
     )
     spec = workflow._tracker_spec(args, "aabb")
@@ -371,8 +378,12 @@ def test_workflow_shares_matching_edgetam_weights_with_independent_states(monkey
 
     args = _args(tmp_path, segmentor="edgetam.yaml")
     config = MaskGuidanceConfig(
-        args.mask_guidance_weights, device="cpu", max_objects=4,
-        min_coverage=0.75, min_fill=0.12, prompt_overlap=0.25,
+        args.mask_guidance_weights,
+        device="cpu",
+        max_objects=4,
+        min_coverage=0.75,
+        min_fill=0.12,
+        prompt_overlap=0.25,
     )
     spec = SegmentorSpec(
         backend="edgetam",

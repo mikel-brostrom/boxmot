@@ -45,7 +45,7 @@ def test_removed_reid_constructor_options_are_rejected(tracker_name: str, option
         tracker(**{option: None})
 
 
-@pytest.mark.parametrize("tracker_name", ["bytetrack", "ocsort", "sfsort", "eagermot", "maf_hda"])
+@pytest.mark.parametrize("tracker_name", ["bytetrack", "ocsort", "sfsort", "eagermot", "maf_hda", "edgetam"])
 @pytest.mark.parametrize("reid", [None, ReIDConfig()])
 def test_non_appearance_trackers_reject_explicit_reid_configuration(tracker_name: str, reid) -> None:
     tracker = getattr(boxmot, _TRACKER_MANIFEST[tracker_name].class_path.rsplit(".", 1)[1])

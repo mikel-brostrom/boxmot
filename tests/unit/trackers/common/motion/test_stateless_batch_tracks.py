@@ -12,7 +12,7 @@ from boxmot.trackers.common.motion.kalman_filters.xyah import KalmanFilterXYAH
 from boxmot.trackers.common.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.trackers.common.tracking.track import TrackIdAllocator
 from boxmot.trackers.strongsort.track import Track as StrongTrack
-from boxmot.trackers.strongsort.tracker import _Detection
+from boxmot.trackers.strongsort.track import _Detection
 
 
 @pytest.mark.parametrize("is_obb", [False, True])

@@ -26,40 +26,70 @@ COMMAND_LABELS = {
 # to the selected command. Unlisted advanced options remain available in its CLI.
 _FORM_GROUPS = {
     "track": (
-        ("Input", ("source",)),
-        ("Models", ("detector", "reid", "tracker", "tracker_backend", "geometry", "segmentor")),
-        ("Inference", ("device", "imgsz", "conf", "classes", "half")),
+        ("Setup", ("source", "device", "imgsz", "half")),
+        ("Perception", ("detector", "reid", "segmentor", "conf", "classes")),
+        ("Tracking", ("tracker", "tracker_backend", "prompt_weights")),
         ("Output", ("show", "save", "save_txt", "project", "name")),
     ),
     "materialize": (
-        ("Input", ("experiment", "data_root", "build_root")),
-        ("Inference", ("device", "fps", "plan_path", "plan_overrides")),
+        ("Setup", ("experiment", "data_root", "build_root", "device")),
+        ("Perception", ("fps", "plan_path", "plan_overrides")),
         ("Output", ("publish_image_refs", "publish_embeddings", "publish_masks", "resume")),
     ),
     "eval": (
-        ("Input", ("experiment", "dataset", "detector", "reid", "split", "build_ref", "sequence_names")),
-        ("Tracker", ("tracker", "tracker_backend", "tracker_config", "postprocessing")),
-        ("Execution", ("device", "sequence_workers", "fps", "data_root", "build_root")),
+        (
+            "Setup",
+            (
+                "experiment",
+                "dataset",
+                "split",
+                "build_ref",
+                "sequence_names",
+                "device",
+                "sequence_workers",
+                "fps",
+                "data_root",
+                "build_root",
+            ),
+        ),
+        ("Perception", ("detector", "reid")),
+        ("Tracking", ("tracker", "tracker_backend", "tracker_config", "postprocessing")),
         ("Output", ("show", "save", "show_timing", "project", "name")),
     ),
     "tune": (
-        ("Input", ("experiment", "dataset", "detector", "reid", "split", "build_ref", "sequence_names")),
-        ("Tracker", ("tracker", "tracker_backend", "tracker_config")),
-        ("Search", ("n_trials", "search_alg", "objectives", "maximize", "minimize", "seed")),
-        ("Execution", ("device", "sequence_workers", "max_concurrent_trials", "resume_tune", "project")),
+        ("Setup", ("experiment", "dataset", "split", "build_ref", "sequence_names", "device", "sequence_workers")),
+        ("Perception", ("detector", "reid")),
+        ("Tracking", ("tracker", "tracker_backend", "tracker_config")),
+        (
+            "Search",
+            (
+                "n_trials",
+                "search_alg",
+                "objectives",
+                "maximize",
+                "minimize",
+                "seed",
+                "max_concurrent_trials",
+                "resume_tune",
+            ),
+        ),
+        ("Output", ("project",)),
     ),
     "export": (
-        ("Model", ("weights", "include")),
-        ("Export", ("device", "imgsz", "batch_size", "half", "dynamic", "simplify", "opset")),
+        ("Setup", ("device", "imgsz", "batch_size", "half")),
+        ("Model", ("weights",)),
+        ("Export", ("include", "dynamic", "simplify", "opset")),
     ),
     "train-reid": (
-        ("Input", ("model", "recipe", "dataset", "data_dir", "cfg", "resume")),
-        ("Training", ("device", "epochs", "batch_size", "imgsz", "lr")),
+        ("Setup", ("dataset", "data_dir", "cfg", "device", "batch_size", "imgsz")),
+        ("Model", ("model", "recipe")),
+        ("Training", ("resume", "epochs", "lr")),
         ("Output", ("project", "name")),
     ),
     "eval-reid": (
-        ("Input", ("weights", "model", "dataset", "data_dir")),
-        ("Evaluation", ("device", "batch_size", "imgsz", "flip_tta")),
+        ("Setup", ("dataset", "data_dir", "device", "batch_size", "imgsz")),
+        ("Model", ("weights", "model")),
+        ("Evaluation", ("flip_tta",)),
         ("Output", ("output",)),
     ),
 }
@@ -89,6 +119,8 @@ class FormField:
     @property
     def label(self) -> str:
         """Use the public option name as an unambiguous field label."""
+        if self.name == "reid":
+            return "ReID"
         return self.option.opts[0].removeprefix("--").replace("-", " ").capitalize()
 
 
@@ -96,15 +128,18 @@ def _profile_choices(directory: str) -> list[Choice]:
     """List installed YAML profile references without loading model code."""
     root = CONFIG_ROOT / directory
     return [
-        Choice(path.relative_to(root).with_suffix("").as_posix(), "Profile")
-        for path in sorted(root.rglob("*.yaml"))
+        Choice(path.relative_to(root).with_suffix("").as_posix(), "Profile") for path in sorted(root.rglob("*.yaml"))
     ]
 
 
 def field_choices(command: str, option: click.Option) -> list[Choice]:
     """Return local, dependency-light suggestions for a public option."""
     if isinstance(option.type, click.Choice):
-        return [Choice(str(value)) for value in option.type.choices]
+        return [
+            Choice(str(value))
+            for value in option.type.choices
+            if not (option.name == "tracker" and command in {"eval", "tune"} and value == "edgetam")
+        ]
     name = option.name
     if name == "experiment":
         root = CONFIG_ROOT / "experiments"
@@ -207,12 +242,35 @@ class LauncherModel:
         hidden = {"dataset", "detector", "reid"} if self.values.get("experiment") else set()
         if self.name in {"eval", "tune"} and self.values.get("build_ref"):
             hidden.add("device")
+        if self.name == "track":
+            if self.value("tracker") == "edgetam":
+                hidden.update(
+                    {
+                        "detector",
+                        "reid",
+                        "segmentor",
+                        "tracker_backend",
+                        "geometry",
+                        "imgsz",
+                        "conf",
+                        "classes",
+                        "half",
+                        "show",
+                    }
+                )
+            else:
+                hidden.add("prompt_weights")
         return [
             FormField(group, self.options[name])
             for group, names in _FORM_GROUPS[self.name]
             for name in names
             if name in self.options and name not in hidden
         ]
+
+    @property
+    def stages(self) -> list[str]:
+        """Return visible workflow stages, including Setup for command selection."""
+        return list(dict.fromkeys(("Setup", *(field.group for field in self.fields))))
 
     def default(self, name: str) -> Any:
         """Read the selected command's default, preserving its type."""
@@ -245,6 +303,23 @@ class LauncherModel:
                 self.values.pop(selector, None)
         if name == "build_ref" and value and self.name in {"eval", "tune"}:
             self.values.pop("device", None)
+        if self.name == "track" and name == "tracker":
+            if value == "edgetam":
+                for selector in (
+                    "detector",
+                    "reid",
+                    "segmentor",
+                    "tracker_backend",
+                    "geometry",
+                    "imgsz",
+                    "conf",
+                    "classes",
+                    "half",
+                    "show",
+                ):
+                    self.values.pop(selector, None)
+            else:
+                self.values.pop("prompt_weights", None)
 
     def argv(self) -> list[str]:
         """Serialize explicit values as arguments, never as a shell command."""
@@ -289,6 +364,10 @@ class LauncherModel:
             # make_context runs the CLI's pure option parsing callbacks only;
             # workflow execution stays in the outer ui command after Run.
             values = context.params
+            if self.name == "track":
+                from boxmot.engine.commands.track import _validate_prompt_options
+
+                _validate_prompt_options(context, values)
             if self.name == "materialize" and not values.get("experiment"):
                 raise click.UsageError("Choose an experiment to build a perception dataset.")
             if self.name in {"eval", "tune"} and not values.get("experiment") and not values.get("dataset"):

@@ -150,6 +150,8 @@ nav:
           - OccluBoost: trackers/occluboost.md
       - Mask-aware:
           - MafHda: trackers/maf_hda.md
+      - Prompted:
+          - EdgeTAM: trackers/edgetam.md
       - Sensor fusion:
           - EagerMot: trackers/eagermot.md
   - Datasets:

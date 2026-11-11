@@ -41,8 +41,28 @@ def test_normalization_does_not_probe_hardware(
 
 @pytest.mark.parametrize(
     "value",
-    ["", " ", "auto", "none", None, 0, -1, True, "-1", "cuda:-1", "cuda:", "cuda:1.0",
-     "0,1", "cuda:0,1", [0, 1], (0, 1), "[0]", "cudanone:0", "cuda: 0", "xpu:0"],
+    [
+        "",
+        " ",
+        "auto",
+        "none",
+        None,
+        0,
+        -1,
+        True,
+        "-1",
+        "cuda:-1",
+        "cuda:",
+        "cuda:1.0",
+        "0,1",
+        "cuda:0,1",
+        [0, 1],
+        (0, 1),
+        "[0]",
+        "cudanone:0",
+        "cuda: 0",
+        "xpu:0",
+    ],
 )
 def test_invalid_or_multiple_devices_are_rejected(value: object) -> None:
     with pytest.raises(ValueError, match="expected a single device"):
@@ -50,9 +70,7 @@ def test_invalid_or_multiple_devices_are_rejected(value: object) -> None:
 
 
 @pytest.mark.parametrize("mask", [None, "2,4", "GPU-existing-mask", "-1"])
-def test_selection_preserves_visibility_and_current_device(
-    monkeypatch: pytest.MonkeyPatch, mask: str | None
-) -> None:
+def test_selection_preserves_visibility_and_current_device(monkeypatch: pytest.MonkeyPatch, mask: str | None) -> None:
     if mask is None:
         monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
     else:

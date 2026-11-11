@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from importlib.util import find_spec
 from pathlib import Path
 from types import SimpleNamespace
@@ -108,6 +109,65 @@ def _validate_mask_guidance_evaluation(payload: Mapping[str, Any]) -> None:
             )
     except (TypeError, ValueError, OSError) as exc:
         raise click.UsageError(str(exc)) from exc
+
+
+def _prepare_prompted_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Route explicit GT prompts before resolving detector builds or saved predictions."""
+    explicit = _explicit_cli_keys(ctx)
+    prompt_options = {"prompt_source", "prompt_min_visibility", "prompt_weights"}
+    if payload.get("tracker") != "edgetam":
+        selected = explicit & prompt_options
+        if selected:
+            names = ", ".join("--" + name.replace("_", "-") for name in sorted(selected))
+            raise click.UsageError(f"{names} requires --tracker edgetam.")
+        return None
+    if payload.get("prompt_source") != "first-visible":
+        raise click.UsageError("EdgeTAM evaluation requires --prompt-source first-visible.")
+    if not math.isfinite(payload["prompt_min_visibility"]):
+        raise click.UsageError("EdgeTAM --prompt-min-visibility must be finite and between 0 and 1.")
+    if not payload.get("dataset") or payload.get("experiment"):
+        raise click.UsageError("EdgeTAM prompted evaluation requires --dataset, without --experiment.")
+    if payload.get("tracker_backend") != "python":
+        raise click.UsageError("EdgeTAM prompted evaluation requires --tracker-backend python.")
+    if payload.get("per_class"):
+        raise click.UsageError("EdgeTAM prompted evaluation does not support --per-class.")
+    if "sequence_workers" in explicit and payload.get("sequence_workers") != 1:
+        raise click.UsageError("EdgeTAM prompted evaluation requires --sequence-workers 1.")
+    allowed = {
+        "dataset",
+        "split",
+        "data_root",
+        "sequence_names",
+        "tracker",
+        "tracker_backend",
+        "tracker_config",
+        "device",
+        "project",
+        "show",
+        "save",
+        "show_timing",
+        "verbose",
+        "cache_inputs",
+        "sequence_workers",
+        *prompt_options,
+    }
+    unsupported = explicit - allowed
+    if unsupported:
+        names = ", ".join(
+            option.opts[0]
+            for option in ctx.command.params
+            if isinstance(option, click.Option) and option.name in unsupported
+        )
+        raise click.UsageError(f"EdgeTAM prompted evaluation does not support {names}.")
+    prepared = {name: value for name, value in payload.items() if name in allowed}
+    prepared.update(sequence_workers=1, per_class=False)
+    from boxmot.engine.config.trackers import resolve_tracker_options
+
+    try:
+        resolve_tracker_options(SimpleNamespace(**prepared), include_defaults=True, allow_prompted=True)
+    except (TypeError, ValueError, OSError) as exc:
+        raise click.UsageError(str(exc)) from exc
+    return prepared
 
 
 def _prepare_saved_2d_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -321,14 +381,36 @@ def _prepare_sensor_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -
     }
 
 
-@click.command(name="eval", help="Evaluate tracking performance from a perception build or saved dataset predictions.")
+@click.command(
+    name="eval", help="Evaluate tracking from perception builds, saved predictions, or ground-truth prompts."
+)
 @replay_build_options(
     dataset_default=BOXMOT_DEFAULTS.eval.dataset,
-    device_help="One device for uncached perception and EdgeTAM mask guidance: cpu, mps, cuda:N, or N (e.g. 0).",
+    device_help="One device for uncached perception or EdgeTAM propagation: cpu, mps, cuda:N, or N (e.g. 0).",
 )
 @data_root_option
 @split_option
 @dataset_fps_option
+@click.option(
+    "--prompt-source",
+    type=click.Choice(["first-visible"]),
+    default=None,
+    help="EdgeTAM: initialize each GT pedestrian once, at its first fully in-frame eligible box.",
+)
+@click.option(
+    "--prompt-min-visibility",
+    type=click.FloatRange(min=0.0, max=1.0),
+    default=1.0,
+    show_default=True,
+    help="EdgeTAM: minimum MOT ground-truth visibility for first-visible initialization.",
+)
+@click.option(
+    "--prompt-weights",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=Path("edgetam.pt"),
+    show_default=True,
+    help="EdgeTAM checkpoint; the default downloads on the first prompted frame if missing.",
+)
 @eval_masks_option
 @click.option(
     "--postprocessing",
@@ -419,6 +501,9 @@ def eval(
     data_root: Path | None,
     split: str | None,
     sequence_names: tuple[str, ...],
+    prompt_source: str | None,
+    prompt_min_visibility: float,
+    prompt_weights: Path,
     allow_noncanonical_build: bool,
     compare_trackeval: bool,
     eval_masks: bool,
@@ -428,6 +513,35 @@ def eval(
     """Evaluate a tracker, materializing the selected configuration when needed."""
 
     _require_replay_input(experiment, dataset, "eval")
+    dataset_payload = {
+        **kwargs,
+        "experiment": experiment,
+        "dataset": dataset,
+        "detector": detector,
+        "reid": reid,
+        "build_ref": build_ref,
+        "build_root": build_root,
+        "device": device,
+        "data_root": data_root,
+        "split": split,
+        "sequence_names": sequence_names,
+        "allow_noncanonical_build": allow_noncanonical_build,
+        "compare_trackeval": compare_trackeval,
+        "eval_masks": eval_masks,
+        "calibrate_kf": calibrate_kf,
+    }
+    prompted_payload = _prepare_prompted_evaluation(
+        ctx,
+        {
+            **dataset_payload,
+            "prompt_source": prompt_source,
+            "prompt_min_visibility": prompt_min_visibility,
+            "prompt_weights": prompt_weights,
+        },
+    )
+    if prompted_payload is not None:
+        _dispatch_cli_workflow(ctx, "eval", "boxmot.engine.eval.prompted", prompted_payload)
+        return
     if kwargs.get("cmc_policy") is not None:
         from boxmot.engine.config.cmc import SequenceCMCPolicy, load_cmc_policy, validate_cmc_analysis
         from boxmot.trackers.common.specs import parse_tracker_spec
@@ -460,26 +574,11 @@ def eval(
         raise click.UsageError("Choose either --eval-3d or --eval-masks.")
     if kwargs["show_3d"] and not (kwargs["show"] or kwargs["save"]):
         raise click.UsageError("--show-3d requires --show or --save.")
+
     if edgetam_checkpoint(SimpleNamespace(**kwargs)) is not None and "sequence_workers" not in _explicit_cli_keys(ctx):
         kwargs["sequence_workers"] = 1
 
-    dataset_payload = {
-        **kwargs,
-        "experiment": experiment,
-        "dataset": dataset,
-        "detector": detector,
-        "reid": reid,
-        "build_ref": build_ref,
-        "build_root": build_root,
-        "device": device,
-        "data_root": data_root,
-        "split": split,
-        "sequence_names": sequence_names,
-        "allow_noncanonical_build": allow_noncanonical_build,
-        "compare_trackeval": compare_trackeval,
-        "eval_masks": eval_masks,
-        "calibrate_kf": calibrate_kf,
-    }
+    dataset_payload.update(kwargs)
     _validate_mask_guidance_evaluation(dataset_payload)
     saved_2d_payload = _prepare_saved_2d_evaluation(ctx, dataset_payload)
     if saved_2d_payload is not None:

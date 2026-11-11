@@ -5,6 +5,7 @@ from boxmot import (
     ByteTrack,
     DeepOcSort,
     EagerMot,
+    EdgeTAM,
     HybridSort,
     MafHda,
     OccluBoost,
@@ -24,8 +25,8 @@ MOTION_ONLY_TRACKING_NAMES = ["ocsort", "bytetrack", "sfsort"]
 
 MOTION_N_APPEARANCE_TRACKING_METHODS = [StrongSort, BotSort, DeepOcSort, BoostTrack, OccluBoost, HybridSort]
 MOTION_ONLY_TRACKING_METHODS = [OcSort, ByteTrack, SFSORT]
-MULTIMODAL_TRACKING_NAMES = ["maf_hda", "eagermot"]
-MULTIMODAL_TRACKING_METHODS = [MafHda, EagerMot]
+MULTIMODAL_TRACKING_NAMES = ["maf_hda", "eagermot", "edgetam"]
+MULTIMODAL_TRACKING_METHODS = [MafHda, EagerMot, EdgeTAM]
 
 ALL_TRACKERS = [
     *MULTIMODAL_TRACKING_NAMES,
@@ -40,7 +41,8 @@ ALL_TRACKERS = [
     "hybridsort",
 ]
 PER_CLASS_TRACKERS = [
-    *MULTIMODAL_TRACKING_NAMES,
+    "maf_hda",
+    "eagermot",
     "botsort",
     "deepocsort",
     "ocsort",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import OrderedDict, defaultdict
 from collections.abc import Iterator
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -29,10 +30,11 @@ class IndexedEmbeddingReader:
 
     The index validates selected keys and metadata before any values are read.
     Physical sample and instance order is irrelevant. Values from even a large
-    existing row group are decoded in bounded batches, with at most one active
-    Parquet batch iterator. The cache budget covers decoded embedding arrays;
-    Arrow's compressed pages and the current frame allocation are additional.
-    A single embedding wider than the budget necessarily occupies one batch.
+    existing row group are decoded in bounded batches, with at most one open
+    Parquet file and active batch iterator. The cache budget covers decoded
+    embedding arrays; Arrow's compressed pages and the current frame allocation
+    are additional. A single embedding wider than the budget necessarily
+    occupies one batch.
     """
 
     def __init__(
@@ -46,35 +48,28 @@ class IndexedEmbeddingReader:
         if isinstance(cache_bytes, bool) or not isinstance(cache_bytes, int) or cache_bytes <= 0:
             raise ValueError("cache_bytes must be a positive integer.")
         self._cache_limit = cache_bytes
-        self._files: list[Any] = []
+        self._paths: tuple[Path, ...] = ()
         self._locations: dict[_InstanceKey, tuple[_BatchKey, int]] = {}
         self._remaining: dict[_BatchKey, int] = defaultdict(int)
         self._cache: OrderedDict[_BatchKey, np.ndarray] = OrderedDict()
         self._cache_bytes = 0
         self._active_group: tuple[int, int] | None = None
+        self._active_file: Any | None = None
         self._active_batches: Iterator[Any] | None = None
         self._next_batch_index = 0
         self._closed = False
         try:
             artifact = dataset.manifest.artifact(EMBEDDINGS_ARTIFACT)
-            paths = artifact_files(resolve_artifact_path(dataset.build, artifact.path))
-            for path in paths:
-                self._files.append(pq.ParquetFile(path, pre_buffer=False))
+            self._paths = artifact_files(resolve_artifact_path(dataset.build, artifact.path))
             try:
-                self.dimension = int(self._files[0].schema_arrow.field("values").type.list_size)
+                with pq.ParquetFile(self._paths[0], pre_buffer=False) as parquet:
+                    self.dimension = int(parquet.schema_arrow.field("values").type.list_size)
             except (KeyError, AttributeError, TypeError, ValueError) as exc:
                 raise ValueError("Embedding values must use a fixed-size float32 list type.") from exc
             declared_dim = artifact.metadata.get("dim")
             if declared_dim is not None and int(declared_dim) != self.dimension:
                 raise DatasetValidationError("Embedding row dimensions differ from manifest metadata.")
-            expected_schema = embeddings_schema(self.dimension)
             self._batch_rows = max(1, min(_PAYLOAD_BATCH_ROWS, cache_bytes // (self.dimension * 4)))
-            for parquet in self._files:
-                if not parquet.schema_arrow.equals(expected_schema, check_metadata=False):
-                    raise ValueError(
-                        f"Parquet schema mismatch for 'embeddings': expected {expected_schema}, "
-                        f"got {parquet.schema_arrow}. Legacy or positional caches are not supported."
-                    )
             self._index(dataset, metadata=artifact.metadata)
         except BaseException:
             self.close()
@@ -82,6 +77,8 @@ class IndexedEmbeddingReader:
 
     def _index(self, dataset: CachedVisionDataset, *, metadata: Any) -> None:
         """Index physical offsets using bounded projections of small key columns."""
+
+        import pyarrow.parquet as pq
 
         expected_keys = {
             (sample_id, row["instance_id"]) for sample_id, rows in dataset._instances_by_sample.items() for row in rows
@@ -91,49 +88,60 @@ class IndexedEmbeddingReader:
         declared_encoder = metadata.get("encoder_fingerprint")
         encoders = set() if declared_encoder is None else {str(declared_encoder)}
         dimensions: set[int] = set()
-        for file_index, parquet in enumerate(self._files):
-            groups = [
-                group
-                for group in range(parquet.num_row_groups)
-                if row_group_may_contain_key(parquet, group, column_name="sample_id", keys=sorted_ids)
-                and parquet.metadata.row_group(group).num_rows
-            ]
-            if not groups:
-                continue
-            group_sizes = [parquet.metadata.row_group(group).num_rows for group in groups]
-            group_index = 0
-            group_offset = 0
-            for batch in parquet.iter_batches(
-                batch_size=_KEY_BATCH_ROWS,
-                row_groups=groups,
-                columns=["sample_id", "instance_id", "encoder_fingerprint", "dim"],
-                use_threads=False,
-            ):
-                rows = zip(
-                    batch.column("sample_id").to_pylist(),
-                    batch.column("instance_id").to_pylist(),
-                    batch.column("encoder_fingerprint").to_pylist(),
-                    batch.column("dim").to_pylist(),
-                    strict=True,
-                )
-                for sample_id, instance_id, encoder, dimension in rows:
-                    group = groups[group_index]
-                    if sample_id in sample_ids:
-                        key = (sample_id, instance_id)
-                        if key not in expected_keys:
-                            raise DatasetValidationError("Embedding artifacts contain a foreign sample/instance key.")
-                        if key in self._locations:
-                            raise DatasetValidationError("Embedding artifacts contain duplicate sample/instance keys.")
-                        batch_index, batch_offset = divmod(group_offset, self._batch_rows)
-                        batch_key = (file_index, group, batch_index)
-                        self._locations[key] = (batch_key, batch_offset)
-                        self._remaining[batch_key] += 1
-                        encoders.add(str(encoder))
-                        dimensions.add(int(dimension))
-                    group_offset += 1
-                    if group_offset == group_sizes[group_index]:
-                        group_index += 1
-                        group_offset = 0
+        expected_schema = embeddings_schema(self.dimension)
+        for file_index, path in enumerate(self._paths):
+            with pq.ParquetFile(path, pre_buffer=False) as parquet:
+                if not parquet.schema_arrow.equals(expected_schema, check_metadata=False):
+                    raise ValueError(
+                        f"Parquet schema mismatch for 'embeddings': expected {expected_schema}, "
+                        f"got {parquet.schema_arrow}. Legacy or positional caches are not supported."
+                    )
+                groups = [
+                    group
+                    for group in range(parquet.num_row_groups)
+                    if row_group_may_contain_key(parquet, group, column_name="sample_id", keys=sorted_ids)
+                    and parquet.metadata.row_group(group).num_rows
+                ]
+                if not groups:
+                    continue
+                group_sizes = [parquet.metadata.row_group(group).num_rows for group in groups]
+                group_index = 0
+                group_offset = 0
+                for batch in parquet.iter_batches(
+                    batch_size=_KEY_BATCH_ROWS,
+                    row_groups=groups,
+                    columns=["sample_id", "instance_id", "encoder_fingerprint", "dim"],
+                    use_threads=False,
+                ):
+                    rows = zip(
+                        batch.column("sample_id").to_pylist(),
+                        batch.column("instance_id").to_pylist(),
+                        batch.column("encoder_fingerprint").to_pylist(),
+                        batch.column("dim").to_pylist(),
+                        strict=True,
+                    )
+                    for sample_id, instance_id, encoder, dimension in rows:
+                        group = groups[group_index]
+                        if sample_id in sample_ids:
+                            key = (sample_id, instance_id)
+                            if key not in expected_keys:
+                                raise DatasetValidationError(
+                                    "Embedding artifacts contain a foreign sample/instance key."
+                                )
+                            if key in self._locations:
+                                raise DatasetValidationError(
+                                    "Embedding artifacts contain duplicate sample/instance keys."
+                                )
+                            batch_index, batch_offset = divmod(group_offset, self._batch_rows)
+                            batch_key = (file_index, group, batch_index)
+                            self._locations[key] = (batch_key, batch_offset)
+                            self._remaining[batch_key] += 1
+                            encoders.add(str(encoder))
+                            dimensions.add(int(dimension))
+                        group_offset += 1
+                        if group_offset == group_sizes[group_index]:
+                            group_index += 1
+                            group_offset = 0
         if self._locations.keys() != expected_keys:
             raise DatasetValidationError("Embedding keys must match selected instance keys exactly once.")
         if len(encoders) != 1:
@@ -142,18 +150,25 @@ class IndexedEmbeddingReader:
             raise DatasetValidationError("Embedding row dimensions differ from manifest metadata.")
 
     def _close_batches(self) -> None:
-        """Release the active Arrow decoder before switching groups or closing."""
+        """Release the active Arrow decoder and file before switching groups."""
 
-        if self._active_batches is not None:
-            close = getattr(self._active_batches, "close", None)
-            if callable(close):
-                close()
-        self._active_batches = None
-        self._active_group = None
-        self._next_batch_index = 0
+        try:
+            if self._active_batches is not None:
+                close = getattr(self._active_batches, "close", None)
+                if callable(close):
+                    close()
+        finally:
+            if self._active_file is not None:
+                self._active_file.close()
+            self._active_file = None
+            self._active_batches = None
+            self._active_group = None
+            self._next_batch_index = 0
 
     def _values(self, key: _BatchKey) -> np.ndarray:
         """Get one bounded values batch, restarting decoding only for a backwards miss."""
+
+        import pyarrow.parquet as pq
 
         cached = self._cache.get(key)
         if cached is not None:
@@ -163,9 +178,10 @@ class IndexedEmbeddingReader:
         group = (file_index, group_index)
         if group != self._active_group or batch_index < self._next_batch_index:
             self._close_batches()
+            self._active_file = pq.ParquetFile(self._paths[file_index], pre_buffer=False)
             self._active_group = group
             self._active_batches = iter(
-                self._files[file_index].iter_batches(
+                self._active_file.iter_batches(
                     batch_size=self._batch_rows,
                     row_groups=[group_index],
                     columns=["values"],
@@ -235,9 +251,7 @@ class IndexedEmbeddingReader:
         self._close_batches()
         self._cache.clear()
         self._cache_bytes = 0
-        for parquet in self._files:
-            parquet.close()
-        self._files.clear()
+        self._paths = ()
 
     def __enter__(self) -> IndexedEmbeddingReader:
         return self

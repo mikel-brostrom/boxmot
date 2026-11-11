@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -108,6 +109,71 @@ def test_rich_progress_renders_resume_stage_eta_and_atomic_finalize(monkeypatch,
     reporter.build_completed(plan.output_root)
     assert reporter.workflow.steps == [("Set up", "done"), (MATERIALIZE, "done")]
     assert reporter.workflow.detail_title == "Build complete"
+    reporter.stop()
+
+
+@pytest.mark.parametrize(
+    "requested_batch,effective_batch,total,eta",
+    [(1, 16, 2, "0.0s"), (16, 1, 32, "2m 30s")],
+)
+def test_rich_progress_uses_effective_stage_batch_for_counts_and_eta(
+    monkeypatch, tmp_path, requested_batch: int, effective_batch: int, total: int, eta: str
+) -> None:
+    reporter = _reporter(monkeypatch, tmp_path, clock=FixedClock(10.0, 15.0, 20.0))
+    plan, detect, finalize = _plan(tmp_path)
+    requested_stage = replace(detect, batch_size=requested_batch)
+    plan = replace(plan, stages=(requested_stage, finalize), metadata={**plan.metadata, "source_count": 32})
+    effective_stage = replace(detect, batch_size=effective_batch)
+    reporter.build_started(plan)
+    progress = reporter.stage_progress
+    assert progress is not None
+    assert progress.tasks[0].total == 32 // requested_batch
+
+    reporter.stage_started(plan, effective_stage, completed_shards=1)
+
+    task = progress.tasks[0]
+    assert task.total == total and task.completed == 1
+    assert f"1/{total} shards • {total - 1} pending • batch {effective_batch}" in task.fields["summary"]
+    reporter.shard_completed("detect", "00001", completed_shards=2, items=effective_batch)
+    assert f"2/{total} shards" in task.fields["summary"]
+    assert f"ETA {eta}" in task.fields["summary"]
+    assert task.percentage == pytest.approx(200 / total)
+    reporter.stage_completed(effective_stage, StageOutcome(), completed_shards=total)
+    assert task.completed == task.total == total
+    reporter.stop()
+
+
+@pytest.mark.parametrize("batch_size", [1, 64])
+def test_rich_progress_counts_saved_embedding_images(monkeypatch, tmp_path, batch_size: int) -> None:
+    """Embedding progress and resume ETA count images independently of crop batches."""
+
+    reporter = _reporter(monkeypatch, tmp_path, clock=FixedClock(10.0, 15.0, 20.0))
+    plan, detect, finalize = _plan(tmp_path)
+    embed = StagePlan.create("embed", depends_on=("detect",), batch_size=batch_size)
+    finalize = replace(finalize, depends_on=("embed",))
+    plan = replace(plan, stages=(detect, embed, finalize))
+
+    reporter.build_started(plan)
+    progress = reporter.stage_progress
+    assert progress is not None
+    task = progress.tasks[1]
+    assert task.total == 4
+
+    reporter.stage_started(plan, embed, completed_shards=1)
+    assert f"1/4 images • 3 pending • batch {batch_size}" in task.fields["summary"]
+
+    reporter.shard_completed("embed", "00001", completed_shards=2, items=1, rows=70)
+    summary = str(task.fields["summary"])
+    assert "2/4 images" in summary
+    assert "70 rows" in summary
+    assert "0.20 images/s" in summary
+    assert "ETA 10.0s" in summary
+    assert "items" not in summary
+    assert "shards" not in summary
+    assert task.percentage == 50.0
+
+    reporter.stage_completed(embed, StageOutcome(), completed_shards=4)
+    assert task.completed == task.total == 4
     reporter.stop()
 
 

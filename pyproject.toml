@@ -202,9 +202,11 @@ dev  = ["ipykernel>=6.29.5,<7.0.0", "pre-commit>=4.0.1"]
 test = ["pytest>=8.0.2,<10.0.0", "pytest-cov>=6.0.0,<7.0.0", "pytest-xdist>=3.8.0,<4.0.0"]
 # Fetch the official backend at a pinned commit without cloning Git history.
 # A dependency group keeps the archive URL out of published wheel metadata.
-mask-guidance = [
+edgetam = [
+  "setuptools>=61.0",
   "EdgeTAM @ https://github.com/facebookresearch/EdgeTAM/archive/7711e012a30a2402c4eaab637bdb00a521302c91.tar.gz",
 ]
+mask-guidance = [{ include-group = "edgetam" }]
 docs = [
   "mkdocs>=1.6.1,<2.0.0",
   "mkdocs-autorefs>=1.4.4,<2.0.0",

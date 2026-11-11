@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from copy import copy
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -120,7 +121,7 @@ def _reid_spec(args: Any) -> ReIDEncoderSpec:
 def _tracker_spec(args: Any, geometry: str) -> TrackerSpec:
     """Resolve tracker defaults, an optional runtime config, and CLI overrides."""
 
-    options = resolve_tracker_options(args)
+    options = resolve_tracker_options(args, allow_prompted=True)
     return TrackerSpec(
         name=str(args.tracker),
         backend=str(getattr(args, "tracker_backend", "python")),
@@ -153,7 +154,8 @@ def _mask_guidance_config(args: Any, tracker_spec: TrackerSpec) -> MaskGuidanceC
 
 
 def _share_edgetam_model(
-    args: Any, config: MaskGuidanceConfig,
+    args: Any,
+    config: MaskGuidanceConfig,
 ) -> tuple[MaskGuidanceConfig | MaskGuidance, Segmentor | None]:
     """Share matching segmentor/guidance weights within this tracking run only."""
     from boxmot.segmentors.propagation.weights import is_edgetam_tflite_bundle
@@ -176,11 +178,54 @@ def _share_edgetam_model(
     ):
         return config, None
     propagator = EdgeTAMMaskPropagator(
-        config.checkpoint, device=config.device, max_objects=config.max_objects,
+        config.checkpoint,
+        device=config.device,
+        max_objects=config.max_objects,
         prompt_overlap=config.prompt_overlap,
     )
     segmentor = create_segmentor(spec, model=propagator.predictor)
     return MaskGuidance(config, propagator=propagator), segmentor
+
+
+def _detector_geometry(detector: Detector, requested: str) -> str:
+    """Resolve the loaded detector's output without reinterpreting its boxes."""
+
+    capabilities = detector.capabilities
+    supported = {
+        geometry
+        for geometry, enabled in (("aabb", capabilities.supports_aabb), ("obb", capabilities.supports_obb))
+        if enabled
+    }
+    if requested != "auto":
+        if requested not in supported:
+            produced = ", ".join(sorted(geometry.upper() for geometry in supported))
+            raise ValueError(
+                f"Detector produces {produced} boxes, which conflicts with requested geometry {requested!r}. "
+                "Use geometry='auto' to follow the detector."
+            )
+        return requested
+    if len(supported) != 1:
+        raise ValueError(
+            "Cannot infer tracking geometry because the detector does not declare one output geometry. "
+            "Configure the detector's capabilities or explicitly select geometry='aabb' or geometry='obb'."
+        )
+    return supported.pop()
+
+
+def _validate_tracker_geometry(tracker: Tracker, geometry: str) -> None:
+    """Check caller-owned tracker state without rebuilding or changing its geometry."""
+
+    is_obb = geometry == "obb"
+    configured = getattr(tracker, "is_obb", None)
+    if isinstance(configured, bool) and configured != is_obb:
+        current = "OBB" if configured else "AABB"
+        raise ValueError(
+            f"Injected tracker is configured for {current} geometry, "
+            f"but the detector produces {geometry.upper()} boxes. "
+            "Construct the tracker with matching geometry."
+        )
+    if is_obb and getattr(tracker, "supports_obb", True) is False:
+        raise ValueError("Injected tracker does not support the detector's OBB geometry.")
 
 
 def _output_directory(args: Any) -> Path:
@@ -274,28 +319,53 @@ def run_track(
         options["source"] = source
         source = None
     args = resolve_mode_args("track", args, options)
+    from boxmot.trackers.edgetam.tracker import EdgeTAM
+
+    if getattr(args, "tracker", None) == "edgetam" or isinstance(tracker, EdgeTAM):
+        if edgetam_checkpoint(args) is not None:
+            raise ValueError("EdgeTAM prompt tracking cannot be combined with detector-based mask guidance.")
+        if any(component is not None for component in (detector, segmentor, encoder)) or any(
+            options.get(name) is not None for name in ("detector", "segmentor", "reid")
+        ):
+            raise ValueError("EdgeTAM prompt tracking does not use detector, segmentor, or ReID components.")
+        from boxmot.engine.tracking.prompted import run_prompted_track
+
+        return run_prompted_track(args, tracker=tracker, source=source, sinks=sinks, ui_pipeline=ui_pipeline)
     profiler = RuntimeProfiler()
     startup_timings_ms: dict[str, float] = {}
-    geometry = str(getattr(args, "geometry", "aabb") or "aabb")
-    if geometry not in {"aabb", "obb"}:
-        raise ValueError("geometry must be 'aabb' or 'obb'")
+    requested_geometry = str(getattr(args, "geometry", "auto") or "auto")
+    if requested_geometry not in {"auto", "aabb", "obb"}:
+        raise ValueError("geometry must be 'auto', 'aabb' or 'obb'")
     if getattr(args, "device", None) is not None:
         resolve_device(args.device)
     tracker_was_injected = tracker is not None
-    tracker_spec = _tracker_spec(args, geometry) if tracker is None else None
     if edgetam_checkpoint(args) is not None and tracker is not None:
         raise ValueError(
-            "Configure mask guidance on the supplied tracker instead of combining "
-            "--edgetam with an injected tracker."
+            "Configure mask guidance on the supplied tracker instead of combining --edgetam with an injected tracker."
         )
-    mask_guidance = _mask_guidance_config(args, tracker_spec) if tracker_spec is not None else None
+    if tracker is None:
+        # Validate inexpensive tracker settings before loading model weights;
+        # geometry-dependent motion and calibration checks follow the detector.
+        preflight_args = copy(args)
+        preflight_args.geometry = None if requested_geometry == "auto" else requested_geometry
+        resolve_tracker_options(preflight_args, allow_prompted=True)
+        if edgetam_checkpoint(args) is not None:
+            from boxmot.trackers.common.mask_guidance import validate_mask_guidance_spec
+
+            validate_mask_guidance_spec(
+                _tracker_spec(preflight_args, requested_geometry if requested_geometry != "auto" else "aabb")
+            )
 
     if detector is None:
         if ui_pipeline is not None:
             ui_pipeline.update("Loading detector…")
         with startup_stage(startup_timings_ms, "detector_load"):
-            detector = create_detector(_detector_spec(args, geometry))
+            detector = create_detector(_detector_spec(args, requested_geometry))
+    geometry = _detector_geometry(detector, requested_geometry)
+    args.geometry = geometry
     if tracker is None:
+        tracker_spec = _tracker_spec(args, geometry)
+        mask_guidance = _mask_guidance_config(args, tracker_spec)
         if ui_pipeline is not None:
             ui_pipeline.update("Loading tracker…")
         with startup_stage(startup_timings_ms, "tracker_load"):
@@ -328,6 +398,8 @@ def run_track(
                         "but does not implement configure_reid()."
                     )
                 tracker.configure_reid(_reid_spec(args))
+    else:
+        _validate_tracker_geometry(tracker, geometry)
 
     requirements = tracker.requirements
     generates_embeddings = getattr(tracker, "generates_embeddings", False)

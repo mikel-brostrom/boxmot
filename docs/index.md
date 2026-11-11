@@ -8,6 +8,8 @@ Swap components to suit your footage, reuse detections and embeddings across
 experiments, and evaluate or tune trackers on the same inputs. Selected trackers
 also provide native C++ backends. The [tracker overview](trackers/index.md)
 lists supported inputs, including mask-aware tracking and 2D/3D sensor fusion.
+For manual object selection, [EdgeTAM](trackers/edgetam.md) tracks boxes or
+points drawn in an interactive video window launched from `boxmot ui`.
 
 ## Get started
 

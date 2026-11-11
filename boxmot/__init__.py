@@ -16,6 +16,7 @@ _EXPORTS = {
     ),
     "KalmanNoiseConfig": ("boxmot.trackers.common.motion.kalman_filters.noise", "KalmanNoiseConfig"),
     "ReIDConfig": ("boxmot.reid.specs", "ReIDConfig"),
+    "EdgeTAMModelConfig": ("boxmot.trackers.edgetam.config", "EdgeTAMModelConfig"),
     **{
         entry.config_class_path.rsplit(".", 1)[-1]: tuple(entry.config_class_path.rsplit(".", 1))
         for entry in _TRACKER_MANIFEST.values()
@@ -49,6 +50,9 @@ if TYPE_CHECKING:
     from boxmot.trackers.deepocsort.tracker import DeepOcSort as DeepOcSort
     from boxmot.trackers.eagermot.config import EagerMotConfig as EagerMotConfig
     from boxmot.trackers.eagermot.tracker import EagerMot as EagerMot
+    from boxmot.trackers.edgetam.config import EdgeTAMConfig as EdgeTAMConfig
+    from boxmot.trackers.edgetam.config import EdgeTAMModelConfig as EdgeTAMModelConfig
+    from boxmot.trackers.edgetam.tracker import EdgeTAM as EdgeTAM
     from boxmot.trackers.hybridsort.config import HybridSortConfig as HybridSortConfig
     from boxmot.trackers.hybridsort.tracker import HybridSort as HybridSort
     from boxmot.trackers.maf_hda.config import MafHdaConfig as MafHdaConfig

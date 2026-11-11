@@ -62,9 +62,27 @@ def test_progress_reports_build_resume_and_durable_shards(tmp_path) -> None:
         f"Output directory: {plan.output_root}",
         f"Staging directory: {plan.staging_root}",
         "Stage detect starting: 1/2 shards complete, 1 pending; batch=2, workers=2, executor=thread.",
-        "Stage detect shard 00001: 2/2 (100.0%), items=2, rows=7, elapsed=2.0s, "
-        "rate=0.50 shards/s, ETA=0.0s.",
+        "Stage detect shard 00001: 2/2 (100.0%), items=2, rows=7, elapsed=2.0s, rate=0.50 shards/s, ETA=0.0s.",
         "Stage detect complete: 2/2 shards; elapsed=4.0s; samples=4.",
+    ]
+
+
+def test_progress_reports_saved_embedding_images_independent_of_crop_batches(tmp_path) -> None:
+    """Image checkpoints drive embedding counts, resume ETA, and throughput."""
+
+    stage = StagePlan.create("embed", batch_size=64)
+    plan = _plan(tmp_path, stage)
+    logger = RecordingLogger()
+    progress = MaterializationProgress(logger=logger, clock=FixedClock(10.0, 12.0, 14.0))
+
+    progress.stage_started(plan, stage, completed_shards=1)
+    progress.shard_completed("embed", "00001", completed_shards=2, items=1, rows=70)
+    progress.stage_completed(stage, StageOutcome(), completed_shards=4)
+
+    assert logger.info_messages == [
+        "Stage embed starting: 1/4 images complete, 3 pending; batch=64, workers=1, executor=inline.",
+        "Stage embed image 00001: 2/4 (50.0%), rows=70, elapsed=2.0s, rate=0.50 images/s, ETA=4.0s.",
+        "Stage embed complete: 4/4 images; elapsed=4.0s.",
     ]
 
 
@@ -91,8 +109,7 @@ def test_materializer_reports_retry_and_completion(tmp_path) -> None:
 
     assert result == plan.staging_root
     assert logger.warning_messages == [
-        "Stage prepare attempt 1/2 failed (RuntimeError: temporary outage); "
-        "retrying attempt 2/2 in 0.0s."
+        "Stage prepare attempt 1/2 failed (RuntimeError: temporary outage); retrying attempt 2/2 in 0.0s."
     ]
     assert logger.error_messages == []
     assert logger.info_messages[-1] == "Stage prepare complete: 0 shards; elapsed=2.0s; recovered=True."
