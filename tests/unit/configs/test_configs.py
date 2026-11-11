@@ -214,7 +214,11 @@ def test_build_mode_namespace_uses_shared_runtime_defaults():
 
 
 def test_materialize_namespace_allows_only_canonical_inputs() -> None:
+    """Keep supported materialization inputs, including batch-sizing overrides."""
     canonical = {
+        "auto_batch": True,
+        "auto_batch_max_size": 128,
+        "auto_batch_memory_fraction": 0.7,
         "build_root": "builds",
         "data_root": "datasets",
         "device": "mps",
@@ -246,6 +250,9 @@ def test_materialize_namespace_allows_only_canonical_inputs() -> None:
     )
 
     assert set(vars(args)) == {*canonical, "materialize_explicit_keys"}
+    assert args.auto_batch is canonical["auto_batch"]
+    assert args.auto_batch_max_size == canonical["auto_batch_max_size"]
+    assert args.auto_batch_memory_fraction == canonical["auto_batch_memory_fraction"]
     assert args.data_root == Path("datasets")
     assert args.build_root == Path("builds")
     assert args.plan_path == Path("executor.yaml")
