@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from typing import Any, Literal
+
 import numpy as np
-import torch
+from numpy.typing import ArrayLike
 from scipy.optimize import linear_sum_assignment
 
 from boxmot.trackers.common.association.matching import (
     linear_assignment,
-    motion_gating_distance,
+    motion_gating_distances,
     motion_gating_threshold,
 )
 
@@ -16,52 +19,25 @@ INFTY_COST = 1e5
 
 
 def min_cost_matching(
-    distance_metric,
-    max_distance,
-    tracks,
-    detections,
-    track_indices=None,
-    detection_indices=None,
-):
-    """Solve linear assignment problem.
-    Parameters
-    ----------
-    distance_metric : Callable[List[Track], List[Detection], List[int], List[int]) -> ndarray
-        The distance metric is given a list of tracks and detections as well as
-        a list of N track indices and M detection indices. The metric should
-        return the NxM dimensional cost matrix, where element (i, j) is the
-        association cost between the i-th track in the given track indices and
-        the j-th detection in the given detection_indices.
-    max_distance : float
-        Gating threshold. Associations with cost larger than this value are
-        disregarded.
-    tracks : List[track.Track]
-        A list of predicted tracks at the current time step.
-    detections : List[detection.Detection]
-        A list of detections at the current time step.
-    track_indices : List[int]
-        List of track indices that maps rows in `cost_matrix` to tracks in
-        `tracks` (see description above).
-    detection_indices : List[int]
-        List of detection indices that maps columns in `cost_matrix` to
-        detections in `detections` (see description above).
-    Returns
-    -------
-    (List[(int, int)], List[int], List[int])
-        Returns a tuple with the following three entries:
-        * A list of matched track and detection indices.
-        * A list of unmatched track indices.
-        * A list of unmatched detection indices.
+    cost_matrix: np.ndarray,
+    max_distance: float,
+) -> tuple[list[tuple[int, int]], list[int], list[int]]:
+    """Solve prepared costs and return local matched/unmatched indices as lists.
+
+    Rows represent candidate tracks and columns represent candidate detections.
+    Costs above ``max_distance`` are rejected; equality remains admissible.
+
+    Finite costs retain the clipped Hungarian assignment and its partition
+    order: unassigned indices precede rejected assignments. Non-finite costs
+    use the shared solver so forbidden pairs can remain unmatched.
+    The finite-cost path clips the input matrix in place.
     """
-    if track_indices is None:
-        track_indices = np.arange(len(tracks))
-    if detection_indices is None:
-        detection_indices = np.arange(len(detections))
+    track_indices = list(range(cost_matrix.shape[0]))
+    detection_indices = list(range(cost_matrix.shape[1]))
 
     if len(detection_indices) == 0 or len(track_indices) == 0:
         return [], track_indices, detection_indices  # Nothing to match.
 
-    cost_matrix = distance_metric(tracks, detections, track_indices, detection_indices)
     if not np.isfinite(cost_matrix).all():
         matches, unmatched_tracks, unmatched_detections = linear_assignment(cost_matrix, max_distance)
         return (
@@ -94,155 +70,55 @@ def min_cost_matching(
     return matches, unmatched_tracks, unmatched_detections
 
 
-def matching_cascade(
-    distance_metric,
-    max_distance,
-    cascade_depth,
-    tracks,
-    detections,
-    track_indices=None,
-    detection_indices=None,
-):
-    """Run matching cascade.
-    Parameters
-    ----------
-    distance_metric : Callable[List[Track], List[Detection], List[int], List[int]) -> ndarray
-        The distance metric is given a list of tracks and detections as well as
-        a list of N track indices and M detection indices. The metric should
-        return the NxM dimensional cost matrix, where element (i, j) is the
-        association cost between the i-th track in the given track indices and
-        the j-th detection in the given detection indices.
-    max_distance : float
-        Gating threshold. Associations with cost larger than this value are
-        disregarded.
-    cascade_depth: int
-        The cascade depth, should be se to the maximum track age.
-    tracks : List[track.Track]
-        A list of predicted tracks at the current time step.
-    detections : List[detection.Detection]
-        A list of detections at the current time step.
-    track_indices : Optional[List[int]]
-        List of track indices that maps rows in `cost_matrix` to tracks in
-        `tracks` (see description above). Defaults to all tracks.
-    detection_indices : Optional[List[int]]
-        List of detection indices that maps columns in `cost_matrix` to
-        detections in `detections` (see description above). Defaults to all
-        detections.
-    Returns
-    -------
-    (List[(int, int)], List[int], List[int])
-        Returns a tuple with the following three entries:
-        * A list of matched track and detection indices.
-        * A list of unmatched track indices.
-        * A list of unmatched detection indices.
-    """
-    if track_indices is None:
-        track_indices = list(range(len(tracks)))
-    if detection_indices is None:
-        detection_indices = list(range(len(detections)))
-
-    unmatched_detections = detection_indices
-    matches = []
-    track_indices_l = [k for k in track_indices]
-    matches_l, _, unmatched_detections = min_cost_matching(
-        distance_metric,
-        max_distance,
-        tracks,
-        detections,
-        track_indices_l,
-        unmatched_detections,
-    )
-    matches += matches_l
-    unmatched_tracks = list(set(track_indices) - set(k for k, _ in matches))
-    return matches, unmatched_tracks, unmatched_detections
-
-
 def gate_cost_matrix(
-    cost_matrix,
-    tracks,
-    detections,
-    track_indices,
-    detection_indices,
-    mc_lambda,
-    gated_cost=INFTY_COST,
-    only_position=False,
+    cost_matrix: np.ndarray,
+    tracks: Sequence[Any],
+    detections: Sequence[Any],
+    mc_lambda: float,
+    gated_cost: float = INFTY_COST,
+    only_position: bool = False,
     *,
     gated_mask: np.ndarray | None = None,
-):
+) -> np.ndarray:
     """Blend eligible costs with geometric Mahalanobis distance.
 
     Rejected pairs retain ``gated_cost`` independently of ``mc_lambda``.
     The gate uses selected-filter geometry coordinates, excluding confidence,
     and aligns equivalent oriented rectangles before measuring residuals.
-    Parameters
-    ----------
-    cost_matrix : ndarray
-        The NxM dimensional cost matrix, where N is the number of track indices
-        and M is the number of detection indices, such that entry (i, j) is the
-        association cost between `tracks[track_indices[i]]` and
-        `detections[detection_indices[j]]`.
-    tracks : List[track.Track]
-        A list of predicted tracks at the current time step.
-    detections : List[detection.Detection]
-        A list of detections at the current time step.
-    track_indices : List[int]
-        List of track indices that maps rows in `cost_matrix` to tracks in
-        `tracks` (see description above).
-    detection_indices : List[int]
-        List of detection indices that maps columns in `cost_matrix` to
-        detections in `detections` (see description above).
-    gated_cost : Optional[float]
-        Entries in the cost matrix corresponding to infeasible associations are
-        set this value. Defaults to a very large value.
-    only_position : Optional[bool]
-        If True, only the x, y position of the state distribution is considered
-        during gating. Defaults to False.
-    gated_mask : Optional[ndarray]
-        When supplied, write the Boolean motion gate into this output array
-        before blending costs. This keeps hard gates available to auxiliary
-        association cues without recomputing motion distances.
-    Returns
-    -------
-    ndarray
-        Returns the modified cost matrix.
+
+    Rows and columns correspond directly to ``tracks`` and ``detections``.
+    Eligible costs are weighted by ``mc_lambda`` and motion distances by its
+    complement. ``only_position`` limits gating to the x and y coordinates.
+    The cost matrix is modified in place and returned. If supplied,
+    ``gated_mask`` receives the Boolean rejection mask before blending.
     """
 
-    boxes_by_geometry = {}
-    for row, track_idx in enumerate(track_indices):
-        track = tracks[track_idx]
-        if track.is_obb not in boxes_by_geometry:
-            geometry_attr = "xywha" if track.is_obb else "xyxy"
-            boxes_by_geometry[track.is_obb] = np.asarray(
-                [getattr(detections[i], geometry_attr) for i in detection_indices]
-            ).reshape(-1, 5 if track.is_obb else 4)
-        boxes = boxes_by_geometry[track.is_obb]
-        distances = motion_gating_distance(track, boxes, only_position=only_position)
-        blocked = ~np.isfinite(cost_matrix[row]) | ~np.isfinite(distances)
-        blocked |= distances > motion_gating_threshold(track, only_position=only_position)
-        if gated_mask is not None:
-            gated_mask[row] = blocked
-        eligible = ~blocked
-        cost_matrix[row, eligible] = mc_lambda * cost_matrix[row, eligible] + (1 - mc_lambda) * distances[eligible]
-        cost_matrix[row, blocked] = gated_cost
+    if not len(tracks):
+        return cost_matrix
+    rows_by_geometry: dict[bool, list[int]] = {}
+    for row, track in enumerate(tracks):
+        rows_by_geometry.setdefault(track.is_obb, []).append(row)
+    distances = np.empty(cost_matrix.shape, dtype=float)
+    for is_obb, rows in rows_by_geometry.items():
+        geometry_attr = "xywha" if is_obb else "xyxy"
+        boxes = np.asarray([getattr(detection, geometry_attr) for detection in detections]).reshape(
+            -1, 5 if is_obb else 4
+        )
+        distances[rows] = motion_gating_distances([tracks[row] for row in rows], boxes, only_position=only_position)
+    thresholds = np.asarray([motion_gating_threshold(track, only_position=only_position) for track in tracks])
+    blocked = ~np.isfinite(cost_matrix) | ~np.isfinite(distances) | (distances > thresholds[:, None])
+    if gated_mask is not None:
+        gated_mask[:] = blocked
+    eligible = ~blocked
+    cost_matrix[eligible] = mc_lambda * cost_matrix[eligible] + (1 - mc_lambda) * distances[eligible]
+    cost_matrix[blocked] = gated_cost
     return cost_matrix
 
 
-def _cosine_distance(a, b, data_is_normalized=False):
-    """Compute pair-wise cosine distance between points in `a` and `b`.
-    Parameters
-    ----------
-    a : array_like
-        An NxM matrix of N samples of dimensionality M.
-    b : array_like
-        An LxM matrix of L samples of dimensionality M.
-    data_is_normalized : Optional[bool]
-        If True, assumes rows in a and b are unit length vectors.
-        Otherwise, a and b are explicitly normalized to lenght 1.
-    Returns
-    -------
-    ndarray
-        Returns a matrix of size len(a), len(b) such that eleement (i, j)
-        contains the squared distance between `a[i]` and `b[j]`.
+def _cosine_distance(a: np.ndarray, b: np.ndarray, data_is_normalized: bool = False) -> np.ndarray:
+    """Return pairwise cosine distances with shape ``(len(a), len(b))``.
+
+    Rows are normalized to unit length unless ``data_is_normalized`` is true.
     """
     if not data_is_normalized:
         a = np.asarray(a) / np.linalg.norm(a, axis=1, keepdims=True)
@@ -250,20 +126,8 @@ def _cosine_distance(a, b, data_is_normalized=False):
     return 1.0 - np.dot(a, b.T)
 
 
-def _pdist(a, b):
-    """Compute pair-wise squared distance between points in `a` and `b`.
-    Parameters
-    ----------
-    a : array_like
-        An NxM matrix of N samples of dimensionality M.
-    b : array_like
-        An LxM matrix of L samples of dimensionality M.
-    Returns
-    -------
-    ndarray
-        Returns a matrix of size len(a), len(b) such that eleement (i, j)
-        contains the squared distance between `a[i]` and `b[j]`.
-    """
+def _pdist(a: ArrayLike, b: ArrayLike) -> np.ndarray:
+    """Return pairwise squared Euclidean distances with shape ``(len(a), len(b))``."""
     a, b = np.asarray(a), np.asarray(b)
     if len(a) == 0 or len(b) == 0:
         return np.zeros((len(a), len(b)))
@@ -273,66 +137,34 @@ def _pdist(a, b):
     return r2
 
 
-def _nn_euclidean_distance(x, y):
-    """Helper function for nearest neighbor distance metric (Euclidean).
-    Parameters
-    ----------
-    x : ndarray
-        A matrix of N row-vectors (sample points).
-    y : ndarray
-        A matrix of M row-vectors (query points).
-    Returns
-    -------
-    ndarray
-        A vector of length M that contains for each entry in `y` the
-        smallest Euclidean distance to a sample in `x`.
-    """
-    # x_ = torch.from_numpy(np.asarray(x) / np.linalg.norm(x, axis=1, keepdims=True))
-    # y_ = torch.from_numpy(np.asarray(y) / np.linalg.norm(y, axis=1, keepdims=True))
+def _nn_euclidean_distance(x: ArrayLike, y: np.ndarray) -> np.ndarray:
+    """Return each query row's smallest squared Euclidean distance to a sample in ``x``."""
     distances = _pdist(x, y)
-    return np.maximum(0.0, torch.min(distances, axis=0)[0].numpy())
+    return distances.min(axis=0)
 
 
-def _nn_cosine_distance(x, y):
-    """Helper function for nearest neighbor distance metric (cosine).
-    Parameters
-    ----------
-    x : ndarray
-        A matrix of N row-vectors (sample points).
-    y : ndarray
-        A matrix of M row-vectors (query points).
-    Returns
-    -------
-    ndarray
-        A vector of length M that contains for each entry in `y` the
-        smallest cosine distance to a sample in `x`.
-    """
+def _nn_cosine_distance(x: ArrayLike, y: np.ndarray) -> np.ndarray:
+    """Return each query row's smallest cosine distance to a sample in ``x``."""
     distances = _cosine_distance(np.asarray(x), np.asarray(y))
     return distances.min(axis=0)
 
 
-class NearestNeighborDistanceMetric(object):
-    """
-    A nearest neighbor distance metric that, for each target, returns
-    the closest distance to any sample that has been observed so far.
-    Parameters
-    ----------
-    metric : str
-        Either "euclidean" or "cosine".
-    matching_threshold: float
-        The matching threshold. Samples with larger distance are considered an
-        invalid match.
-    budget : Optional[int]
-        If not None, fix samples per class to at most this number. Removes
-        the oldest samples when the budget is reached.
-    Attributes
-    ----------
-    samples : Dict[int -> List[ndarray]]
-        A dictionary that maps from target identities to the list of samples
-        that have been observed so far.
+class NearestNeighborDistanceMetric:
+    """Find the closest appearance sample in each target's gallery.
+
+    ``metric`` selects cosine or squared Euclidean distance. Costs above
+    ``matching_threshold`` are invalid matches. An optional ``budget`` limits
+    each gallery to its most recent samples; ``None`` keeps all samples.
+    ``samples`` maps target identities to lists of raw feature vectors.
     """
 
-    def __init__(self, metric, matching_threshold, budget=None):
+    def __init__(
+        self,
+        metric: Literal["euclidean", "cosine"],
+        matching_threshold: float,
+        budget: int | None = None,
+    ) -> None:
+        """Initialize an empty gallery using the selected distance metric."""
         if metric == "euclidean":
             self._metric = _nn_euclidean_distance
         elif metric == "cosine":
@@ -341,18 +173,17 @@ class NearestNeighborDistanceMetric(object):
             raise ValueError("Invalid metric; must be either 'euclidean' or 'cosine'")
         self.matching_threshold = matching_threshold
         self.budget = budget
-        self.samples = {}
+        self.samples: dict[int, list[np.ndarray]] = {}
 
-    def partial_fit(self, features, targets, active_targets):
-        """Update the distance metric with new data.
-        Parameters
-        ----------
-        features : ndarray
-            An NxM matrix of N features of dimensionality M.
-        targets : ndarray
-            An integer array of associated target identities.
-        active_targets : List[int]
-            A list of targets that are currently present in the scene.
+    def partial_fit(
+        self,
+        features: np.ndarray,
+        targets: Sequence[int] | np.ndarray,
+        active_targets: Sequence[int] | np.ndarray,
+    ) -> None:
+        """Append feature rows to their targets and discard inactive galleries.
+
+        Each row in ``features`` corresponds to the same entry in ``targets``.
         """
         for feature, target in zip(features, targets):
             self.samples.setdefault(target, []).append(feature)
@@ -360,20 +191,11 @@ class NearestNeighborDistanceMetric(object):
                 self.samples[target] = self.samples[target][-self.budget :]
         self.samples = {k: self.samples[k] for k in active_targets}
 
-    def distance(self, features, targets):
-        """Compute distance between features and targets.
-        Parameters
-        ----------
-        features : ndarray
-            An NxM matrix of N features of dimensionality M.
-        targets : List[int]
-            A list of targets to match the given `features` against.
-        Returns
-        -------
-        ndarray
-            Returns a cost matrix of shape len(targets), len(features), where
-            element (i, j) contains the closest squared distance between
-            `targets[i]` and `features[j]`.
+    def distance(self, features: np.ndarray, targets: Sequence[int] | np.ndarray) -> np.ndarray:
+        """Return gallery-to-query costs with shape ``(len(targets), len(features))``.
+
+        Each entry is the minimum cosine or squared Euclidean distance between
+        the corresponding target's stored samples and the query feature row.
         """
         cost_matrix = np.zeros((len(targets), len(features)))
         if self._metric is _nn_cosine_distance and len(targets):
@@ -385,8 +207,9 @@ class NearestNeighborDistanceMetric(object):
             for i, target in enumerate(targets):
                 gallery = np.asarray(self.samples[target])
                 gallery = gallery / np.linalg.norm(gallery, axis=1, keepdims=True)
-                distances = _cosine_distance(gallery, queries, data_is_normalized=True)
-                cost_matrix[i, :] = distances.min(axis=0)
+                # Reduce similarities before subtraction to avoid allocating
+                # and writing a full gallery-by-query distance matrix.
+                cost_matrix[i, :] = 1.0 - np.dot(gallery, queries.T).max(axis=0)
             return cost_matrix
         for i, target in enumerate(targets):
             cost_matrix[i, :] = self._metric(self.samples[target], features)

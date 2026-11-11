@@ -5,11 +5,13 @@ from typing import Any, Literal
 
 import numpy as np
 from lapcpp import lapjv
+from scipy.linalg.lapack import get_lapack_funcs
 from scipy.spatial.distance import cdist
 
 from boxmot.trackers.common.association.iou import AssociationFunction
 from boxmot.trackers.common.geometry.obb import align_obb_measurements, normalize_angle
 from boxmot.trackers.common.motion.kalman_filters.base import BaseKalmanFilter
+from boxmot.trackers.common.motion.models import MotionModelAdapter
 
 """
 Table for the 0.95 quantile of the chi-square distribution with N degrees of
@@ -152,7 +154,8 @@ def feature_distance(
             for row in np.flatnonzero(candidate_mask.any(axis=1)):
                 columns = np.flatnonzero(candidate_mask[row])
                 distances[row, columns] = np.maximum(
-                    0.0, cdist(features_a[row:row + 1], features_b[columns], metric)[0],
+                    0.0,
+                    cdist(features_a[row : row + 1], features_b[columns], metric)[0],
                 )
             return distances
     distances = np.maximum(0.0, cdist(features_a, features_b, metric))
@@ -268,6 +271,88 @@ def motion_gating_distance(track: Any, detection_boxes: np.ndarray, *, only_posi
     return BaseKalmanFilter._gating_from_residuals(residuals[:, indices], uncertainty[np.ix_(indices, indices)], "maha")
 
 
+def motion_gating_distances(
+    tracks: Sequence[Any],
+    detection_boxes: np.ndarray,
+    *,
+    only_position: bool = False,
+) -> np.ndarray:
+    """Return one motion-distance row per track, retaining scalar solve arithmetic.
+
+    Native adapters factor independent covariances together. AABB detections
+    share measurements; OBB detections retain per-track alignment. Each track
+    projects with its own filter and noise policy. Custom adapters stay scalar.
+    """
+    boxes = np.asarray(detection_boxes, dtype=float)
+    if not len(tracks):
+        return np.empty((0, len(boxes)), dtype=float)
+    if len(tracks) == 1 or any(
+        type(track.motion_model) is not MotionModelAdapter or "to_measurements" in track.motion_model.__dict__
+        for track in tracks
+    ):
+        return np.asarray([motion_gating_distance(track, boxes, only_position=only_position) for track in tracks])
+    is_obb = tracks[0].motion_model.is_obb
+    dimensions = 5 if is_obb else 4
+    if boxes.ndim != 2 or boxes.shape[1] != dimensions:
+        raise ValueError(f"Expected detection boxes with shape (N, {dimensions}).")
+    if any(track.motion_model.is_obb != is_obb for track in tracks):
+        raise ValueError("Motion gating requires tracks with the same box geometry.")
+    if not len(boxes):
+        return np.empty((len(tracks), 0), dtype=float)
+
+    prepared = {}
+    residuals, uncertainties = [], []
+    for track in tracks:
+        model = track.motion_model
+        key = id(model)
+        if key not in prepared:
+            indices = [0, 1] if only_position else list(model.geometry_measurement_indices)
+            measurements = None if is_obb else model.to_measurements(boxes)
+            prepared[key] = measurements, indices, np.ix_(indices, indices)
+        measurements, indices, covariance_indices = prepared[key]
+        kalman = getattr(track, "kalman_filter", None)
+        if kalman is None:
+            kalman = track.kf
+        mean = getattr(track, "mean", None)
+        covariance = getattr(track, "covariance", None)
+        if mean is None or covariance is None:
+            mean, covariance = kalman.x, kalman.P
+        mean = np.asarray(mean).reshape(-1)
+        if is_obb:
+            references = np.broadcast_to(model.to_box(mean)[0, :5], boxes.shape)
+            measurements = model.to_measurements(align_obb_measurements(boxes, references))
+        projected, uncertainty = model.project(kalman, mean, covariance)
+        residual = measurements - np.asarray(projected).reshape(-1)
+        if is_obb:
+            angle_index = model.angle_measurement_index
+            residual[:, angle_index] = normalize_angle(residual[:, angle_index])
+        residuals.append(residual[:, indices].T)
+        uncertainties.append(uncertainty[covariance_indices])
+
+    # Native projections use float64. Preserve a custom projection's working
+    # precision rather than promoting it when stacking unlike covariances.
+    factors = (
+        np.linalg.cholesky(np.asarray(uncertainties))
+        if all(uncertainty.dtype == np.float64 for uncertainty in uncertainties)
+        else [np.linalg.cholesky(uncertainty) for uncertainty in uncertainties]
+    )
+    distances = np.empty((len(tracks), len(boxes)), dtype=float)
+    for row, (factor, residual) in enumerate(zip(factors, residuals)):
+        # Use solve_triangular's LAPACK operation and memory orientation, without
+        # repeating its general input/batch validation for these prepared arrays.
+        solve = get_lapack_funcs("trtrs", (factor, residual))
+        if factor.flags.f_contiguous:
+            solved, info = solve(factor, residual, lower=True, overwrite_b=True)
+        else:
+            solved, info = solve(factor.T, residual, lower=False, trans=1, overwrite_b=True)
+        if info > 0:
+            raise np.linalg.LinAlgError(f"singular matrix: resolution failed at diagonal {info - 1}")
+        if info < 0:
+            raise ValueError(f"illegal value in {-info}-th argument of internal trtrs")
+        distances[row] = np.sum(solved * solved, axis=0)
+    return distances
+
+
 def fuse_motion(
     cost_matrix: np.ndarray,
     tracks: Sequence[Any],
@@ -291,8 +376,9 @@ def fuse_motion(
     result = np.array(costs, dtype=np.result_type(costs.dtype, float), copy=True)
     if not result.size:
         return result
+    distance_matrix = motion_gating_distances(tracks, boxes, only_position=only_position)
     for row, track in enumerate(tracks):
-        distances = motion_gating_distance(track, boxes, only_position=only_position)
+        distances = distance_matrix[row]
         eligible = np.isfinite(costs[row]) & np.isfinite(distances)
         eligible &= distances <= motion_gating_threshold(track, only_position=only_position)
         result[row, ~eligible] = np.inf

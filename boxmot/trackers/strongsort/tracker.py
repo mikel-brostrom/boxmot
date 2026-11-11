@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import numpy as np
 from typing_extensions import Unpack
 
@@ -19,7 +21,6 @@ from boxmot.trackers.common.association.strongsort import (
     INFTY_COST,
     NearestNeighborDistanceMetric,
     gate_cost_matrix,
-    matching_cascade,
     min_cost_matching,
 )
 from boxmot.trackers.common.box.base import BoxTracker
@@ -29,79 +30,14 @@ from boxmot.trackers.common.motion.cmc.registry import create_cmc
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
 from boxmot.trackers.common.motion.models import create_motion_model, resolve_motion_model_kind
 from boxmot.trackers.strongsort.config import StrongSortConfig
-from boxmot.trackers.strongsort.track import Track
-
-
-class _Detection:
-    """StrongSORT-specific detection measurement used during association."""
-
-    def __init__(
-        self,
-        box: np.ndarray,
-        conf: float,
-        cls: int,
-        det_ind: int,
-        feat: np.ndarray | None,
-        *,
-        is_obb: bool,
-    ) -> None:
-        self.tlwh = np.asarray(box, dtype=np.float32)
-        self.conf = conf
-        self.cls = cls
-        self.det_ind = det_ind
-        self.feat = feat
-        self.is_obb = bool(is_obb)
-
-    def to_xyah(self) -> np.ndarray:
-        """Convert an AABB measurement to center-x, center-y, aspect, height."""
-        measurement = self.tlwh.copy()
-        measurement[:2] += measurement[2:] / 2
-        measurement[2] /= measurement[3]
-        return measurement
-
-    def to_measurement(self) -> np.ndarray:
-        """Return the Kalman-filter measurement for the active box mode."""
-        return self.tlwh.copy() if self.is_obb else self.to_xyah()
-
-    @property
-    def xyxy(self) -> np.ndarray:
-        """Return axis-aligned detection geometry for shared association."""
-        box = self.tlwh.copy()
-        box[2:] += box[:2]
-        return box
-
-    @property
-    def xywha(self) -> np.ndarray:
-        """Return oriented detection geometry for shared association."""
-        if not self.is_obb:
-            raise AttributeError("xywha is only available for OBB detections")
-        return self.tlwh.copy()
-
-    @classmethod
-    def batch_geometry(cls, tracks, *, is_obb: bool) -> np.ndarray | None:
-        """Extract native observations without allocating one geometry per row."""
-        if cls is not _Detection or any(
-            type(track) is not _Detection
-            or track.is_obb != is_obb
-            or any(name in track.__dict__ for name in ("xyxy", "xywha"))
-            for track in tracks
-        ):
-            return None
-        if not tracks:
-            return np.empty((0, 5 if is_obb else 4), dtype=np.float32)
-        if any(track.tlwh.dtype != tracks[0].tlwh.dtype for track in tracks):
-            return None
-        boxes = np.asarray([track.tlwh for track in tracks])
-        if not is_obb:
-            boxes[:, 2:] += boxes[:, :2]
-        return boxes
+from boxmot.trackers.strongsort.track import Track, _Detection
 
 
 class StrongSort(BoxTracker):
     """Track AABB or OBB detections with appearance and configurable camera motion.
 
     Attributes:
-        tracks: Active StrongSORT track states.
+        active_tracks: Live StrongSORT identities, including temporarily missed tracks.
         cmc: Camera-motion compensation method.
     """
 
@@ -167,15 +103,14 @@ class StrongSort(BoxTracker):
         self.ema_alpha = config.ema_alpha
         self.gating_only_position = config.gating_only_position
         self.geometric_recovery_max_age = config.geometric_recovery_max_age
-        self.tracks: list[Track] = []
-        self.active_tracks = self.tracks
+        self.active_tracks: list[Track] = []
         self.cmc = create_cmc(config.cmc_method, enabled=config.use_cmc)
         self._requires_frame = self._requires_frame or self.cmc is not None
         if self.cmc is not None:
             self._requires_frame_dimensions_only = False
 
     def cmc_detection_boxes(self, dets: np.ndarray) -> np.ndarray:
-        """Keep the native mask threshold unless selection fixes it separately."""
+        """Apply the tracking confidence threshold unless CMC sets its own."""
         if self.config.cmc_min_conf is None:
             dets = dets[self.detection_layout.confidences(dets) >= self.min_conf]
         return super().cmc_detection_boxes(dets)
@@ -205,15 +140,14 @@ class StrongSort(BoxTracker):
     def _track_detections(
         self,
         dets: np.ndarray,
-        img: np.ndarray,
-        embs: np.ndarray = None,
-        masks: np.ndarray = None,
+        img: np.ndarray | None,
+        embs: np.ndarray | None = None,
+        masks: np.ndarray | None = None,
     ) -> np.ndarray:
+        """Run prediction, both associations, and lifecycle updates on the owned pool."""
         batch = self._make_detection_batch(dets, embs=embs, masks=masks, copy=False)
         batch = batch.select(batch.confs >= self.min_conf)
-        features = resolve_batch_embeddings(
-            batch,
-        )
+        features = resolve_batch_embeddings(batch)
 
         track_boxes = batch.boxes if self.is_obb else xyxy2tlwh(batch.boxes)
         detections = [
@@ -227,94 +161,100 @@ class StrongSort(BoxTracker):
             )
         ]
 
-        self._predict_tracks()
-        self.apply_cmc(img, dets, self.tracks)
-        self._update_tracks(detections)
+        Track.multi_predict(self.active_tracks, dt=self._prediction_dt)
+        self.apply_cmc(img, dets, self.active_tracks)
 
-        visible = [track for track in self.tracks if track.is_confirmed() and track.time_since_update < 1]
+        # Confirmed identities compete for every detection using appearance.
+        confirmed_indices: list[int] = []
+        unconfirmed_indices: list[int] = []
+        for index, track in enumerate(self.active_tracks):
+            (confirmed_indices if track.is_confirmed() else unconfirmed_indices).append(index)
+        confirmed_tracks = [self.active_tracks[index] for index in confirmed_indices]
+        appearance_matches, _, remaining_indices = min_cost_matching(
+            self._appearance_cost(confirmed_tracks, detections),
+            self.metric.matching_threshold,
+        )
+        pairs = [(confirmed_tracks[row], detections[col]) for row, col in appearance_matches]
+
+        # Keep global pool indices for the established geometric tie order.
+        unmatched_confirmed = list(
+            set(confirmed_indices) - set(confirmed_indices[row] for row, _ in appearance_matches)
+        )
+        recovery_indices = unconfirmed_indices + [
+            index
+            for index in unmatched_confirmed
+            if self.active_tracks[index].time_since_update <= self.geometric_recovery_max_age
+        ]
+        unmatched_indices = [
+            index
+            for index in unmatched_confirmed
+            if self.active_tracks[index].time_since_update > self.geometric_recovery_max_age
+        ]
+        recovery_tracks = [self.active_tracks[index] for index in recovery_indices]
+        remaining_detections = [detections[index] for index in remaining_indices]
+        geometry_matches, unmatched_recovery, unmatched_detections = min_cost_matching(
+            self._association_cost(recovery_tracks, remaining_detections),
+            self.max_iou_dist,
+        )
+        pairs.extend((recovery_tracks[row], remaining_detections[col]) for row, col in geometry_matches)
+        unmatched_indices.extend(recovery_indices[row] for row in unmatched_recovery)
+
+        # Correct both passes together before handling misses and births.
+        Track.multi_update(pairs)
+        for index in set(unmatched_indices):
+            self.active_tracks[index].mark_missed()
+        for index in unmatched_detections:
+            detection = remaining_detections[index]
+            self.active_tracks.append(
+                Track(
+                    detection,
+                    self.id_allocator.alloc(),
+                    self.n_init,
+                    self.max_age,
+                    self.max_obs,
+                    ema_alpha=self.ema_alpha,
+                    is_obb=detection.is_obb,
+                    noise_config=self.kalman_noise_config,
+                    motion_model=self.motion_model,
+                )
+            )
+        self.active_tracks = [track for track in self.active_tracks if not track.is_deleted()]
+
+        active_targets: list[int] = []
+        gallery_features: list[np.ndarray] = []
+        targets: list[int] = []
+        visible: list[Track] = []
+        for track in self.active_tracks:
+            if not track.is_confirmed():
+                continue
+            active_targets.append(track.id)
+            # Missed identities also retain their latest feature in the gallery.
+            gallery_features.extend(track.features)
+            targets.extend([track.id] * len(track.features))
+            if track.time_since_update < 1:
+                visible.append(track)
+        self.metric.partial_fit(np.asarray(gallery_features), np.asarray(targets), active_targets)
+
         boxes = Track.batch_geometry(visible, is_obb=self.is_obb)
         if boxes is None:
             boxes = np.asarray([track.xywha if self.is_obb else track.to_tlbr() for track in visible])
         return self.format_outputs(visible, dtype=np.float32, boxes=boxes)
 
-    def _predict_tracks(self) -> None:
-        """Propagate all active track states to the current frame."""
-        Track.multi_predict(self.tracks, dt=self._prediction_dt)
-
-    def _update_tracks(self, detections: list[_Detection]) -> None:
-        """Associate detections, update matched tracks, and manage lifecycle state."""
-        matches, unmatched_tracks, unmatched_detections = self._match(detections)
-
-        Track.multi_update((self.tracks[track_idx], detections[detection_idx]) for track_idx, detection_idx in matches)
-        for track_idx in unmatched_tracks:
-            self.tracks[track_idx].mark_missed()
-        for detection_idx in unmatched_detections:
-            self._initiate_track(detections[detection_idx])
-        self.tracks = [track for track in self.tracks if not track.is_deleted()]
-        self.active_tracks = self.tracks
-
-        active_targets = [track.id for track in self.tracks if track.is_confirmed()]
-        features: list[np.ndarray] = []
-        targets: list[int] = []
-        for track in self.tracks:
-            if not track.is_confirmed():
-                continue
-            features.extend(track.features)
-            targets.extend([track.id] * len(track.features))
-        self.metric.partial_fit(np.asarray(features), np.asarray(targets), active_targets)
-
-    def _match(self, detections: list[_Detection]) -> tuple[list[tuple[int, int]], list[int], list[int]]:
-        """Run StrongSORT appearance cascade followed by geometric association."""
-
-        confirmed_tracks = [index for index, track in enumerate(self.tracks) if track.is_confirmed()]
-        unconfirmed_tracks = [index for index, track in enumerate(self.tracks) if not track.is_confirmed()]
-        matches_a, unmatched_tracks_a, unmatched_detections = matching_cascade(
-            self._appearance_cost,
-            self.metric.matching_threshold,
-            self.max_age,
-            self.tracks,
-            detections,
-            confirmed_tracks,
-        )
-
-        iou_track_candidates = unconfirmed_tracks + [
-            index for index in unmatched_tracks_a
-            if self.tracks[index].time_since_update <= self.geometric_recovery_max_age
-        ]
-        unmatched_tracks_a = [
-            index for index in unmatched_tracks_a
-            if self.tracks[index].time_since_update > self.geometric_recovery_max_age
-        ]
-        matches_b, unmatched_tracks_b, unmatched_detections = min_cost_matching(
-            self._association_cost,
-            self.max_iou_dist,
-            self.tracks,
-            detections,
-            iou_track_candidates,
-            unmatched_detections,
-        )
-
-        matches = matches_a + matches_b
-        unmatched_tracks = list(set(unmatched_tracks_a + unmatched_tracks_b))
-        return matches, unmatched_tracks, unmatched_detections
-
     def _appearance_cost(
         self,
-        tracks: list[Track],
-        detections: list[_Detection],
-        track_indices: list[int],
-        detection_indices: list[int],
+        tracks: Sequence[Track],
+        detections: Sequence[_Detection],
     ) -> np.ndarray:
         """Combine gallery distance with optional IoU, confidence, and motion cues."""
-        selected_tracks = [tracks[index] for index in track_indices]
-        selected_detections = [detections[index] for index in detection_indices]
-        features = np.asarray([detection.feat for detection in selected_detections])
-        targets = np.asarray([track.id for track in selected_tracks])
+        if not len(tracks) or not len(detections):
+            return np.empty((len(tracks), len(detections)), dtype=float)
+        features = np.asarray([detection.feat for detection in detections])
+        targets = np.asarray([track.id for track in tracks])
         cost_matrix = self.metric.distance(features, targets)
         if self.config.fuse_iou:
-            cost_matrix = fuse_iou(cost_matrix, selected_tracks, selected_detections, is_obb=self.is_obb)
+            cost_matrix = fuse_iou(cost_matrix, tracks, detections, is_obb=self.is_obb)
         if self.config.fuse_detection_score:
-            cost_matrix = fuse_score(cost_matrix, selected_detections)
+            cost_matrix = fuse_score(cost_matrix, detections)
 
         gated_mask = np.zeros(cost_matrix.shape, dtype=bool)
         if self.config.motion_fusion == "blend":
@@ -322,8 +262,6 @@ class StrongSort(BoxTracker):
                 cost_matrix,
                 tracks,
                 detections,
-                track_indices,
-                detection_indices,
                 self.mc_lambda,
                 only_position=self.gating_only_position,
                 gated_mask=gated_mask,
@@ -331,8 +269,8 @@ class StrongSort(BoxTracker):
         elif self.config.motion_fusion == "gate":
             cost_matrix = gate_motion_cost(
                 cost_matrix,
-                selected_tracks,
-                self._association_boxes(selected_detections),
+                tracks,
+                self._association_boxes(detections),
                 only_position=self.gating_only_position,
             )
             gated_mask[:] = ~np.isfinite(cost_matrix)
@@ -341,35 +279,28 @@ class StrongSort(BoxTracker):
         cost_matrix[gated_mask] = np.inf
         return self._condition_gated_association(
             cost_matrix,
-            selected_tracks,
-            selected_detections,
+            tracks,
+            detections,
             threshold=self.metric.matching_threshold,
             gated_mask=gated_mask,
         )
 
     def _association_cost(
         self,
-        tracks,
-        detections,
-        track_indices=None,
-        detection_indices=None,
+        tracks: Sequence[Track],
+        detections: Sequence[_Detection],
     ) -> np.ndarray:
         """Build the selected geometric distance matrix for StrongSORT fallback matching."""
-        if track_indices is None:
-            track_indices = np.arange(len(tracks))
-        if detection_indices is None:
-            detection_indices = np.arange(len(detections))
-
-        selected_tracks = [tracks[int(index)] for index in track_indices]
-        selected_detections = [detections[int(index)] for index in detection_indices]
-        cost_matrix = self.association_distance(selected_tracks, selected_detections)
-        for row, track in enumerate(selected_tracks):
+        if not len(tracks) or not len(detections):
+            return np.empty((len(tracks), len(detections)), dtype=float)
+        cost_matrix = self.association_distance(tracks, detections)
+        for row, track in enumerate(tracks):
             if track.time_since_update > self.geometric_recovery_max_age:
                 cost_matrix[row, :] = INFTY_COST
         return self._condition_gated_association(
             cost_matrix,
-            selected_tracks,
-            selected_detections,
+            tracks,
+            detections,
             threshold=self.max_iou_dist,
             gated_mask=cost_matrix >= INFTY_COST if self._mask_guidance is not None else None,
         )
@@ -377,8 +308,8 @@ class StrongSort(BoxTracker):
     def _condition_gated_association(
         self,
         costs: np.ndarray,
-        tracks,
-        detections,
+        tracks: Sequence[Track],
+        detections: Sequence[_Detection],
         *,
         threshold: float,
         gated_mask: np.ndarray | None,
@@ -392,23 +323,7 @@ class StrongSort(BoxTracker):
         adjusted[gated_mask] = protected_costs
         return adjusted
 
-    def _initiate_track(self, detection: _Detection) -> None:
-        """Create one track from an unmatched detection."""
-        self.tracks.append(
-            Track(
-                detection,
-                self.id_allocator.alloc(),
-                self.n_init,
-                self.max_age,
-                self.max_obs,
-                ema_alpha=self.ema_alpha,
-                is_obb=detection.is_obb,
-                noise_config=self.kalman_noise_config,
-                motion_model=self.motion_model,
-            )
-        )
-
-    def reset(self):
+    def reset(self) -> None:
+        """Clear active tracks and appearance galleries for a new sequence."""
         self._reset_common_state()
-        self.tracks = []
         self.metric = self._new_metric()

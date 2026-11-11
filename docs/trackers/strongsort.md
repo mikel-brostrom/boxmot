@@ -44,6 +44,10 @@ output row on every missing observation. This page describes the online tracker.
 The paper's offline linking and interpolation stages are separate workflows;
 see [evaluation postprocessing](../guides/evaluation.md).
 
+Use `tracker.active_tracks` to inspect the live identity pool, including
+tentative and temporarily missed tracks. Output rows contain only confirmed
+tracks updated in the current frame.
+
 ## Python API
 
 Pass algorithm settings through `StrongSortConfig`, for example
