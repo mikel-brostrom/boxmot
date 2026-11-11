@@ -88,6 +88,19 @@ installs the CPU `onnxruntime` distribution; CUDA inference needs a compatible
 `onnxruntime-gpu` installation. An explicit CUDA request fails during
 initialization when that provider is unavailable.
 
+### PyTorch was installed without CUDA support
+
+An NVIDIA GPU can be available to `nvidia-smi` while BoxMOT uses a CPU-only
+PyTorch build. An explicit CUDA request reports the installed PyTorch version
+and Python executable when that build has no CUDA support. Install a
+CUDA-enabled PyTorch build in the reported environment.
+
+For a source checkout on a CUDA 13.0 host, repeat your `uv sync` command with
+`--extra cu130` instead of `--extra cpu`, keeping the other extras and groups
+you need. Include `--extra cu130` on later syncs as well. Run commands with
+`uv run --no-sync` afterward so an automatic sync does not replace that build.
+See [PyTorch setup](../getting-started/pytorch.md#source-checkout).
+
 ### CUDA device index is unavailable
 
 Device indices follow PyTorch's process-visible GPU order. If you expose only
