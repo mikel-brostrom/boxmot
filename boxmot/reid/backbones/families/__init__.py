@@ -1,3 +1,3 @@
-# BoxMOT AGPL-3.0 license
+# BoxMOT Apache-2.0 license
 
 """Model-family packages for ReID backbones."""

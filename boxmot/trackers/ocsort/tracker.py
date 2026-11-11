@@ -1,4 +1,4 @@
-# Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
+# Mikel Broström 🔥 BoxMOT 🧾 Apache-2.0 license
 
 """
 This script is adopted from the SORT script by Alex Bewley alex@bewley.ai

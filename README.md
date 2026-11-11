@@ -14,7 +14,7 @@
   [![Coverage](https://codecov.io/gh/mikel-brostrom/boxmot/branch/master/graph/badge.svg)](https://app.codecov.io/gh/mikel-brostrom/boxmot/tree/master)
   [![PyPI version](https://badge.fury.io/py/boxmot.svg)](https://badge.fury.io/py/boxmot)
   [![downloads](https://static.pepy.tech/badge/boxmot)](https://pepy.tech/project/boxmot)
-  [![license](https://img.shields.io/badge/license-AGPL%203.0-blue)](https://github.com/mikel-brostrom/boxmot/blob/master/LICENSE)
+  [![license](https://img.shields.io/badge/license-Apache%202.0-blue)](https://github.com/mikel-brostrom/boxmot/blob/master/LICENSE)
   [![python-version](https://img.shields.io/pypi/pyversions/boxmot)](https://badge.fury.io/py/boxmot)
   [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.8132989.svg)](https://doi.org/10.5281/zenodo.8132989)
   [![colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/18nIqkBr68TkK8dHdarxTco6svHUJGggY?usp=sharing)
@@ -346,6 +346,11 @@ the dataset declares a `poses` modality. If poses are unavailable, omit
 `CameraModel.camera_to_world` throughout the sequence to track in camera
 coordinates. A NumPy camera projection can also be passed with a frame that
 provides its image dimensions; use `CameraModel` when no frame is supplied.
+
+## License
+
+BoxMOT is licensed under the [Apache License 2.0](LICENSE). Third-party components
+retain their respective licenses and notices.
 
 ## Contributing
 
