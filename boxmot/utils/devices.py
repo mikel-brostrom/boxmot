@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 import torch
 
 
@@ -41,9 +43,22 @@ def resolve_device(value: str | torch.device) -> torch.device:
         index = int(device.removeprefix("cuda:"))
         count = torch.cuda.device_count() if torch.cuda.is_available() else 0
         if index >= count:
+            if count == 0 and torch.version.cuda is None and torch.version.hip is None:
+                raise RuntimeError(
+                    f"Device {device} is unavailable: PyTorch {torch.__version__} was installed without CUDA support "
+                    f"(Python: {sys.executable}). "
+                    "An NVIDIA GPU can be present even when this PyTorch build cannot use it. "
+                    "Install a CUDA-enabled PyTorch build in this environment. For CUDA 13.0 source checkouts, "
+                    "repeat your uv sync command with '--extra cu130' instead of '--extra cpu'; "
+                    "use 'uv run --no-sync' afterward."
+                )
+            hint = (
+                "Check the GPU driver, CUDA_VISIBLE_DEVICES, and this process's access to the GPU."
+                if count == 0
+                else "Select an available logical CUDA index or use device=cpu."
+            )
             raise RuntimeError(
-                f"Device {device} is unavailable; PyTorch reports {count} CUDA device(s). "
-                "Select an available logical CUDA index or use device=cpu."
+                f"Device {device} is unavailable; PyTorch reports {count} CUDA device(s). {hint}"
             )
     elif device == "mps":
         if not torch.backends.mps.is_built() or not torch.backends.mps.is_available():

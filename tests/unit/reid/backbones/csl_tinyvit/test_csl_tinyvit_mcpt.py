@@ -166,35 +166,51 @@ def test_mcpt_coordinates_remain_ordered_and_capped():
     assert torch.isfinite(edges).all()
 
 
-def test_mcpt_manual_interpolation_matches_grid_sample_reference():
+@pytest.mark.parametrize("height", [24, 48])
+@pytest.mark.parametrize(
+    ("dtype", "tolerance"),
+    [(torch.float32, 2e-6), (torch.float64, 1e-12)],
+    ids=["float32", "float64"],
+)
+def test_mcpt_manual_interpolation_matches_grid_sample_reference(
+    height: int, dtype: torch.dtype, tolerance: float
+) -> None:
+    """Compare interpolation at identical pixel coordinates in both precisions."""
+
     module = MonotonicCanonicalPartTransport(8, mode="shared_multiscale")
-    feature = torch.randn(2, 8, 24, 7)
-    logits = torch.randn(2, 24)
+    generator = torch.Generator().manual_seed(15)
+    feature = torch.randn(2, 8, height, 7, dtype=dtype, generator=generator)
+    logits = torch.randn(2, 24, dtype=dtype, generator=generator)
     lengths = F.softplus(logits)
     lengths = lengths / lengths.sum(dim=1, keepdim=True)
     edges = F.pad(lengths.cumsum(dim=1), (1, 0), value=0.0)
 
     actual = module._warp_y(feature, edges)
-    source_y = module._sample_positions(edges, feature.shape[2])
+    source_y = module._sample_positions(edges, height)
+    # Preserve native pixel rounding, then normalize in float64 so grid_sample's
+    # coordinate round trip cannot shift the reference sampling locations.
+    # Leave pixels unclamped to check border padding independently.
+    source_pixels = source_y * height - 0.5
+    reference_y = 2 * (source_pixels.double() + 0.5) / height - 1
     source_x = (
-        torch.arange(feature.shape[3], dtype=feature.dtype) + 0.5
+        torch.arange(feature.shape[3], dtype=torch.float64) + 0.5
     ) / feature.shape[3]
     grid = torch.stack(
         (
-            (2 * source_x - 1).view(1, 1, -1).expand(2, 24, -1),
-            (2 * source_y - 1).unsqueeze(-1).expand(-1, -1, 7),
+            (2 * source_x - 1).view(1, 1, -1).expand(2, height, -1),
+            reference_y.unsqueeze(-1).expand(-1, -1, 7),
         ),
         dim=-1,
     )
     expected = F.grid_sample(
-        feature,
+        feature.double(),
         grid,
         mode="bilinear",
         padding_mode="border",
         align_corners=False,
     )
 
-    assert torch.allclose(actual, expected, atol=2e-6, rtol=2e-6)
+    torch.testing.assert_close(actual.double(), expected, atol=tolerance, rtol=tolerance)
 
 
 def test_mcpt_memory_efficient_residual_matches_direct_blend():
