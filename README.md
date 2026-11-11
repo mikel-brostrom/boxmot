@@ -349,8 +349,11 @@ provides its image dimensions; use `CameraModel` when no frame is supplied.
 
 ## License
 
-BoxMOT is licensed under the [Apache License 2.0](LICENSE). Third-party components
-retain their respective licenses and notices.
+BoxMOT is licensed under the [Apache License 2.0](LICENSE).
+
+Each detector and segmentor integrated with BoxMOT retains its own upstream
+license. See the respective project's license for its terms. Other third-party
+components also retain their respective licenses and notices.
 
 ## Contributing
 
