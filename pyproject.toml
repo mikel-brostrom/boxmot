@@ -20,8 +20,6 @@ conflicts = [
   ],
 ]
 extra-build-dependencies = { yolox = ["setuptools", { requirement = "torch", match-runtime = true }] }
-# Build EdgeTAM after installing the selected CPU/CUDA runtime and group build tools.
-no-build-isolation-package = ["edgetam"]
 
 [tool.uv.sources]
 torch = [
