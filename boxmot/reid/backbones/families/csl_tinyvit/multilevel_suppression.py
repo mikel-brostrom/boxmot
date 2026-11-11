@@ -1,4 +1,4 @@
-# BoxMOT Apache-2.0 license
+# BoxMOT AGPL-3.0 license
 
 """Training-only classifier-guided suppression for hierarchical ReID maps."""
 

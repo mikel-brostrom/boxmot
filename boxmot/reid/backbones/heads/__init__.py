@@ -1,4 +1,4 @@
-# BoxMOT Apache-2.0 license
+# BoxMOT AGPL-3.0 license
 
 from boxmot.reid.backbones.heads.bnneck import BNNeck, BNNeck3, ClassBlock
 

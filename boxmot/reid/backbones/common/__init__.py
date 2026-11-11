@@ -1,4 +1,4 @@
-# BoxMOT Apache-2.0 license
+# BoxMOT AGPL-3.0 license
 
 """Lazy shared ReID backbone utility exports."""
 

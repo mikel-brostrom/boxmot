@@ -1,4 +1,4 @@
-# Mikel Broström 🔥 BoxMOT 🧾 Apache-2.0 license
+# Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 # SFSORT implementation adapted for BoxMOT
 
 from __future__ import annotations
