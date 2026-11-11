@@ -4,6 +4,7 @@
 
 #include <deque>
 #include <optional>
+#include <vector>
 
 namespace ocsort {
 
@@ -18,7 +19,7 @@ public:
     [[nodiscard]] int dim_z() const noexcept { return dim_z_; }
     [[nodiscard]] bool is_obb() const noexcept { return is_obb_; }
 
-    void Predict();
+    void Predict(double dt = 0.0);
     void Update(const Vector& measurement);
     void UpdateMissing();
 
@@ -44,6 +45,12 @@ private:
     void EnforceStateConstraints();
     void Freeze();
     void Unfreeze();
+    void ApplyMeasurement(const Vector& measurement);
+    void UpdateTimed(const Vector& measurement);
+
+    std::optional<std::pair<Vector, Matrix>> prediction_origin_;
+    std::optional<Vector> timed_measurement_;
+    std::vector<double> prediction_steps_;
 
     int dim_x_ = 7;
     int dim_z_ = 4;

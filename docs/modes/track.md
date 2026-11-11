@@ -3,14 +3,71 @@
 `track` runs a source through engine-owned perception, tracking, and output
 sinks. It also replays saved TrackR-CNN detections with their KITTI images.
 
-```bash
-boxmot track \
-  --source video.mp4 \
-  --detector yolov8n \
-  --reid osnet_x0_25_msmt17 \
-  --tracker botsort \
-  --save
-```
+=== "CLI"
+
+    ```bash
+    boxmot track \
+      --source video.mp4 \
+      --detector yolov8n \
+      --reid osnet_x0_25_msmt17 \
+      --tracker botsort \
+      --save
+    ```
+
+=== "Python"
+
+    ```python
+    from boxmot.engine.tracking.workflow import run_track
+
+    result = run_track(
+        source="video.mp4",
+        detector="yolov8n",
+        reid="osnet_x0_25_msmt17",
+        tracker="botsort",
+        save=True,
+    )
+    print(result.video_path)
+    ```
+
+Replace `video.mp4` with your input video. The Python call returns a `TrackRun`
+with the run summary and output paths. Pass settings as keyword arguments;
+omitted settings use the mode defaults.
+
+Install the [Ultralytics backend](../getting-started/installation.md#quick-install)
+for this detector.
+The default tracker is ByteTrack and the default inference device is CPU.
+Appearance-enabled trackers such as BoT-SORT resolve the selected `--reid`
+encoder lazily when the first nonempty detection batch needs embeddings.
+
+## Save or display results
+
+For a file or directory source, request an output explicitly:
+
+| Option | Output below `--project/exp` |
+| --- | --- |
+| `--show` | An OpenCV preview window; no file. |
+| `--save` | `tracks.mp4`, annotated at 30 FPS by default. |
+| `--save-txt` | `tracks.txt`, AABB MOT-style rows. OBB output is rejected. |
+| `--save-json` | `tracks.jsonl`, one object per frame with sample/sequence identity, timestamp, and track geometry, IDs, scores, classes, and detection indices. |
+
+The default directory is `runs/exp`. Live tracking reuses this directory and
+replaces selected output files; choose a distinct `--project` to retain an
+earlier run. The live CLI does not expose a `--name` option. `--fps` changes
+saved-video playback speed without changing input frames
+or tracker timestamps. JSON Lines supports AABB and OBB geometry, including
+frames with no tracks, but does not serialize mask arrays or embeddings.
+Live text rows are `frame,id,x,y,width,height,score,class,-1`, with one-based
+frame numbers. JSON Lines retains sequence and sample IDs when one source
+contains multiple sequences.
+
+Webcam indices and URL sources enable preview automatically unless `--show`,
+`--save`, or `--save-txt` was explicitly supplied. For a headless stream run,
+select a saving option such as `--save-txt`. Press **q** or **Esc** in the live
+preview, or **Ctrl-C** in the terminal, to end tracking and close the outputs.
+
+`--show-trajectories` and `--show-kf-preds` are currently accepted but do not
+affect the live renderer. Saved/displayed results include boxes, labels, and
+available mask overlays.
 
 ## Saved TrackR-CNN detections
 
@@ -59,6 +116,12 @@ owns OpenCV capture, BGR-to-RGB conversion, stride, timestamps, reconnect
 policy, and stable sequence/frame identity. A runner resets state between
 sequences and forwards each `PipelineResult` to configured rendering, video,
 MOT text, JSON, composite, or null sinks.
+
+For appearance inference, `--half` selects FP16 ReID where supported; it does
+not change detector precision. Detector precision comes from the detector
+profile. `--conf` controls which detections reach the tracker, so keep it low
+enough to retain the low-confidence observations used by ByteTrack and similar
+two-stage association algorithms.
 
 The nine Python box trackers support EdgeTAM mask guidance on incoming frames,
 including webcams and RTSP streams. Select an algorithm with `--tracker`:
@@ -118,6 +181,25 @@ Pipeline values remain typed; `to_obb_rows()` produces the 9-column output
 layout when an external boundary needs it.
 
 ## Masks and appearance
+
+Segmentation detectors such as `yolov8s-seg` supply masks directly. `--show`
+and `--save` overlay masks for tracked detections using the same distinct
+identity colors as their boxes:
+
+```bash
+boxmot --dashboard track --source 0 --detector yolov8s-seg --show --geometry aabb
+```
+
+No separate `--segmentor` is needed for these detectors. The mask fill is
+translucent so the underlying image remains visible.
+
+Track labels attach directly to the box edge and use the same identity color.
+Label placement accounts for the visible outer stroke and its line width.
+The first visible text pixel aligns just inside the box border, accounting for
+font spacing. Text switches between black and white for contrast, with padding
+above and below all glyphs, including descenders. Near the top of the image,
+labels move inside the box; long labels scale to fit within the image for both
+AABB and OBB tracking.
 
 The [tracker input matrix](../trackers/index.md#input-support) compares supported
 geometry and required or optional cues. The resolved tracker declares whether
@@ -208,10 +290,10 @@ sequences:
 | Regular intervals, but long tracks alternate between smooth motion and unpredictable maneuvers | `False` | Consider `True` |
 | Irregular intervals and changing motion predictability | `True` | Consider `True` |
 
-Both features are experimental. Variable timing supports Python ByteTrack,
-BotSort, StrongSort, OcSort, DeepOcSort, HybridSort, BoostTrack, and OccluBoost.
-Online adaptation is available in Python BoostTrack and OccluBoost. Native
-backends do not support these modes.
+Both features are experimental. Variable timing supports Python trackers
+except SFSORT, plus native ByteTrack, BotSort, OcSort, and OccluBoost. SFSORT
+uses fixed steps and rejects `--variable-dt` on both backends. Online adaptation
+is available only in Python BoostTrack and OccluBoost.
 
 For irregular capture intervals, start with `--variable-dt` and leave
 adaptation disabled:
@@ -302,6 +384,12 @@ ReID preprocessing, inference, and postprocessing. It also reports component
 totals, source acquisition, pipeline enrichment and validation, tracker
 association/update, rendering, sink I/O, residual overhead, and overall
 latency with totals, per-frame averages, and FPS.
+
+Counters, startup timings, and runtime measurements use bordered tables with
+right-aligned values. In narrower terminals, component phases appear on
+indented rows with their totals in the same numeric column. If a frame was
+interrupted, timing averages use attempted frames; **Run FPS** uses completed
+frames.
 
 When `--save` and `--show` are used together, the video writer and display
 share one rendered frame rather than rendering the same result twice.

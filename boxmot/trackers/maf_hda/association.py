@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import numpy as np
 
+from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
+from boxmot.trackers.common.motion.kalman_filters.timing import elapsed_motion, validate_dt
+
 INITIAL_COVARIANCE = np.diag([25.0, 100.0, 25.0, 100.0])
 PROCESS_NOISE = 0.5 * INITIAL_COVARIANCE
 MEASUREMENT_NOISE = np.diag([25.0, 100.0])
@@ -16,10 +19,20 @@ TRANSITION[:2, 2:] = np.eye(2)
 MAX_COST = 10000.0
 
 
-def predict_covariance(covariance: np.ndarray) -> np.ndarray:
-    """Predict one frame, preserving the upstream diagonal covariance model."""
-    predicted = TRANSITION @ covariance @ TRANSITION.T + PROCESS_NOISE
-    return np.diag(np.diag(predicted))
+def predict_covariance(
+    covariance: np.ndarray, *, dt: float | None = None, noise_config: KalmanNoiseConfig | None = None
+) -> np.ndarray:
+    """Predict uncertainty, preserving source diagonalization in fixed-step mode."""
+    dt = validate_dt(dt)
+    config = noise_config if noise_config is not None else KalmanNoiseConfig()
+    if dt is None and config.time_unit == "seconds":
+        raise ValueError("A seconds-based Gaussian model requires an explicit measured dt for prediction.")
+    noise = config.process_covariance(PROCESS_NOISE, 2, continuous=dt is not None)
+    transition = TRANSITION
+    if dt is not None:
+        transition, noise = elapsed_motion(transition, noise, dt)
+    predicted = transition @ covariance @ transition.T + noise
+    return np.diag(np.diag(predicted)) if dt is None else predicted
 
 
 def gaussian_affinity(
@@ -31,6 +44,7 @@ def gaussian_affinity(
     gate_geometry: bool = True,
     max_area_ratio: float = 2.0,
     min_intersection_ratio: float = 0.5,
+    measurement_noise: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return gated center likelihoods and one posterior covariance per box.
 
@@ -38,7 +52,8 @@ def gaussian_affinity(
     intersecting in S2TA; T2TA requires any overlap. Centroid mode supplies
     its own radius gate and keeps these cues from rejecting pairs.
     """
-    innovation_covariance = covariance[:2, :2] + MEASUREMENT_NOISE
+    measurement_noise = MEASUREMENT_NOISE if measurement_noise is None else measurement_noise
+    innovation_covariance = covariance[:2, :2] + measurement_noise
     gain = np.linalg.solve(innovation_covariance, covariance[:2, :]).T
     posterior = covariance - gain @ covariance[:2, :]
     centers = (boxes[:, :2] + boxes[:, 2:]) * 0.5

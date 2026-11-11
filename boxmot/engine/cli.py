@@ -23,6 +23,7 @@ class _CommandSpec:
 
 
 _COMMAND_SPECS = (
+    _CommandSpec("ui", "boxmot.engine.commands.ui", "ui", "Choose commands, models, and options interactively"),
     _CommandSpec("track", "boxmot.engine.commands.track", "track", "Track objects in streams or saved detections"),
     _CommandSpec(
         "materialize",
@@ -63,7 +64,7 @@ _COMMAND_SPECS = (
         "export-edgetam",
         "boxmot.engine.commands.segmentors.export",
         "export_edgetam",
-        "Export EdgeTAM to TFLite with a dynamic object count",
+        "Draft EdgeTAM exporter (conversion backend unavailable)",
     ),
     _CommandSpec("build", "boxmot.engine.commands.build", "build", "Build native tracker extensions"),
     _CommandSpec("install", "boxmot.engine.commands.install", "install", "Install optional dependencies"),
@@ -111,6 +112,7 @@ class CommandFirstGroup(click.Group):
 
         with formatter.indentation():
             formatter.write_text("boxmot MODE [OPTIONS]")
+            formatter.write_text("boxmot --dashboard MODE [OPTIONS]  (interactive live views)")
         formatter.write_paragraph()
 
         formatter.width = 120
@@ -135,6 +137,10 @@ class CommandFirstGroup(click.Group):
 
         formatter.write_text("Examples:")
         with formatter.indentation():
+            formatter.write_text("Open the interactive command and model launcher:")
+            with formatter.indentation():
+                formatter.write_text("boxmot ui")
+            formatter.write_paragraph()
             formatter.write_text("1. Track with webcam using defaults:")
             with formatter.indentation():
                 formatter.write_text(
@@ -176,7 +182,7 @@ class CommandFirstGroup(click.Group):
             with formatter.indentation():
                 formatter.write_text(
                     "boxmot train-reid --model osnet_x0_25 --dataset market1501 "
-                    "--data-dir /path/to/data --epochs 120 --device 0"
+                    "--data-dir /path/to/data --epochs 120 --device cuda:0"
                 )
             formatter.write_paragraph()
 
@@ -184,7 +190,7 @@ class CommandFirstGroup(click.Group):
             with formatter.indentation():
                 formatter.write_text(
                     "boxmot train-reid --model csl_tinyvit_11m --dataset market1501,duke,cuhk03,msmt17 "
-                    "--data-dir /path/to/data --device 0"
+                    "--data-dir /path/to/data --device cuda:0"
                 )
             formatter.write_paragraph()
 
@@ -209,14 +215,18 @@ class CommandFirstGroup(click.Group):
 
 @click.group(cls=CommandFirstGroup)
 @click.version_option(__version__, prog_name="BoxMOT")
+@click.option("--dashboard", is_flag=True, help="Enable live keyboard navigation in workflow panels (terminal only).")
 @click.pass_context
-def boxmot(ctx: click.Context) -> None:
+def boxmot(ctx: click.Context, dashboard: bool) -> None:
     """Pluggable object tracking for detection, segmentation, and pose models."""
 
-    del ctx
     from boxmot.engine.ui.logging import configure_engine_logging
 
     configure_engine_logging()
+    if dashboard:
+        from boxmot.engine.ui.dashboard import dashboard_mode
+
+        ctx.with_resource(dashboard_mode())
 
 
 main = boxmot

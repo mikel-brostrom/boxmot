@@ -159,16 +159,16 @@ OCSORTTracker::KalmanBoxTracker::KalmanBoxTracker(const Detection& detection,
     }
 }
 
-Eigen::VectorXd OCSORTTracker::KalmanBoxTracker::Predict() {
+Eigen::VectorXd OCSORTTracker::KalmanBoxTracker::Predict(const double dt) {
     if (is_obb) {
-        if ((kf.x[7] + kf.x[2]) <= 0.0) {
+        if (((dt == 0.0 ? 1.0 : dt) * kf.x[7] + kf.x[2]) <= 0.0) {
             kf.x[7] = 0.0;
         }
-    } else if ((kf.x[6] + kf.x[2]) <= 0.0) {
+    } else if (((dt == 0.0 ? 1.0 : dt) * kf.x[6] + kf.x[2]) <= 0.0) {
         kf.x[6] = 0.0;
     }
 
-    kf.Predict();
+    kf.Predict(dt);
     ++age;
     if (time_since_update > 0) {
         hit_streak = 0;
@@ -415,7 +415,8 @@ TrackOutput OCSORTTracker::FormatTrack(const KalmanBoxTracker& track) {
 }
 
 std::vector<TrackOutput> OCSORTTracker::Update(const std::vector<Detection>& detections,
-                                               const cv::Mat& image) {
+                                               const cv::Mat& image, const double dt) {
+    boxmot::trackers::base::ValidateElapsedStep(dt);
     if (boxmot::trackers::base::AssociationModeRequiresFrameDimensions(association_mode_) &&
         (association_frame_width_ <= 0 || association_frame_height_ <= 0)) {
         if (image.empty()) {
@@ -457,7 +458,7 @@ std::vector<TrackOutput> OCSORTTracker::Update(const std::vector<Detection>& det
     std::vector<Eigen::VectorXd> predicted_tracks;
     predicted_tracks.reserve(active_tracks_.size());
     for (auto& track : active_tracks_) {
-        predicted_tracks.push_back(PredictionRow(track.Predict(), is_obb_mode_));
+        predicted_tracks.push_back(PredictionRow(track.Predict(dt), is_obb_mode_));
     }
 
     std::vector<Eigen::Vector2d> velocities;

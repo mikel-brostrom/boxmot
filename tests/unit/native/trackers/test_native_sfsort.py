@@ -36,6 +36,7 @@ class _FakeLibrary:
         detection_indices,
         embeddings,
         image,
+        dt=0.0,
     ):
         image_shape = None if image is None else image.shape
         self.calls.append(("update", handle, len(geometry), image_shape, geometry.shape[1], embeddings))

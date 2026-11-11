@@ -12,6 +12,10 @@ When adding oriented bounding box support to a tracker:
   `boxmot/trackers/common/detections/layout.py` instead of hardcoded column
   indices
 - keep AABB and OBB parsing paths explicit
+- interpret angles in radians and resolve equivalent `(w, h, theta)`,
+  `(w, h, theta + pi)`, and `(h, w, theta ± pi/2)` rectangles against the current
+  state before updating; damp angular velocity instead of resetting it after
+  every observation
 - keep motion and association logic OBB-aware in OBB mode, using shared
   geometry helpers from `boxmot/trackers/common/geometry/obb.py` where possible
 - reuse motion adapters and Kalman filters under
@@ -35,5 +39,5 @@ Relevant shared coverage lives in
 `tests/unit/trackers/box/test_box_tracker_contract.py`,
 `tests/unit/trackers/common/test_common_obb.py`,
 `tests/unit/trackers/common/motion/`, and
-`tests/unit/engine/tracking/test_inference.py`. Add tracker-specific cases when
+`tests/unit/engine/test_runner_sinks_v24.py`. Add tracker-specific cases when
 the motion, association, history, or mask behavior is algorithm-specific.

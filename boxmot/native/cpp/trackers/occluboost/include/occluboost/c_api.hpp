@@ -83,9 +83,10 @@ BOXMOT_OCCLUBOOST_API BoxMOTOccluBoostHandle* boxmot_occluboost_create_v3(
     const BoxMOTOccluBoostConfigV3* config);
 BOXMOT_OCCLUBOOST_API void boxmot_occluboost_destroy(BoxMOTOccluBoostHandle* handle);
 BOXMOT_OCCLUBOOST_API int boxmot_occluboost_reset(BoxMOTOccluBoostHandle* handle);
-BOXMOT_OCCLUBOOST_API int boxmot_occluboost_update_v2(BoxMOTOccluBoostHandle* handle,
+BOXMOT_OCCLUBOOST_API int boxmot_occluboost_update_v3(BoxMOTOccluBoostHandle* handle,
                                                       const BoxMOTDetectionBatchV2* detections,
                                                       const BoxMOTImageV2* image,
+                               double dt,
                                                       BoxMOTTrackBatchV2** output);
 BOXMOT_OCCLUBOOST_API void boxmot_occluboost_result_free_v2(BoxMOTTrackBatchV2* output);
 BOXMOT_OCCLUBOOST_API const char* boxmot_occluboost_last_error();

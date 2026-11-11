@@ -466,7 +466,10 @@ Eigen::MatrixXd SFSORTTracker::CalculateCost(
     );
 }
 
-std::vector<TrackOutput> SFSORTTracker::Update(const std::vector<Detection>& detections, const cv::Mat& image) {
+std::vector<TrackOutput> SFSORTTracker::Update(const std::vector<Detection>& detections, const cv::Mat& image, const double dt) {
+    if (dt != 0.0) {
+        throw std::invalid_argument("Native SFSORT does not support variable dt.");
+    }
     if (!margins_ready_) {
         const int frame_width = config_.frame_width > 0 ? config_.frame_width : image.cols;
         const int frame_height = config_.frame_height > 0 ? config_.frame_height : image.rows;

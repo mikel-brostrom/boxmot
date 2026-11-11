@@ -6,6 +6,16 @@ tentative-track confirmation, ReID recovery, a guarded low-confidence second
 pass, duplicate suppression, and an **Abnormal Motion Suppression (AMS)**
 Kalman update.
 
+## Tasks and variants
+
+| Task | Default variant | Other variants |
+| --- | --- | --- |
+| [2D boxes (AABB)](../tasks/aabb.md) | [AABB + ReID](../tasks/aabb.md#appearance-assisted-reid) | [Motion-only](../tasks/aabb.md#motion-only) |
+| [Oriented boxes (OBB)](../tasks/obb.md) | [OBB + ReID](../tasks/obb.md#appearance-assisted-reid) | [Motion-only](../tasks/obb.md#motion-only) |
+
+Set `use_embeddings=False` in the tracker config to select motion-only
+association. Camera-motion compensation and frame requirements apply independently.
+
 Python AABB mode also supports optional [EdgeTAM mask guidance](../tasks/masks.md#use-temporal-masks-in-association)
 with `--tracker occluboost --tracker-backend python --asso-func iou --edgetam --mask-guidance-weights edgetam.pt`.
 It requires IoU association and `per_class=False`, retains this tracker's
@@ -25,21 +35,27 @@ does not make it the same tracker as McByte++.
     - **Trigger.** A per-track ring buffer of length `kalman.ams.buffer_size` tracks `[cx, cy, w, h]`. We compute the relative speed spike of the centre and aspect against the buffer mean; if either exceeds `kalman.ams.threshold`, the speed gate fires.
     - **Shrink gate (key addition over the OccluTrack paper).** Suppression only kicks in when the new detection is also physically smaller than the running mean: `cur_area < kalman.ams.shrink_ratio * mean_area`. This keeps pure speed spikes from being treated as partial occlusion.
     - **OBB behavior.** AMS applies to AABB motion only. OBB tracks bypass suppression (`alpha=1.0`) even when `kalman.ams.enabled=True`.
-- **BotSort-style track confirmation** (`tentative -> activated`). New tracks born from medium-confidence detections must accumulate `confirm_hits` consecutive matches before being emitted; detections above `instant_confirm_thresh` skip the wait. Tentative tracks expire after `tentative_max_age` frames, slashing ghost IDs from one-frame flickers.
+- **BotSort-style track confirmation** (`tentative -> activated`). New tracks born from medium-confidence detections must accumulate `confirm_hits` consecutive matches before being emitted; detections above `instant_confirm_thresh` skip the wait. Tentative tracks expire after `tentative_max_age` frames to limit short-lived false tracks.
 - **ReID-only recovery pass.** Unmatched high-confidence detections are re-attached to recently lost tracks when cosine appearance similarity exceeds `recovery_appearance_thresh` and a loose IoU sanity gate (`recovery_iou_thresh`) is satisfied. Recovered embeddings are EMA-blended with `feat_alpha`.
-- **Safe appearance-gated second pass.** Low-confidence detections (`track_low_thresh ≤ conf < det_thresh`) can re-attach **only** to confirmed tracks (`is_activated=True`) under strict IoU + appearance gates. This lifts MOTA without the ID switches an unrestricted ByteTrack-style second pass introduces.
+- **Guarded second pass.** Low-confidence detections (`track_low_thresh ≤ conf < det_thresh`) can re-attach to confirmed tracks (`is_activated=True`) subject to configured geometry, track-age, and hit-streak gates. Appearance adds another gate when `use_embeddings=True`.
 - **Duplicate suppression.** `duplicate_iou_thresh` controls removal of the younger of two near-identical emitted tracks.
 
 ## What BoxMOT Needs For OccluBoost
 
-- A detector and appearance embeddings (the recovery pass and second-pass
-  appearance gate rely on them). Both the Python implementation and native
+- A detector and appearance embeddings when `use_embeddings=True` (the default).
+  Disabling embeddings removes appearance recovery and appearance gating.
+  Both the Python implementation and native
   adapter can extract missing embeddings from a supplied `Frame` or consume
   embeddings already attached to `Detections`.
 - AABB or OBB detections. OBB inputs use oriented IoU, OBB-aware confidence
   boosting, optional ReID recovery and second-pass matching, and the 9-column
   output schema `[cx, cy, w, h, angle, id, conf, cls, det_ind]`.
 - Best for crowded / partial-occlusion scenes where identity preservation matters.
+
+Camera-motion compensation is also enabled by default with `cmc_method="sof"`.
+Supply current image pixels even when embeddings are precomputed, or set
+`use_cmc=False`. Centroid association and temporal mask guidance can still
+require a frame independently.
 
 ## Native C++ Backend
 

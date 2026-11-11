@@ -329,7 +329,7 @@ void Track::Update(const Track& new_track, const KalmanFilterXYWH& kalman_filter
     UpdateClass(new_track.cls, new_track.conf);
 }
 
-void Track::Predict(const KalmanFilterXYWH& kalman_filter) {
+void Track::Predict(const KalmanFilterXYWH& kalman_filter, const double dt) {
     if (mean.size() == 0 || covariance.size() == 0) {
         return;
     }
@@ -344,7 +344,7 @@ void Track::Predict(const KalmanFilterXYWH& kalman_filter) {
             mean_state[7] = 0.0;
         }
     }
-    const auto [predicted_mean, predicted_covariance] = kalman_filter.Predict(mean_state, covariance);
+    const auto [predicted_mean, predicted_covariance] = kalman_filter.Predict(mean_state, covariance, dt);
     mean = predicted_mean;
     covariance = predicted_covariance;
 }

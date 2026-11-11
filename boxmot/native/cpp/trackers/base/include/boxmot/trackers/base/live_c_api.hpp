@@ -2,6 +2,7 @@
 
 #include "boxmot/native/runtime.hpp"
 #include "boxmot/trackers/base/c_api_v2.hpp"
+#include "boxmot/trackers/base/timing.hpp"
 
 #include <opencv2/core.hpp>
 

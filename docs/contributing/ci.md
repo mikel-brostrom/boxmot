@@ -9,11 +9,11 @@ The top-level `on:` block decides whether any job in a workflow is created:
 | Workflow | Current triggers |
 | --- | --- |
 | `.github/workflows/ci.yml` | Pushes to `master` and pull requests targeting `master` |
-| `.github/workflows/docs.yml` | Pushes to `master`, pull requests targeting `master`, and manual dispatch; deployment from `master` |
+| `.github/workflows/docs.yml` | Pushes and pull requests to `master` touching the configured docs/source/dependency paths, plus manual dispatch; deployment from `master` |
 | `.github/workflows/benchmark.yml` | Manual dispatch only |
 | `.github/workflows/wheels.yml` | Reusable release gate and manual dispatch |
 | `.github/workflows/publish.yml` | Manual dispatch after the wheel and Docker gates pass |
-| `.github/workflows/docker.yml` | Reusable pre-publication gate and published releases |
+| `.github/workflows/docker.yml` | Reusable pre-publication gate, manual dispatch, and published releases |
 
 A valid job block does not run when its workflow was not triggered. In
 particular, a direct push to a feature branch does not start `ci.yml`; open or
@@ -108,8 +108,9 @@ synchronizes the runtime version. The resulting candidate commit is retained
 in the `release-source` bundle artifact without pushing the branch or a tag.
 
 Every release gate restores that exact candidate. The reusable wheel workflow
-runs the full tests, strict documentation build, native checks, and clean-wheel
-imports on Python 3.10 through 3.13. Docker validates `cli-cpu` and
+runs source tests, the strict documentation build, and native checks on Python
+3.11, then tests clean-wheel imports and tracker contracts on Python 3.10
+through 3.13. Docker validates `cli-cpu` and
 `service-cpu`, without pushing them. Package checks compare the
 requested release version with the candidate and installed artifacts; they do
 not pin a particular version.

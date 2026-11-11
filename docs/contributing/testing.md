@@ -10,14 +10,21 @@ When a full run is too heavy, at least run the tests relevant to your change:
 
 ```bash
 uv run --no-sync pytest tests/unit/engine/research/test_engine_research.py
-uv run --no-sync pytest tests/unit/engine/test_cli.py
-uv run --no-sync pytest tests/unit/api/test_python_api.py
+uv run --no-sync pytest tests/unit/engine/test_cli_v24.py
+uv run --no-sync pytest tests/unit/pipelines tests/unit/structures
 uv run --no-sync pytest tests/unit/trackers
 uv run --no-sync pytest tests/unit/configs
 ```
 
 Native wrapper changes are covered under `tests/unit/native`; those tests may
-need CMake, OpenCV, Eigen, and a working C++ compiler.
+need CMake, OpenCV, Eigen, and a working C++ compiler. Run native tests serially:
+their fixtures build targets in shared directories. To parallelize the rest of
+the suite as the release workflow does:
+
+```bash
+uv run --no-sync pytest -n logical --maxprocesses=4 --dist worksteal --ignore=tests/unit/native tests
+uv run --no-sync pytest tests/unit/native
+```
 
 ## CI smoke tests
 

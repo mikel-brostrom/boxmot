@@ -18,6 +18,7 @@ import yaml
 from boxmot.datasets import DatasetManifest
 from boxmot.datasets.config import load_dataset_config, resolve_dataset_storage_root
 from boxmot.datasets.validation import validate_published_build
+from boxmot.engine.config.runtime import resolve_mode_args
 from boxmot.engine.dataset_variants.cache import derive_cached_build
 from boxmot.engine.dataset_variants.sampling import PROFILE, select_bursty_frames, timing_statistics
 from boxmot.engine.materialization.builds import resolve_build_path, validate_build_compatibility
@@ -216,8 +217,11 @@ def create_raw_variant(
     return RawTimeVariant(output_root / "dataset.yaml", output_root / "variant.json", sample_map, statistics)
 
 
-def main(args: Any) -> TimeVariantResult:
-    """Create raw data, publish reused perception, and display replay locations."""
+def main(args: Any | None = None, **options: Any) -> TimeVariantResult:
+    """Create a time variant from keyword options or prepared workflow arguments."""
+    if args is None:
+        options = {"time_variant": True, "data_root": None, "build_root": None, **options}
+    args = resolve_mode_args("materialize", args, options)
     dataset = load_dataset_config(args.dataset)
     data_root = default_data_root(args.data_root)
     parent_catalog = catalog_mot_dataset(dataset, split=args.split, data_root=data_root)

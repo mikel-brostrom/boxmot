@@ -2,7 +2,19 @@
 
 [Paper: BoT-SORT: Robust Associations Multi-Pedestrian Tracking](https://arxiv.org/abs/2206.14651)
 
-BoT-SORT extends the ByteTrack family by combining motion, appearance, and camera-motion compensation more explicitly. The paper improves the Kalman state, uses global motion compensation, and fuses ReID cues with IoU-based association to make identity assignment more stable in crowded scenes and moving-camera footage. The result is a tracker that is still online and practical, but more robust than motion-only alternatives when identities are ambiguous.
+BotSort uses high- and low-confidence association stages, Kalman motion,
+optional appearance embeddings, and camera-motion compensation. Its configurable
+geometry and appearance gates control when an embedding can influence a match.
+
+## Tasks and variants
+
+| Task | Default variant | Other variants |
+| --- | --- | --- |
+| [2D boxes (AABB)](../tasks/aabb.md) | [AABB + ReID](../tasks/aabb.md#appearance-assisted-reid) | [Motion-only](../tasks/aabb.md#motion-only) |
+| [Oriented boxes (OBB)](../tasks/obb.md) | [OBB + ReID](../tasks/obb.md#appearance-assisted-reid) | [Motion-only](../tasks/obb.md#motion-only) |
+
+Set `use_embeddings=False` in the tracker config to select motion-only
+association. Camera-motion compensation and frame requirements apply independently.
 
 Python AABB mode also supports optional [EdgeTAM mask guidance](../tasks/masks.md#use-temporal-masks-in-association)
 with `--tracker botsort --tracker-backend python --asso-func iou --edgetam --mask-guidance-weights edgetam.pt`.
@@ -22,6 +34,12 @@ gains have not been established for this extension.
 Direct construction accepts `reid=ReIDConfig(...)` or a prebuilt
 `AppearanceEncoder`, as described in the
 [Python API](../python/index.md#live-embeddings-in-reid-enabled-trackers).
+
+Sparse optical flow CMC is enabled by default (`use_cmc=True`,
+`cmc_method="sof"`). Supply current image pixels even with precomputed
+embeddings, or disable CMC explicitly. For detections-only updates without
+embeddings, disable both `use_cmc` and `use_embeddings`; centroid association
+and temporal mask guidance still have separate frame requirements.
 
 ## Lost-track lifetime
 

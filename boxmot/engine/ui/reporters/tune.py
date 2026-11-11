@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import replace
+from numbers import Real
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Sequence
 
@@ -12,6 +13,7 @@ from rich.text import Text
 
 import boxmot.engine.ui.core.ui as ui
 from boxmot.engine.eval.results import CORE_SUMMARY_COLUMNS, SUMMARY_COLUMNS
+from boxmot.engine.ui.dashboard import TrialRow, TuningProgressView
 from boxmot.engine.ui.reporters.eval import EvalSequenceProgressPresenter
 from boxmot.engine.ui.workflow import steps as step_labels
 from boxmot.engine.ui.workflow.reporting import (
@@ -322,7 +324,8 @@ class TuneWorkflowCallback(RichWorkflowCallback):
             if not totals:
                 continue
             presenter = EvalSequenceProgressPresenter(
-                WorkflowDetailCallback(workflow, TUNE_OPTIMIZE_STEP, render=False), totals
+                WorkflowDetailCallback(workflow, TUNE_OPTIMIZE_STEP, render=False), totals,
+                dashboard_label=f"Trial {self.trial_indices[trial_id]}",
             )
             for event in events:
                 # Sequence names and frame counts are enough during replay;
@@ -501,4 +504,9 @@ def format_tune_progress(
                 minimize=minimize,
             ),
         ))
-    return Group(*parts)
+    trials = [
+        TrialRow(index, {name: float(value) for name, value in summary.items() if isinstance(value, Real)})
+        for index, summary in ((1, first_summary), (best_trial, best_summary), (last_trial, last_summary))
+        if index is not None and summary is not None
+    ]
+    return TuningProgressView(*parts, trials=trials, maximize=maximize, minimize=minimize)

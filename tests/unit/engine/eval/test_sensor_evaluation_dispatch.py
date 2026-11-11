@@ -23,6 +23,7 @@ def _arguments(tmp_path: Path, **overrides: Any) -> SimpleNamespace:
 
 @pytest.mark.parametrize("entrypoint", (evaluator.main, evaluator.run_eval))
 @pytest.mark.parametrize(("show", "save", "show_3d"), ((False, False, False), (True, False, True), (False, True, True)))
+@pytest.mark.parametrize("variable_dt", [False, True])
 def test_shared_entrypoints_preserve_sensor_profiles_and_visualization(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -31,10 +32,13 @@ def test_shared_entrypoints_preserve_sensor_profiles_and_visualization(
     show: bool,
     save: bool,
     show_3d: bool,
+    variable_dt: bool,
 ) -> None:
     profiles = tmp_path / "classes.yaml"
     profiles.write_text("car: {}\npedestrian: {}\n", encoding="utf-8")
-    args = _arguments(tmp_path, class_config=profiles, show=show, save=save, show_3d=show_3d)
+    args = _arguments(
+        tmp_path, class_config=profiles, show=show, save=save, show_3d=show_3d, variable_dt=variable_dt
+    )
     captured: dict[str, Any] = {}
 
     def run(normalized: Any, **kwargs: Any) -> ValidationResult:
@@ -70,6 +74,7 @@ def test_shared_entrypoints_preserve_sensor_profiles_and_visualization(
     assert (normalized.show, normalized.save, normalized.show_3d) == (show, save, show_3d)
     assert normalized.per_class is True
     assert normalized.eval_masks is True
+    assert normalized.variable_dt is variable_dt
     assert not hasattr(args, "split")
     captured_output = capsys.readouterr()
     output = captured_output.out + captured_output.err
@@ -90,7 +95,7 @@ def test_shared_entrypoints_preserve_sensor_profiles_and_visualization(
         ({"eval_3d": True, "eval_masks": True}, "Choose either --eval-3d or --eval-masks"),
         ({"compare_trackeval": True}, "does not support compare_trackeval"),
         ({"fps": 10}, "does not support fps"),
-        ({"variable_dt": True}, "does not support variable_dt"),
+        ({"calibrate_kf": True, "variable_dt": True}, "calibration uses fixed frame steps"),
         ({"sequence_workers": 0}, "sequence_workers must be a positive integer"),
         ({"sequence_workers": True}, "sequence_workers must be a positive integer"),
         ({"device": "cuda:0"}, "device must be cpu"),

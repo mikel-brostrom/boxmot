@@ -228,6 +228,9 @@ class MaterializeWorkflowReporter(RichWorkflowReporter):
             return
         if self._workflow is None:
             self._workflow = self.create()
+        # Materialization can be an intermediate part of eval/tune. Those
+        # commands keep running and browse their own final results instead.
+        self._workflow.allow_dashboard_browse = getattr(self.args, "materialize_mode", "materialize") == "materialize"
         from boxmot.engine.ui.workflow.pipeline import PipelineTracker
 
         self._pipeline = PipelineTracker(self._workflow)

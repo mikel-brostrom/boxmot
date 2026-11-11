@@ -2,7 +2,16 @@
 
 [Paper: StrongSORT: Make DeepSORT Great Again](https://arxiv.org/abs/2202.13514)
 
-StrongSORT revisits DeepSORT and shows that a stronger baseline matters. The paper improves the detector and appearance encoder, adds better motion handling and camera compensation, and then layers on lightweight postprocessing ideas to recover missed links and detections. The core message is that a carefully engineered DeepSORT-style tracker can remain competitive without changing the online MOT formulation.
+StrongSort uses an appearance gallery, Kalman motion, camera-motion
+compensation, and geometric fallback association. BoxMOT runs its online
+tracker; detector and appearance-model selection are configured separately.
+
+## Tasks and variants
+
+| Task | Default variant | Other variants |
+| --- | --- | --- |
+| [2D boxes (AABB)](../tasks/aabb.md) | [AABB + ReID](../tasks/aabb.md#appearance-assisted-reid) | None (ReID is required) |
+| [Oriented boxes (OBB)](../tasks/obb.md) | [OBB + ReID](../tasks/obb.md#appearance-assisted-reid) | None (ReID is required) |
 
 Python AABB mode also supports optional [EdgeTAM mask guidance](../tasks/masks.md#use-temporal-masks-in-association)
 with `--tracker strongsort --tracker-backend python --asso-func iou --edgetam --mask-guidance-weights edgetam.pt`.
@@ -21,6 +30,19 @@ gains have not been established for this extension.
 Direct construction accepts `reid=ReIDConfig(...)` or a prebuilt
 `AppearanceEncoder`, as described in the
 [Python API](../python/index.md#live-embeddings-in-reid-enabled-trackers).
+
+ECC camera-motion compensation is enabled by default. Supply the current frame
+even when detections already contain embeddings. Set
+`StrongSortConfig(use_cmc=False)` to disable CMC, or select another supported
+`cmc_method`. Appearance remains required; missing embeddings still need image
+pixels for ReID. Centroid association and optional mask guidance have their own
+frame requirements.
+
+Tracks normally need `n_init=3` consecutive observations for confirmation.
+`max_age` retains unmatched tracks internally; it does not guarantee a visible
+output row on every missing observation. This page describes the online tracker.
+The paper's offline linking and interpolation stages are separate workflows;
+see [evaluation postprocessing](../guides/evaluation.md).
 
 ## Python API
 

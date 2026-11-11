@@ -1,8 +1,9 @@
 # Experiment Workflows
 
-An experiment binds a dataset and semantic component configuration. The same
-resolved configuration contributes to the materialized build ID and is checked
-again by eval, tune, and research.
+An experiment binds a dataset and semantic component configuration.
+Detector-based experiments contribute to the materialized build ID and are
+checked again by eval, tune, and research. Saved 2D and sensor experiments
+instead select existing predictions; see [experiment types](../config/experiments.md).
 
 ```bash
 boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml
@@ -10,10 +11,14 @@ boxmot tune --experiment mot17/ablation-yolox-lmbn.yaml
 boxmot research --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID
 ```
 
-Materialization accepts only `--experiment`. The dataset, split, geometry,
+Perception materialization requires `--experiment`. The dataset, split, geometry,
 detector, segmentor, ReID encoder, and class map are part of that experiment's
 semantic identity. Direct component selectors cannot override an authored
 `--experiment`; create another experiment when its configuration should change.
+Eval and tune allow `--split` to select another declared split; that selection
+needs its own matching build. `materialize` takes the split from the experiment.
+The separate `materialize --time-variant` operation derives a dataset from an
+existing build and does not accept `--experiment`.
 
 An experiment's `dataset.ref` can name a neighboring dataset YAML, such as
 `dataset.yaml`, or use a relative path such as `../datasets/custom.yaml`.
@@ -38,8 +43,8 @@ Append `/CHECKPOINT` to the detector profile when needed to narrow a match.
 Omitting `--reid` matches only experiments without a ReID profile.
 
 Evaluation and tuning prepare or reuse a canonical build when `--build` is
-omitted. Their dataset-only forms without a detector require an explicit
-`--build`. Automatic preparation remains experiment-backed, whether selected
+omitted. For image datasets without saved predictions, their dataset-only forms
+without a detector require an explicit `--build`. Automatic preparation remains experiment-backed, whether selected
 by filename or component shorthand; source and semantic fingerprints must
 match for reuse. Research requires an authored experiment and an explicit
 build.

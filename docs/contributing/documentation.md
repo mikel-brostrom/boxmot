@@ -12,9 +12,10 @@ Run this once from the repository root, and again whenever `uv.lock` changes:
 uv sync --locked --no-default-groups --extra cpu --group docs --group test
 ```
 
-This creates the project environment at `.venv`. The CPU profile is required
-because generated CLI sections import the BoxMOT command entry point; Python
-API extraction itself remains static and does not import runtime backends.
+This creates the project environment at `.venv`. The docs workflow selects
+CPU Torch so generated CLI sections can import command adapters without a CUDA
+runtime. Python API extraction itself remains static and does not import
+runtime backends.
 
 If another virtual environment is active, deactivate it first or invoke the
 executables under `.venv/bin` as shown below. This avoids `VIRTUAL_ENV does not
@@ -76,9 +77,9 @@ pages:
 - **Modes** own runnable workflows, effective arguments, outputs, and examples.
 - **Tasks** own AABB, OBB, and mask data contracts.
 - **Trackers** own algorithm behavior and tracker-specific tradeoffs.
-- **Compare** owns cross-component selection and fair-comparison guidance.
-- **Data** owns defaults, profile schemas, and experiment composition.
-- **Guides** own cross-mode procedures and deeper explanations.
+- **Datasets** owns supported benchmarks, acquisition, and custom data setup.
+- **Configuration** owns defaults, profile schemas, and experiment composition.
+- **Guides** own cross-mode procedures, component comparisons, and deeper explanations.
 - **Integrations** own external detector/runtime and deployment boundaries.
 - **Reference** owns exact generated CLI and Python interfaces.
 - **Help** owns troubleshooting and support routes.

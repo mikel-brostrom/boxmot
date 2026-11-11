@@ -33,6 +33,13 @@ target_link_libraries(boxmot_native_identity_probe PRIVATE
 )
 boxmot_enable_native_warnings(boxmot_native_identity_probe)
 
+add_executable(boxmot_native_timing_probe EXCLUDE_FROM_ALL tests/native_timing_probe.cpp)
+target_compile_features(boxmot_native_timing_probe PRIVATE cxx_std_17)
+target_link_libraries(boxmot_native_timing_probe PRIVATE
+    botsort_core bytetrack_core occluboost_core ocsort_core sfsort_core
+)
+boxmot_enable_native_warnings(boxmot_native_timing_probe)
+
 # ---------------------------------------------------------------------------
 # Wheel install rules
 # ---------------------------------------------------------------------------

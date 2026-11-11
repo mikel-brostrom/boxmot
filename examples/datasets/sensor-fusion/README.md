@@ -9,7 +9,7 @@ sequence modalities. Each modality declares its encoding and relative paths.
 The `trackrcnn` and `kitti-detections` names specify encodings; your recordings
 and detector models do not need to come from KITTI. Evaluation and tuning
 use EagerMOT with car and pedestrian segmentation metrics by default.
-`eval --eval-3d` adds official KITTI object AP40 by difficulty and 2D tracking
+`eval --eval-3d --eval-ap` adds official KITTI object AP40 by difficulty and 2D tracking
 when exact object and tracking annotations are available.
 
 ## Copy and populate
@@ -73,9 +73,9 @@ All modality paths resolve beneath `storage.root`, which is `.` relative to
 this local `dataset.yaml`. Selecting the built-in `--dataset sensor-fusion`
 instead resolves `root: .` beneath `datasets/mot` in the working directory;
 use a local copy of the YAML for another payload folder. Saved sensor `eval`
-and `tune` do not accept `--data-root`.
+and `tune` accept `--data-root` to override the base containing `storage.root`.
 Paths use `/`, cannot contain `..` or an absolute
-root, and accept `{partition}` and `{sequence}` placeholders. Keeping actual
+root, and accept `{partition}`, `{sequence}`, and `{split}` placeholders. Keeping actual
 files inside the folder makes the dataset portable. Use a split's `modalities`
 mapping to replace a modality for that split, for example to select predictions
 from a different detector checkpoint. Specify the replacement's complete
@@ -177,7 +177,8 @@ The transform at array index `i` maps frame `i`'s camera coordinates into a
 single fixed world coordinate system. Relative odometry increments and
 world-to-camera matrices must be converted before saving; the reader does
 not accumulate or invert them. For a stationary camera, provide `N` identity
-matrices. Poses are required for this folder workflow.
+matrices, or omit the `poses` modality to track and calibrate in camera
+coordinates. A declared pose file must exist for each selected sequence.
 EagerMOT transforms box centers using the full rigid pose but represents box
 orientation with yaw only; roll and pitch are approximated.
 
@@ -286,10 +287,15 @@ to save videos with projected cuboids. An absolute dataset folder or
 `dataset.yaml` path also works from another working directory. No registration
 in BoxMOT's built-in dataset catalog is needed.
 
-This workflow supports one calibrated camera per sequence and evaluates car
-and pedestrian **segmentation tracking**. It requires ground truth, image
-detections, and spatial detections for evaluation and tuning. The dataset
-class catalog is configurable, but these workflows do not
-provide arbitrary-class metrics, multi-camera ingestion, raw LiDAR processing,
-or 3D ground-truth box metrics. The initial EagerMOT profiles are KITTI presets;
-use your training split to tune them for your data.
+This workflow supports one calibrated camera per sequence. Evaluation and
+tuning default to car and pedestrian **segmentation tracking**, requiring
+predicted and ground-truth masks plus spatial detections. `eval --eval-3d`
+instead scores volumetric 3D HOTA/MOTA/IDF1 against `ground_truth_3d`; it can
+run without image detections, and does not load ground-truth masks. Add
+`--eval-ap` only when exact object labels are available for official object
+AP and projected 2D tracking reports.
+
+The dataset class catalog is configurable, but these workflows do not provide
+arbitrary-class metrics, multi-camera ingestion, or raw LiDAR processing.
+The initial EagerMOT profiles are KITTI presets; use your training split to
+tune them for your data.

@@ -3,11 +3,65 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import sys
 import threading
 
 import pytest
 
 from boxmot.native import _common
+
+
+@pytest.mark.parametrize("reporting", ["terminal", "explicit", "registered"])
+def test_build_step_reports_missing_cmake_with_setup_instructions(monkeypatch, reporting: str) -> None:
+    """Missing build tools give the same actionable error with or without a dashboard."""
+    monkeypatch.setenv("PATH", "")
+    messages: list[str] = []
+    callback = messages.append
+    monkeypatch.setattr(
+        _common._build_status_state, "status_fn", callback if reporting == "registered" else None, raising=False
+    )
+
+    with pytest.raises(RuntimeError, match="CMake executable 'cmake' was not found on PATH") as error:
+        _common.run_build_step(
+            cmd=["cmake", "--version"],
+            label="Building ByteTrack: configuring...",
+            status_fn=callback if reporting == "explicit" else None,
+        )
+
+    detail = str(error.value)
+    assert "CMake 3.16+" in detail
+    assert "C++17" in detail
+    assert "sudo apt install --no-install-recommends build-essential cmake libopencv-dev libeigen3-dev" in detail
+    assert "https://mikel-brostrom.github.io/boxmot/native/#install-dependencies" in detail
+    assert not messages
+
+
+@pytest.mark.parametrize("reporting", ["terminal", "explicit", "registered"])
+@pytest.mark.parametrize("returncode", [0, 1])
+def test_build_step_preserves_output_and_exit_status(monkeypatch, capfd, reporting: str, returncode: int) -> None:
+    """Available commands still stream output to the selected destination."""
+    messages: list[str] = []
+    callback = messages.append
+    monkeypatch.setattr(
+        _common._build_status_state, "status_fn", callback if reporting == "registered" else None, raising=False
+    )
+
+    result = _common.run_build_step(
+        cmd=[sys.executable, "-c", f"print('build output'); raise SystemExit({returncode})"],
+        label="Building test target",
+        status_fn=callback if reporting == "explicit" else None,
+    )
+
+    assert result == returncode
+    output = capfd.readouterr().out
+    if reporting == "terminal":
+        assert "build output" in output
+        assert not messages
+    else:
+        assert not output
+        assert any("build output" in message for message in messages)
+        if returncode:
+            assert "(failed)" in messages[-1]
 
 
 def _make_native_sources(tmp_path):
@@ -344,6 +398,8 @@ def test_build_native_target_selects_produced_multi_config_artifact(monkeypatch,
 
 
 def test_build_native_target_trusts_packaged_artifact(monkeypatch, tmp_path):
+    # A packaged library must remain usable without the native build toolchain.
+    monkeypatch.setenv("PATH", "")
     native_root, tracker_root, _, _ = _make_native_sources(tmp_path)
     build_dir = tmp_path / "build" / "demo"
     artifact = tracker_root / "demo_capi"

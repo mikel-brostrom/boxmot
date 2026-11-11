@@ -1,5 +1,8 @@
 # Component API Reference
 
+Use these contracts to implement or compose components independently of the
+CLI. The [Python API guide](index.md) shows complete tracking workflows.
+
 ## Canonical structures
 
 Import canonical values from `boxmot.structures`. Their implementation modules
@@ -54,19 +57,27 @@ group 2D and 3D values by role:
 
 ::: boxmot.trackers.common.protocols.TrackerRequirements
 
+::: boxmot.trackers.common.specs.TrackerCapabilities
+
+::: boxmot.trackers.common.specs.TrackerFamily
+
 ::: boxmot.trackers.common.specs.TrackerSpec
 
 ::: boxmot.trackers.common.factory.create_tracker
 
 Trackers accept canonical `Detections` or, for standalone box-only calls, exact
-NumPy AABB `N x 6` / OBB `N x 7` rows. An optional canonical `Frame` may be
-passed separately. NumPy input returns packed `float64` AABB `M x 8` / OBB
+NumPy AABB `N x 6` / OBB `N x 7` rows. An optional canonical `Frame` or `uint8`
+NumPy HWC BGR image may be passed separately. NumPy input returns packed `float64` AABB `M x 8` / OBB
 `M x 9` rows; canonical input returns `Tracks`. Appearance and mask inference
 normally belong upstream in a `PerceptionPipeline`. Every high-level
 ReID-enabled tracker adapter can also lazily invoke ReID when its input has no
 embeddings and a `Frame` is supplied. Attached embeddings bypass that internal
 backend. Native adapters then pass the resolved features to their model-free
 C++ tracker libraries.
+
+MafHda requires canonical detections carrying masks. EagerMot instead accepts
+independent 2D/3D batches and calibration and returns two output collections;
+see [sensor fusion](../trackers/eagermot.md#sensor-fusion-example).
 
 ## Batched Kalman filters
 
@@ -94,7 +105,7 @@ per-track bookkeeping and adaptive-noise updates still run independently.
 
 ## Batched camera-motion compensation
 
-BoT-SORT, StrongSORT, BoostTrack, OccluBoost, DeepOCSORT, and HybridSORT batch
+ByteTrack, OcSort, BotSort, StrongSort, BoostTrack, OccluBoost, DeepOcSort, and HybridSort batch
 camera-motion updates automatically when CMC is enabled. No additional CLI
 option is needed. The shared kernels transform box geometry, numerical
 Jacobians, velocities, and covariances in arrays. Observation-centric trackers
@@ -104,9 +115,11 @@ tracker's existing compensation policy.
 Camera motion is estimated once per frame. Choose `sof` for translation,
 rotation, and scale changes, or `ecc` for translation. These are the recommended
 fast methods. ORB and SIFT remain available as slower opt-in methods in the Python
-backend: select `cmc_method="orb"` or `cmc_method="sift"` in a Python tracker
-configuration that supports CMC. Their useful settings can exceed the
-one-millisecond latency target. Native backends support ECC and SOF only.
+backend: select `cmc_method="orb"` or `cmc_method="sift"` with `use_cmc=True`
+in the tracker config. ByteTrack and OcSort leave CMC off by default; the other
+six enable it. Their useful settings can exceed the one-millisecond latency
+target. Native BotSort and OccluBoost support ECC and SOF; the other native
+trackers do not implement CMC.
 
 ECC and SOF resize before grayscale conversion and cap their default working
 width regardless of source resolution. SOF uses a 192-pixel width, up to 48

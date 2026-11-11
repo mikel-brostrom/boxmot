@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from io import StringIO
-from typing import Literal, Sequence
+from typing import TYPE_CHECKING, Literal, Sequence
 
 from rich.console import Console, Group, RenderableType
 from rich.live import Live
@@ -14,6 +14,9 @@ from rich.text import Text
 from rich.theme import Theme
 
 from boxmot.engine.ui.workflow.fields import WORKFLOW_PANEL_PREFIX
+
+if TYPE_CHECKING:
+    from boxmot.engine.ui.dashboard import LiveDashboard
 
 StepState = Literal["done", "active", "todo", "failed"]
 
@@ -580,8 +583,13 @@ class WorkflowProgress:
     transient: bool = False
     prefer_alt_screen: bool = False
     prefer_compact_layout: bool = False
+    allow_dashboard_browse: bool = True
     _started: bool = field(default=False, init=False, repr=False)
     _live: Live | None = field(default=None, init=False, repr=False)
+    _dashboard: LiveDashboard | None = field(default=None, init=False, repr=False)
+    _dashboard_steps: dict[str, tuple[str | None, RenderableType | None]] = field(
+        default_factory=dict, init=False, repr=False
+    )
     include_setup: bool = True
     _oversized: bool = field(default=False, init=False, repr=False)
     _uses_alt_screen: bool = field(default=False, init=False, repr=False)
@@ -651,6 +659,8 @@ class WorkflowProgress:
         return tuple(self.steps), self.detail_title, self.detail_text, self.detail_renderable
 
     def _render_snapshot(self) -> None:
+        if self._refresh_dashboard():
+            return
         renderable = self._live_renderable()
         if self._live is not None:
             self._live.update(renderable, refresh=True)
@@ -722,7 +732,13 @@ class WorkflowProgress:
         if self._started:
             return self
 
+        from boxmot.engine.ui.dashboard import start_dashboard
+
+        self._dashboard = start_dashboard(self)
         self._started = True
+        if self._dashboard is not None:
+            self._last_rendered_state = self._state_snapshot()
+            return self
         self._compact_layout = False
         self._oversized = self._renderable_exceeds_console(self._live_renderable())
         # Use the alternate screen only when the live renderable itself still
@@ -746,6 +762,16 @@ class WorkflowProgress:
         if not self._started:
             return
 
+        if self._dashboard is not None:
+            try:
+                self._dashboard.stop()
+            finally:
+                self._dashboard = None
+                self._started = False
+            if refresh_final and not self.transient:
+                print_renderable(self.renderable(), stderr=self.stderr)
+            return
+
         used_alt_screen = self._uses_alt_screen
         final_renderable = self._live_renderable() if refresh_final else None
         if self._live is not None:
@@ -765,8 +791,23 @@ class WorkflowProgress:
         if used_alt_screen and not self.transient and final_renderable is not None:
             print_renderable(final_renderable, stderr=self.stderr)
 
+    def _refresh_dashboard(self) -> bool:
+        """Refresh interactive output or restore ordinary progress after EOF."""
+        if self._dashboard is None:
+            return False
+        if self._dashboard.stopped:
+            self._dashboard.stop()
+            self._dashboard = None
+            self._start_live(screen=False)
+        else:
+            self._dashboard.refresh()
+        self._last_rendered_state = self._state_snapshot()
+        return True
+
     def _update_live(self, *, render: bool = True, force: bool = False) -> None:
         if not (render and self._started):
+            return
+        if self._refresh_dashboard():
             return
         if not force and self._last_rendered_state == self._state_snapshot():
             return

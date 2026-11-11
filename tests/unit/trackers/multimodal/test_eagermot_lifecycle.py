@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import torch
 
-from boxmot import EagerMot, EagerMotConfig
+from boxmot import EagerMot, EagerMotConfig, KalmanConfig
 from boxmot.structures import Boxes, Boxes3D, CameraModel, Detections, Detections3D, MaskBatch, MultimodalTracks
 
 
@@ -139,6 +139,36 @@ def test_motion_advances_on_completely_empty_frames_without_emitting_predictions
     assert tracker._tracks[0].motion.box[0] > before + 1.5
     result = tracker.update(_detections(4, []), detections_3d=_spatial(4, [4]), camera=_camera())
     assert result.spatial_tracks.track_ids.tolist() == [0]
+
+
+def test_irregular_capture_intervals_drive_3d_motion_and_keep_frame_lifetimes() -> None:
+    """Multiple tracks move in seconds through gaps and recover their original IDs."""
+    tracker = EagerMot(
+        EagerMotConfig(max_age=4, distance_threshold=0.1, first_matching_method="dist_2d"),
+        kalman=KalmanConfig(variable_dt=True, is_angular=True),
+    )
+    first = tracker.update(
+        _detections(0, []), detections_3d=_spatial(0, [0, 10]), camera=_camera(), timestamp_s=100.0
+    )
+    for track in tracker._tracks:
+        track.motion.state[7] = 2.0
+        track.motion.state[10] = 0.2
+    for index, timestamp in enumerate((100.25, 101.75), start=1):
+        result = tracker.update(
+            _detections(index, []), detections_3d=_spatial(index, []), camera=_camera(), timestamp_s=timestamp
+        )
+        assert len(result.spatial_tracks) == 0
+    np.testing.assert_allclose([track.motion.box[0] for track in tracker._tracks], [3.5, 13.5])
+    np.testing.assert_allclose([track.motion.box[3] for track in tracker._tracks], [0.35, 0.35])
+    assert [track.time_since_update for track in tracker._tracks] == [2, 2]
+    recovered = tracker.update(
+        _detections(3, []), detections_3d=_spatial(3, [4, 14]), camera=_camera(), timestamp_s=102.0
+    )
+    assert recovered.spatial_tracks.track_ids.tolist() == first.spatial_tracks.track_ids.tolist()
+    assert tracker.frame_count == 4
+    tracker.reset()
+    tracker.update(_detections(0, []), detections_3d=_spatial(0, [0]), camera=_camera(), timestamp_s=1.0)
+    assert tracker._tracks[0].motion.box[0] == 0.0
 
 
 @pytest.mark.parametrize("missing_frames", (1, 2, 3))

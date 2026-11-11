@@ -51,14 +51,16 @@ def _study(output: Path) -> Any:
 
 
 @pytest.mark.parametrize("method", ("dist_2d", "dist_2d_dims", "dist_2d_full", "iou_3d"))
+@pytest.mark.parametrize("variable_dt", [False, True])
 def test_sensor_search_reuses_method_samplers_without_sharing_trial_profiles(
     monkeypatch: pytest.MonkeyPatch,
     method: str,
+    variable_dt: bool,
 ) -> None:
     """Method-specific dimensions stay isolated when the prepared search is reused."""
     from boxmot.engine.tuning.backends import optuna_backend
 
-    profiles = load_kitti_profiles()
+    profiles = load_kitti_profiles(variable_dt=variable_dt)
     original = deepcopy(profiles)
     schema = tuner.load_yaml_config("eagermot")
     key = "kalman.noise.process_velocity_scale"
@@ -98,12 +100,14 @@ def test_sensor_search_reuses_method_samplers_without_sharing_trial_profiles(
 
 
 @pytest.mark.parametrize("cache_inputs", (False, True))
+@pytest.mark.parametrize("variable_dt", [False, True])
 def test_two_real_trials_preserve_class_baselines_and_export_replayable_best_config(
-    tmp_path: Path, cache_inputs: bool
+    tmp_path: Path, cache_inputs: bool, variable_dt: bool
 ) -> None:
     data = _fixture(tmp_path)
     args = _arguments(data)
     args.cache_inputs = cache_inputs
+    args.variable_dt = variable_dt
     original_threads = torch.get_num_threads()
     result = run_tune(args)
     assert isinstance(result, TuneResult)
@@ -163,7 +167,11 @@ def test_two_real_trials_preserve_class_baselines_and_export_replayable_best_con
     assert set(profiles) == {1, 2}
     # The baseline already achieves the maximum possible score, so the selected
     # complete profiles must retain its car/pedestrian differences and fixed values.
-    assert profiles == KITTI_PROFILES
+    assert profiles == load_kitti_profiles(variable_dt=variable_dt)
+    for trial in study.trials:
+        assert all(profile["kalman.variable_dt"] is variable_dt for profile in trial.user_attrs["profiles"].values())
+        assert "car.kalman.variable_dt" not in trial.params
+        assert "pedestrian.kalman.variable_dt" not in trial.params
     replay_args = SimpleNamespace(
         **{**vars(args), "project": tmp_path / "replay", "class_config": output / "best.yaml"}
     )

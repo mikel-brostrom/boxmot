@@ -85,7 +85,6 @@ class Tracker(Protocol):
         *,
         detections_3d: Detections3D | np.ndarray,
         camera: CameraModel | np.ndarray,
-        image_size: tuple[int, int] | None = None,
         camera_to_world: np.ndarray | None = None,
         timestamp_s: float | None = None,
     ) -> MultimodalTracks:
@@ -100,7 +99,6 @@ class Tracker(Protocol):
         *,
         detections_3d: Detections3D | np.ndarray,
         camera: CameraModel | np.ndarray,
-        image_size: tuple[int, int] | None = None,
         camera_to_world: np.ndarray | None = None,
         timestamp_s: float | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
@@ -129,7 +127,6 @@ class Tracker(Protocol):
         timestamp_s: float | None = None,
         detections_3d: Detections3D | np.ndarray | None = None,
         camera: CameraModel | np.ndarray | None = None,
-        image_size: tuple[int, int] | None = None,
         camera_to_world: np.ndarray | None = None,
     ) -> Tracks | np.ndarray | MultimodalTracks | tuple[np.ndarray, np.ndarray]:
         """Advance with a Frame or uint8 HWC BGR image; preserve the detection representation."""

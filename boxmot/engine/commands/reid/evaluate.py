@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import click
@@ -12,8 +13,13 @@ from boxmot.engine.commands._support import _run_engine_workflow
 from boxmot.engine.commands.reid._options import reid_evaluation_options
 
 
-def main(args: Any) -> dict[str, Any]:
-    """Run domain evaluation and persist its JSON report."""
+def main(args: Any = None, **options: Any) -> dict[str, Any]:
+    """Evaluate a ReID checkpoint from keyword options or resolved arguments."""
+
+    if args is not None and options:
+        raise TypeError("Pass either resolved arguments or keyword options, not both.")
+    if args is None:
+        args = SimpleNamespace(**options)
 
     from boxmot.reid.evaluation.runner import ReIDEvaluationConfig, evaluate_reid
     from boxmot.utils import logger as LOGGER
@@ -86,8 +92,6 @@ def main(args: Any) -> dict[str, Any]:
 )
 def eval_reid(**kwargs: Any) -> Any:
     """Evaluate a trained ReID checkpoint."""
-
-    from types import SimpleNamespace
 
     return _run_engine_workflow(__name__, SimpleNamespace(**kwargs))
 

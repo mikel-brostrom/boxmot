@@ -45,9 +45,10 @@ def test_eagermot_numpy_sensor_fusion_python_api_smoke() -> None:
     detections = np.array([[78, 39, 122, 62, 0.95, 0]])
     spatial = np.array([[0, 1, 10, 0, 4, 2, 2, 0.9, 0]])
     camera = np.array([[100, 0, 100, 0], [0, 100, 50, 0], [0, 0, 1, 0]], dtype=float)
+    frame = np.zeros((100, 200, 3), dtype=np.uint8)
 
     image_tracks, spatial_tracks = tracker.update(
-        detections, detections_3d=spatial, camera=camera, image_size=(100, 200)
+        detections, frame, detections_3d=spatial, camera=camera
     )
 
     assert image_tracks.shape == (1, 8)

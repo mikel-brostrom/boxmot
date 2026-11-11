@@ -1,12 +1,12 @@
 from collections import deque
-from numbers import Real
-from typing import Callable, Optional, Tuple, Union
+from typing import Optional, Tuple, Union
 
 import numpy as np
 import scipy.linalg
 
 from boxmot.trackers.common.motion.kalman_filters import batch
 from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
+from boxmot.trackers.common.motion.kalman_filters.timing import elapsed_motion, validate_dt
 
 """
 Table for the 0.95 quantile of the chi-square distribution with N degrees of
@@ -114,17 +114,7 @@ class BaseKalmanFilter:
     @staticmethod
     def validate_dt(dt: float | None) -> float | None:
         """Validate an elapsed interval without accepting booleans or arrays."""
-        if dt is None:
-            return None
-        if isinstance(dt, (bool, np.bool_)) or not isinstance(dt, Real):
-            raise ValueError("dt must be a finite, strictly positive real scalar")
-        try:
-            dt = float(dt)
-        except OverflowError as error:
-            raise ValueError("dt must be a finite, strictly positive real scalar") from error
-        if not np.isfinite(dt) or dt <= 0.0:
-            raise ValueError("dt must be a finite, strictly positive real scalar")
-        return dt
+        return validate_dt(dt)
 
     def _motion_generator(self, motion_mat: np.ndarray | None = None) -> np.ndarray:
         """Return A for the configured constant-velocity model, where A² = 0."""
@@ -161,15 +151,7 @@ class BaseKalmanFilter:
         noise = self.noise_config.process_covariance(noise, self.dim_z, continuous=dt is not None)
         if dt is None:
             return motion_mat, noise
-        generator = self._motion_generator(motion_mat)
-        try:
-            with np.errstate(over="raise", invalid="raise"):
-                left = generator @ noise
-                noise = dt * noise + (dt**2 / 2.0) * (left + noise @ generator.T) + (dt**3 / 3.0) * (left @ generator.T)
-                motion_mat = np.eye(self.dim_x) + dt * generator
-        except (FloatingPointError, OverflowError) as error:
-            raise ValueError("dt produces an unrepresentable motion covariance") from error
-        return motion_mat, noise
+        return elapsed_motion(motion_mat, noise, dt, reference_dt=self.dt)
 
     def _remember_observation(self, measurement: np.ndarray) -> None:
         """Retain one real observation as the origin for timed gap replay."""
@@ -199,21 +181,6 @@ class BaseKalmanFilter:
         if not self._prediction_steps:
             self._prediction_origin = (self.x.copy(), self.P.copy())
         self._prediction_steps.append((interval, transition.copy(), noise.copy(), control))
-
-    def transform_timed_history(
-        self,
-        transform_state: Callable[[np.ndarray, np.ndarray], Tuple[np.ndarray, np.ndarray]],
-        transform_measurement: Callable[[np.ndarray], np.ndarray],
-    ) -> None:
-        """Move replay's origin into the current camera coordinates.
-
-        Reuse the track's state/covariance and measurement transforms so timed
-        replay has the same camera compensation as its live Kalman state.
-        """
-        if self._last_observed_measurement is not None:
-            self._last_observed_measurement = transform_measurement(self._last_observed_measurement)
-        if self._prediction_origin is not None:
-            self._prediction_origin = transform_state(*self._prediction_origin)
 
     def _replay_timed_observations(
         self,

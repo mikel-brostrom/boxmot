@@ -1,5 +1,7 @@
 #include "occluboost/kalman_filter.hpp"
 
+#include "boxmot/trackers/base/timing.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -135,9 +137,10 @@ void KalmanFilterXYHR::Initiate(const Vector& measurement) {
     covariance_ = initial_covariance_;
 }
 
-void KalmanFilterXYHR::Predict() {
-    mean_ = motion_mat_ * mean_;
-    covariance_ = motion_mat_ * covariance_ * motion_mat_.transpose() + process_noise_;
+void KalmanFilterXYHR::Predict(const double dt) {
+    const auto [motion, noise] = boxmot::trackers::base::ElapsedMotion(motion_mat_, process_noise_, dt);
+    mean_ = motion * mean_;
+    covariance_ = motion * covariance_ * motion.transpose() + noise;
     EnforceConstraints();
 }
 

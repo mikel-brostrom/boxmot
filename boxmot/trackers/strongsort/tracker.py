@@ -98,7 +98,7 @@ class _Detection:
 
 
 class StrongSort(BoxTracker):
-    """Track AABB or OBB detections with appearance matching and ECC camera motion.
+    """Track AABB or OBB detections with appearance and configurable camera motion.
 
     Attributes:
         tracks: Active StrongSORT track states.
@@ -121,8 +121,9 @@ class StrongSort(BoxTracker):
     ) -> None:
         """Configure StrongSORT's appearance gallery, confirmation, and matching costs.
 
-        Image frames are required for ECC camera-motion compensation. Appearance
-        embeddings are required and are generated with ReID when absent from inputs.
+        Image frames are required when camera-motion compensation is enabled
+        (ECC by default). Appearance embeddings are required and are generated
+        with ReID when absent from inputs.
         Detection filtering uses min_conf, confirmation uses n_init, and geometric
         fallback matching uses max_iou_dist.
 

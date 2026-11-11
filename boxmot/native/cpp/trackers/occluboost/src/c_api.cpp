@@ -123,9 +123,10 @@ int boxmot_occluboost_reset(BoxMOTOccluBoostHandle* handle) {
         "Unknown native OccluBoost failure");
 }
 
-int boxmot_occluboost_update_v2(BoxMOTOccluBoostHandle* handle,
+int boxmot_occluboost_update_v3(BoxMOTOccluBoostHandle* handle,
                                 const BoxMOTDetectionBatchV2* detections,
                                 const BoxMOTImageV2* image,
+                               double dt,
                                 BoxMOTTrackBatchV2** output) {
     return boxmot::native::GuardCall(
         [&]() {
@@ -136,6 +137,7 @@ int boxmot_occluboost_update_v2(BoxMOTOccluBoostHandle* handle,
                 throw std::runtime_error("Native OccluBoost input/output pointers are null.");
             }
             *output = nullptr;
+            boxmot::trackers::base::ValidateElapsedStep(dt);
             const std::vector<occluboost::Detection> converted =
                 boxmot::trackers::base::ConvertLiveDetectionsV2<occluboost::Detection, true>(
                     *detections, "OccluBoost");
@@ -151,7 +153,7 @@ int boxmot_occluboost_update_v2(BoxMOTOccluBoostHandle* handle,
                 throw std::runtime_error("Native OccluBoost requires precomputed embeddings.");
             }
             const std::vector<occluboost::TrackOutput> tracks =
-                handle->tracker->Update(converted, image_mat);
+                handle->tracker->Update(converted, image_mat, dt);
             *output =
                 boxmot::trackers::base::AllocateLiveOutputV2(tracks, detections->geometry_cols);
         },

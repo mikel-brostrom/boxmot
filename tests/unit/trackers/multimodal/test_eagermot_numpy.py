@@ -28,6 +28,11 @@ def _packed_inputs() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     return detections, spatial, projection
 
 
+def _image() -> np.ndarray:
+    """Provide an image matching the synthetic camera's calibrated dimensions."""
+    return np.zeros((100, 200, 3), dtype=np.uint8)
+
+
 def _canonical_inputs(
     detections: np.ndarray, spatial: np.ndarray, projection: np.ndarray
 ) -> tuple[Detections, Detections3D, CameraModel]:
@@ -80,7 +85,7 @@ def test_numpy_sequence_matches_canonical_tracking_and_sensor_dropout(per_class:
             spatial = spatial[:0]
         image_input, spatial_input, camera = _canonical_inputs(detections, spatial, projection)
         canonical = canonical_tracker.update(image_input, detections_3d=spatial_input, camera=camera)
-        packed = packed_tracker.update(detections, detections_3d=spatial, camera=projection, image_size=(100, 200))
+        packed = packed_tracker.update(detections, _image(), detections_3d=spatial, camera=projection)
         _assert_matches(packed, canonical)
         if frame_index == 0:
             assert packed[0].shape == (1, 8) and packed[1].shape == (2, 11)
@@ -104,23 +109,27 @@ def test_numpy_accepts_independent_empty_sensor_batches(sensor: str) -> None:
         spatial = spatial[:0]
     canonical_inputs = _canonical_inputs(detections, spatial, projection)
     canonical = EagerMot().update(canonical_inputs[0], detections_3d=canonical_inputs[1], camera=canonical_inputs[2])
-    packed = EagerMot().update(detections, detections_3d=spatial, camera=projection, image_size=(100, 200))
+    packed = EagerMot().update(detections, _image(), detections_3d=spatial, camera=projection)
     _assert_matches(packed, canonical)
     if sensor in ("spatial", "both"):
         assert packed[0].shape == (0, 8) and packed[1].shape == (0, 11)
 
 
 @pytest.mark.parametrize("frame_kind", ["numpy", "canonical"])
-def test_numpy_camera_infers_image_size_from_frame(frame_kind: str) -> None:
-    """A supplied image replaces the otherwise required image_size argument."""
+@pytest.mark.parametrize("image_size", [(100, 200), (120, 240)])
+def test_numpy_camera_infers_image_size_from_frame(frame_kind: str, image_size: tuple[int, int]) -> None:
+    """Both image representations supply calibration dimensions automatically."""
     detections, spatial, projection = _packed_inputs()
     frame = (
-        np.zeros((100, 200, 3), dtype=np.uint8)
+        np.zeros((*image_size, 3), dtype=np.uint8)
         if frame_kind == "numpy"
-        else Frame(torch.zeros((3, 100, 200), dtype=torch.uint8), "camera:0")
+        else Frame(torch.zeros((3, *image_size), dtype=torch.uint8), "camera:0")
     )
-    actual = EagerMot().update(detections, frame, detections_3d=spatial, camera=projection)
-    expected = EagerMot().update(detections, detections_3d=spatial, camera=projection, image_size=(100, 200))
+    camera = CameraModel(torch.tensor(projection, dtype=torch.float32), image_size)
+    tracker = EagerMot()
+    actual = tracker.update(detections, frame, detections_3d=spatial, camera=projection)
+    expected = EagerMot().update(detections, detections_3d=spatial, camera=camera)
+    assert (tracker.h, tracker.w) == image_size
     for actual_rows, expected_rows in zip(actual, expected):
         np.testing.assert_array_equal(actual_rows, expected_rows)
 
@@ -138,7 +147,7 @@ def test_readonly_strided_numpy_inputs_are_not_modified(dtype: np.dtype) -> None
     detections, spatial, projection = arrays
     before = [values.copy() for values in arrays]
     image_input, spatial_input, camera = _canonical_inputs(*arrays)
-    actual = EagerMot().update(detections, detections_3d=spatial, camera=projection, image_size=(100, 200))
+    actual = EagerMot().update(detections, _image(), detections_3d=spatial, camera=projection)
     canonical = EagerMot().update(image_input, detections_3d=spatial_input, camera=camera)
     _assert_matches(actual, canonical)
     for values, saved in zip(arrays, before):
@@ -152,12 +161,12 @@ def test_numpy_camera_pose_compensates_ego_motion() -> None:
     tracker = EagerMot(config=EagerMotConfig(distance_threshold=1.0))
     pose = np.eye(4)
     _, first = tracker.update(
-        detections, detections_3d=spatial, camera=projection, image_size=(100, 200), camera_to_world=pose
+        detections, _image(), detections_3d=spatial, camera=projection, camera_to_world=pose
     )
     pose[0, 3] = 5
     spatial[:, 0] -= 5
     _, second = tracker.update(
-        detections, detections_3d=spatial, camera=projection, image_size=(100, 200), camera_to_world=pose
+        detections, _image(), detections_3d=spatial, camera=projection, camera_to_world=pose
     )
     assert second[0, 7] == first[0, 7]
     assert second[0, 0] == pytest.approx(-5)
@@ -169,7 +178,7 @@ def test_mixed_inputs_keep_canonical_results_and_resolve_sample_ids() -> None:
     canonical_detections, canonical_spatial, camera = _canonical_inputs(detections, spatial, projection)
     canonical_detections = replace(canonical_detections, sample_id="sequence:7")
     result = EagerMot().update(
-        canonical_detections, detections_3d=spatial, camera=projection, image_size=(100, 200)
+        canonical_detections, _image(), detections_3d=spatial, camera=projection
     )
     assert isinstance(result, MultimodalTracks)
     assert result.sample_id == "sequence:7"
@@ -190,7 +199,7 @@ def test_numpy_outputs_preserve_exact_large_class_ids(class_id: int) -> None:
     spatial = spatial[1:].copy()
     detections[:, -1] = spatial[:, -1] = class_id
     image_tracks, spatial_tracks = EagerMot().update(
-        detections, detections_3d=spatial, camera=projection, image_size=(100, 200)
+        detections, _image(), detections_3d=spatial, camera=projection
     )
     assert image_tracks[0, 6] == class_id
     assert spatial_tracks[0, 9] == class_id
@@ -213,7 +222,7 @@ def test_invalid_numpy_detections_fail_before_advancing_state(sensor: str, inval
     """Bad observations cannot consume a frame or change the tracking sequence."""
     detections, spatial, projection = _packed_inputs()
     tracker = EagerMot()
-    tracker.update(detections, detections_3d=spatial, camera=projection, image_size=(100, 200))
+    tracker.update(detections, _image(), detections_3d=spatial, camera=projection)
     rows = detections if sensor == "image" else spatial
     if invalid == "width":
         rows = rows[:, :-1]
@@ -234,31 +243,23 @@ def test_invalid_numpy_detections_fail_before_advancing_state(sensor: str, inval
     else:
         spatial = rows
     with pytest.raises((TypeError, ValueError)):
-        tracker.update(detections, detections_3d=spatial, camera=projection, image_size=(100, 200))
+        tracker.update(detections, _image(), detections_3d=spatial, camera=projection)
     assert tracker.frame_count == tracker._sample_index == 1
 
 
 @pytest.mark.parametrize(
     "invalid",
     [
-        "missing_size", "zero_size", "float_size", "bool_size", "projection_shape", "projection_dtype",
+        "projection_shape", "projection_dtype",
         "projection_nan", "projection_overflow", "pose_shape", "pose_dtype", "pose_nan", "pose_overflow",
-        "pose_last_row", "frame_size",
+        "pose_last_row",
     ],
 )
 def test_invalid_numpy_calibration_fails_before_advancing_state(invalid: str) -> None:
-    """Calibration and image dimensions are validated before the kernel runs."""
+    """Calibration is validated before the kernel runs."""
     detections, spatial, projection = _packed_inputs()
-    kwargs = {"detections_3d": spatial, "camera": projection, "image_size": (100, 200)}
-    if invalid == "missing_size":
-        del kwargs["image_size"]
-    elif invalid == "zero_size":
-        kwargs["image_size"] = (0, 200)
-    elif invalid == "float_size":
-        kwargs["image_size"] = (100.0, 200)
-    elif invalid == "bool_size":
-        kwargs["image_size"] = (True, 200)
-    elif invalid == "projection_shape":
+    kwargs = {"frame": _image(), "detections_3d": spatial, "camera": projection}
+    if invalid == "projection_shape":
         kwargs["camera"] = np.eye(3)
     elif invalid == "projection_dtype":
         kwargs["camera"] = projection.astype(complex)
@@ -280,20 +281,59 @@ def test_invalid_numpy_calibration_fails_before_advancing_state(invalid: str) ->
         kwargs["camera_to_world"] = pose
     elif invalid == "pose_last_row":
         kwargs["camera_to_world"] = np.ones((4, 4))
-    elif invalid == "frame_size":
-        kwargs["frame"] = np.zeros((99, 200, 3), dtype=np.uint8)
     tracker = EagerMot()
     with pytest.raises((TypeError, ValueError)):
         tracker.update(detections, **kwargs)
     assert tracker.frame_count == tracker._sample_index == 0
 
 
-@pytest.mark.parametrize("extra", [{"image_size": (100, 200)}, {"camera_to_world": np.eye(4)}])
-def test_camera_model_rejects_duplicate_numpy_calibration_options(extra: dict) -> None:
+def test_numpy_camera_requires_frame_before_advancing_state() -> None:
+    """A bare projection has no image dimensions without an input frame."""
+    detections, spatial, projection = _packed_inputs()
+    tracker = EagerMot()
+    with pytest.raises(ValueError, match="requires a frame to infer image dimensions"):
+        tracker.update(detections, detections_3d=spatial, camera=projection)
+    assert tracker.frame_count == tracker._sample_index == 0
+
+
+@pytest.mark.parametrize("frame_kind", ["numpy", "canonical"])
+def test_camera_model_rejects_mismatched_frame_size(frame_kind: str) -> None:
+    """Explicit calibration dimensions must agree with the supplied image."""
+    detections, spatial, projection = _packed_inputs()
+    _, _, camera = _canonical_inputs(detections, spatial, projection)
+    frame = (
+        np.zeros((99, 200, 3), dtype=np.uint8)
+        if frame_kind == "numpy"
+        else Frame(torch.zeros((3, 99, 200), dtype=torch.uint8), "camera:0")
+    )
+    tracker = EagerMot()
+    with pytest.raises(ValueError, match="must match the frame spatial size"):
+        tracker.update(detections, frame, detections_3d=spatial, camera=camera)
+    assert tracker.frame_count == tracker._sample_index == 0
+
+
+@pytest.mark.parametrize("camera_kind", ["numpy", "canonical"])
+def test_update_rejects_removed_image_size_keyword(camera_kind: str) -> None:
+    """Image dimensions cannot be independently supplied to tracker.update()."""
+    detections, spatial, projection = _packed_inputs()
+    _, _, camera = _canonical_inputs(detections, spatial, projection)
+    tracker = EagerMot()
+    with pytest.raises(TypeError, match="unexpected keyword argument 'image_size'"):
+        tracker.update(
+            detections,
+            _image(),
+            detections_3d=spatial,
+            camera=projection if camera_kind == "numpy" else camera,
+            image_size=(100, 200),
+        )
+    assert tracker.frame_count == tracker._sample_index == 0
+
+
+def test_camera_model_rejects_duplicate_numpy_pose() -> None:
     """Canonical camera settings must not be silently overridden by side inputs."""
     detections, spatial, projection = _packed_inputs()
     _, _, camera = _canonical_inputs(detections, spatial, projection)
     tracker = EagerMot()
-    with pytest.raises(ValueError):
-        tracker.update(detections, detections_3d=spatial, camera=camera, **extra)
+    with pytest.raises(ValueError, match="camera_to_world"):
+        tracker.update(detections, detections_3d=spatial, camera=camera, camera_to_world=np.eye(4))
     assert tracker.frame_count == tracker._sample_index == 0

@@ -38,7 +38,11 @@ from boxmot.trackers.common.input import (
     resolve_sample_id,
 )
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
-from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_TRACKER_NAMES, KalmanNoiseConfig
+from boxmot.trackers.common.motion.kalman_filters.noise import (
+    KALMAN_NOISE_TRACKER_NAMES,
+    KALMAN_TRACKER_NAMES,
+    KalmanNoiseConfig,
+)
 from boxmot.trackers.common.motion.tracker import TrackerMotionMixin
 from boxmot.trackers.common.protocols import TrackerRequirements
 from boxmot.trackers.common.spatial import pack_numpy_multimodal_tracks, prepare_camera
@@ -47,6 +51,7 @@ from boxmot.trackers.common.tracking.classes import ClassCatalog
 from boxmot.trackers.common.tracking.display import TrackDisplayMixin
 from boxmot.trackers.common.tracking.formatting import TrackFormattingMixin
 from boxmot.trackers.common.tracking.per_class import PerClassUpdateMixin
+from boxmot.trackers.common.tracking.timing import resolve_frame_timing
 from boxmot.trackers.common.tracking.track import TrackIdAllocator
 from boxmot.trackers.common.tracking.visualization import VisualizationMixin
 from boxmot.utils import logger as LOGGER
@@ -172,16 +177,17 @@ class BaseTracker(
             raise ValueError(f"{self.__class__.__name__} does not support kalman settings.")
         tracker_name = next(
             (
-                base.__name__.lower()
+                name
                 for base in type(self).__mro__
-                if base.__name__.lower() in KALMAN_NOISE_TRACKER_NAMES
+                for name in KALMAN_NOISE_TRACKER_NAMES
+                if base.__name__.lower() == name.replace("_", "")
             ),
             None,
         )
         self.kalman_config = (kalman or KalmanConfig()).resolve(tracker_name=tracker_name)
         if self.variable_dt and not self.supports_variable_dt:
             raise ValueError(f"{self.__class__.__name__} does not support kalman.variable_dt.")
-        if self.kalman_noise_config.by_class and self.supports_variable_dt and not per_class:
+        if self.kalman_noise_config.by_class and tracker_name in KALMAN_TRACKER_NAMES and not per_class:
             raise ValueError("Class-specific kalman.noise requires per_class=True for box trackers.")
         self._init_live_reid(reid=reid)
         self.name = self.__class__.__name__
@@ -236,6 +242,7 @@ class BaseTracker(
         self.class_track_states = None
         self._first_frame_processed = False
         self._prediction_dt: float | None = None
+        self._timestamp_s: float | None = None
         self._last_timestamp_s: float | None = None
 
         if self.per_class:
@@ -286,28 +293,9 @@ class BaseTracker(
         self, frame: Frame | np.ndarray | None, timestamp_s: float | None
     ) -> tuple[float | None, float | None]:
         """Resolve capture time and prediction interval without advancing state."""
-        if not self.variable_dt:
-            return None, None
-        frame_timestamp = frame.timestamp_s if isinstance(frame, Frame) else None
-        if timestamp_s is not None and frame_timestamp is not None:
-            raise ValueError("Supply timestamp_s either in Frame or as an update argument, not both.")
-        timestamp_s = frame_timestamp if timestamp_s is None else timestamp_s
-        if timestamp_s is None:
-            raise ValueError("variable_dt=True requires timestamp_s on every frame, including the first.")
-        if isinstance(timestamp_s, (bool, np.bool_)) or not isinstance(timestamp_s, Real):
-            raise ValueError("timestamp_s must be a finite real scalar.")
-        try:
-            timestamp_s = float(timestamp_s)
-        except OverflowError as error:
-            raise ValueError("timestamp_s must be a finite real scalar.") from error
-        if not np.isfinite(timestamp_s):
-            raise ValueError("timestamp_s must be a finite real scalar.")
-        dt = None
-        if self._last_timestamp_s is not None:
-            dt = timestamp_s - self._last_timestamp_s
-            if not np.isfinite(dt) or dt <= 0:
-                raise ValueError("timestamp_s must increase by a finite positive interval; reset for a new sequence.")
-        return timestamp_s, dt
+        return resolve_frame_timing(
+            frame, timestamp_s, variable_dt=self.variable_dt, last_timestamp_s=self._last_timestamp_s
+        )
 
     def validate_timing(
         self, frame: Frame | np.ndarray | None = None, *, timestamp_s: float | None = None
@@ -334,7 +322,6 @@ class BaseTracker(
         *,
         detections_3d: Detections3D | np.ndarray,
         camera: CameraModel | np.ndarray,
-        image_size: tuple[int, int] | None = None,
         camera_to_world: np.ndarray | None = None,
         timestamp_s: float | None = None,
     ) -> MultimodalTracks: ...
@@ -347,7 +334,6 @@ class BaseTracker(
         *,
         detections_3d: Detections3D | np.ndarray,
         camera: CameraModel | np.ndarray,
-        image_size: tuple[int, int] | None = None,
         camera_to_world: np.ndarray | None = None,
         timestamp_s: float | None = None,
     ) -> tuple[np.ndarray, np.ndarray]: ...
@@ -370,7 +356,6 @@ class BaseTracker(
         timestamp_s: float | None = None,
         detections_3d: Detections3D | np.ndarray | None = None,
         camera: CameraModel | np.ndarray | None = None,
-        image_size: tuple[int, int] | None = None,
         camera_to_world: np.ndarray | None = None,
     ) -> Tracks | np.ndarray | MultimodalTracks | tuple[np.ndarray, np.ndarray]:
         """Advance one sequence with an optional Frame or uint8 HWC BGR image.
@@ -384,8 +369,9 @@ class BaseTracker(
         Calibrated 2D/3D trackers additionally require explicit independent
         ``detections_3d`` and ``camera`` inputs. Canonical detections return
         ``MultimodalTracks``; packed NumPy detections return independent image
-        and spatial track arrays. A NumPy camera projection requires
-        ``image_size`` or a frame and accepts an optional ``camera_to_world``.
+        and spatial track arrays. A NumPy camera projection requires a frame
+        to infer image dimensions and accepts an optional ``camera_to_world``.
+        Use ``CameraModel`` with its stored dimensions when no frame is supplied.
         """
         timestamp_s, dt = self._resolve_timing(frame, timestamp_s)
         frame = prepare_frame(frame)
@@ -394,7 +380,6 @@ class BaseTracker(
         if (
             detections_3d is not None
             or camera is not None
-            or image_size is not None
             or camera_to_world is not None
             or self.requirements.detections_3d
             or self.requirements.camera
@@ -403,7 +388,6 @@ class BaseTracker(
                 detections=detections,
                 detections_3d=detections_3d,
                 camera=camera,
-                image_size=image_size,
                 camera_to_world=camera_to_world,
                 frame=frame,
                 timestamp_s=timestamp_s,
@@ -469,6 +453,7 @@ class BaseTracker(
             )
 
         self._prediction_dt = dt
+        self._timestamp_s = timestamp_s
         self._mark_live_reid_updated()
         tracks = self._update_arrays(
             geometry=geometry,
@@ -491,7 +476,6 @@ class BaseTracker(
         detections: Detections | np.ndarray,
         detections_3d: Detections3D | np.ndarray | None,
         camera: CameraModel | np.ndarray | None,
-        image_size: tuple[int, int] | None,
         camera_to_world: np.ndarray | None,
         frame: Frame | np.ndarray | None,
         timestamp_s: float | None,
@@ -505,12 +489,8 @@ class BaseTracker(
                 raise ValueError(f"{self.__class__.__name__} does not accept {name}.")
             if value is None and getattr(requirements, name):
                 raise ValueError(f"{self.__class__.__name__} requires {name} on every update.")
-        for name, value, capability in (
-            ("image_size", image_size, "accepts_camera"),
-            ("camera_to_world", camera_to_world, "accepts_ego_motion"),
-        ):
-            if value is not None and not getattr(capabilities, capability, False):
-                raise ValueError(f"{self.__class__.__name__} does not accept {name}.")
+        if camera_to_world is not None and not getattr(capabilities, "accepts_ego_motion", False):
+            raise ValueError(f"{self.__class__.__name__} does not accept camera_to_world.")
         numpy_output = type(detections) is np.ndarray
         if not isinstance(detections, Detections):
             rows = parse_numpy_detection_rows(detections, is_obb=self.is_obb)
@@ -531,7 +511,7 @@ class BaseTracker(
             )
         if camera is None:
             raise TypeError("Calibrated 2D/3D tracking requires camera calibration.")
-        camera = prepare_camera(camera, frame=frame, image_size=image_size, camera_to_world=camera_to_world)
+        camera = prepare_camera(camera, frame=frame, camera_to_world=camera_to_world)
         detections.validate()
         detections_3d.validate()
         if numpy_output and bool((detections_3d.class_ids > 2**53).any()):
@@ -570,6 +550,7 @@ class BaseTracker(
         self.class_catalog.validate_ids(detections_3d.class_ids.tolist())
 
         self._prediction_dt = dt
+        self._timestamp_s = timestamp_s
         self._initialize_frame_dimensions(width=camera.image_size[1], height=camera.image_size[0])
         self._mark_live_reid_updated()
         output = self._track_multimodal(detections, detections_3d, camera, frame)
@@ -942,6 +923,7 @@ class BaseTracker(
         self._sample_index = 0
         self._prediction_dt = None
         self._last_timestamp_s = None
+        self._timestamp_s = None
         self.active_tracks = []
         self._first_frame_processed = False
         self._reset_live_reid_sequence()

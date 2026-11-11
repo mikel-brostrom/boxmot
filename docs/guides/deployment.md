@@ -4,10 +4,10 @@ The tracker service has two deployment profiles. Both receive detections from
 an external detector and associate them into persistent tracks; neither image
 runs detector inference. Each stream/session URL owns one tracker instance.
 
-| Profile | BoxMOT v24 image | Rolling alias | Frame pixels |
+| Profile | Build target | Image | Frame pixels |
 | --- | --- | --- | --- |
-| CPU geometry | `boxmot/boxmot-service:24.0.0` | `boxmot/boxmot-service:latest` | Not required |
-| CUDA/ReID | `boxmot/boxmot-service:24.0.0-gpu` | `boxmot/boxmot-service:latest-gpu` | Required on every frame |
+| CPU geometry | `service-cpu` | `boxmot/boxmot-service:latest` | Not required |
+| CUDA/ReID | `service-gpu` | Local build, shown below | Required on every frame |
 
 The CPU service uses CPU-only Torch for canonical structures and contains no
 CUDA runtime. The GPU service uses CUDA 13.0 Torch and a shared ReID encoder.
@@ -24,38 +24,46 @@ docker pull boxmot/boxmot-service:latest
 docker run --rm -p 8000:8000 boxmot/boxmot-service:latest
 ```
 
-Run the GPU image with the NVIDIA Container Toolkit and mount the ReID
-checkpoint at `/models/osnet_x0_25_msmt17.pt`:
+For GPU tracking, build the image from the repository root. Run it with the
+NVIDIA Container Toolkit and a ReID checkpoint mounted at
+`/models/osnet_x0_25_msmt17.pt`:
 
 ```bash
-docker pull boxmot/boxmot-service:latest-gpu
+docker build --target service-gpu -f docker/Dockerfile -t boxmot/boxmot-service:local-gpu .
 docker run --rm --gpus all -p 8000:8000 \
   -v "$PWD/models/osnet_x0_25_msmt17.pt:/models/osnet_x0_25_msmt17.pt:ro" \
   -e BOXMOT_SERVICE_REID_WEIGHTS=/models/osnet_x0_25_msmt17.pt \
-  boxmot/boxmot-service:latest-gpu
+  boxmot/boxmot-service:local-gpu
 ```
 
-Build either production target from the repository root:
+To build the CPU service locally instead:
 
 ```bash
-docker build \
-  --target service-cpu \
-  -f docker/Dockerfile \
-  -t boxmot/boxmot-service:local \
-  .
-
-docker build \
-  --target service-gpu \
-  -f docker/Dockerfile \
-  -t boxmot/boxmot-service:local-gpu \
-  .
-
+docker build --target service-cpu -f docker/Dockerfile -t boxmot/boxmot-service:local .
 docker run --rm -p 8000:8000 boxmot/boxmot-service:local
 ```
 
 Check `http://localhost:8000/healthz` for liveness,
 `http://localhost:8000/readyz` for capacity, and
 `http://localhost:8000/docs` for the generated OpenAPI interface.
+
+`/readyz` reports `active_streams` and `max_streams`; it still returns HTTP 200
+when all slots are occupied. New sessions receive HTTP 503 until capacity is
+available. Existing sessions can continue sending frames.
+
+### Run without Docker
+
+The installed package also provides a single-worker service entry point:
+
+```bash
+boxmot install --extra service
+boxmot-service
+```
+
+It defaults to the CPU profile and listens on `0.0.0.0:8000`. Set the same
+environment variables listed below to configure it. For the GPU profile, select
+a CUDA PyTorch environment and supply an existing ReID checkpoint; the service
+does not download missing weights at startup.
 
 ## Send detections
 
@@ -87,6 +95,11 @@ curl --request POST \
 For an empty frame, send `"detections": []` with the next `frame_id`. For OBB,
 set `"box_type": "obb"` and use
 `(cx, cy, width, height, angle_radians, confidence, class_id)` rows.
+
+Coordinates are pixel values, with positive box width/height; scores must be
+between 0 and 1 and class IDs must be nonnegative integers. Unknown request
+fields are rejected. Stream and session IDs must start with a letter or digit,
+contain only letters, digits, `_`, `.`, and `-`, and be at most 128 characters.
 
 The CPU profile does not require source image pixels; requests without an image
 must include both `width` and `height`. When `image_base64` is supplied, the
@@ -152,6 +165,24 @@ with the exact same body safely replays its cached response. A new session must
 start with frame 0; this also prevents an expired or misrouted session from
 silently restarting midway through a sequence.
 
+The response includes `next_frame_id`, which is the next expected frame, and
+`replayed`, which is true when the most recent successful result is returned
+without updating the tracker again. Track IDs are session-local; identify a
+track by its stream, session, and track ID together.
+
+### Handle failures
+
+| HTTP status | Meaning | Client action |
+| --- | --- | --- |
+| `422` | Invalid request, detections, image, or first-frame timing | Correct the payload before retrying; tracking has not advanced. |
+| `409` | Frame order, retry content, timing, or session dimensions conflict | Send the expected frame with unchanged session settings, or start a new session. |
+| `503` | New-session capacity is exhausted | Honor `Retry-After: 1`, or delete an unused session. |
+| `500` | Tracker creation or update failed | Inspect the server error. A failed update discards the session; start from frame 0 under a new session ID. |
+
+After a network timeout, retry the same most recent request before advancing.
+Only the last successful frame is cached. Keep encoded image bytes unchanged
+on retries, because they participate in request identity.
+
 Delete a session to release its tracker immediately:
 
 ```bash
@@ -199,8 +230,8 @@ When disabled, optional timestamps may appear, disappear, or change without
 affecting prediction. In either mode, changing a timestamp on a retry returns
 HTTP 409; an exact retry of the most recent frame replays its cached response.
 
-SFSORT rejects `BOXMOT_VARIABLE_DT=true` at service startup. All other service
-trackers support this option. When enabled, motion priors are converted to
+Service trackers except SFSORT support this option. SFSORT uses fixed steps
+and rejects `BOXMOT_VARIABLE_DT=true`. When enabled, motion priors are converted to
 seconds using a fixed `1/30`-second reference interval, then integrated over
 the actual capture interval. The reference does not replace capture timestamps;
 review [elapsed-time prediction](../python/index.md#elapsed-time) when tuning
@@ -216,7 +247,7 @@ process-level settings are:
 | `BOXMOT_SERVICE_PROFILE` | `cpu` | `gpu` | Selects the tracker allowlist and whether images/ReID are required. Use the profile built into the image. |
 | `BOXMOT_SERVICE_TRACKER` | `bytetrack` | `botsort` | CPU: `bytetrack`, `ocsort`, or `sfsort`. GPU: `strongsort`, `botsort`, `deepocsort`, `hybridsort`, `boosttrack`, or `occluboost`. |
 | `BOXMOT_SERVICE_ASSO_FUNC` | `iou` | `iou` | Geometry used for AABB or OBB detection-track matching: `iou`, `giou`, `diou`, `ciou`, `hmiou`, or `centroid`. |
-| `BOXMOT_VARIABLE_DT` | `false` | `false` | Opt into experimental elapsed-seconds prediction; requires `timestamp_s` on every frame and separate motion-noise calibration. Unsupported by SFSORT. |
+| `BOXMOT_VARIABLE_DT` | `false` | `false` | Opt into experimental elapsed-seconds motion; requires `timestamp_s` on every frame. Unsupported by SFSORT. |
 | `BOXMOT_SERVICE_DEVICE` | `cpu` | `0` | ReID device passed to the GPU backend. |
 | `BOXMOT_SERVICE_HALF` | `false` | `true` | Enables FP16 ReID inference; relevant to the GPU profile. |
 | `BOXMOT_SERVICE_REID_WEIGHTS` | Not used | `/models/osnet_x0_25_msmt17.pt` | Mounted ReID checkpoint path. |
@@ -260,7 +291,7 @@ that process, so all requests for the same stream/session must reach the same
 replica. Configure the load balancer for sticky routing or consistent hashing
 on the stream/session key, then scale by adding containers.
 
-The GPU process loads and warms one ReID model, then shares it across all of
+The GPU process loads one ReID model, then shares it across all of
 that process's tracker sessions. Its default concurrency is therefore one.
 Keep one worker process per GPU container unless model memory, inference
 synchronization, and capacity have been explicitly designed for a different
@@ -276,48 +307,14 @@ structures before tracking. The CPU image uses a CPU-only build and omits CUDA
 and perception model runtimes. The GPU image instead uses the locked CUDA 13.0
 build. Its process owns one shared appearance encoder and enriches
 requests before advancing per-stream trackers; injected segmentors follow the
-same engine-owned pattern. Neither profile runs a detector. Use
-`boxmot/boxmot:24.0.0` for full GPU CLI/detector workflows or
-`boxmot/boxmot:24.0.0-cpu` for their CPU counterpart. Those CLI images bundle
-native ReID and all five supported live C API tracker libraries; the service
-images use Python tracker backends. Place authentication,
+same engine-owned pattern. For detector and batch workflows, use the
+[CLI Docker images](../integrations/docker.md). The service images use Python
+tracker backends. Place authentication,
 TLS, request-size limits, and rate limiting at the ingress or API gateway.
 
 ## Run persistent CLI jobs
 
-Materialization and evaluation are batch CLI workloads, not service endpoints.
-Keep the raw dataset, immutable build, and model directories outside their
-containers:
-
-```bash
-mkdir -p "$PWD/datasets/mot" "$PWD/runs/materializations" "$PWD/models"
-
-docker run --rm --gpus all --ipc=host \
-  -v "$PWD/datasets/mot:/opt/boxmot/datasets/mot" \
-  -v "$PWD/runs/materializations:/materializations" \
-  -v "$PWD/models:/opt/boxmot/models" \
-  -e BOXMOT_BUILDS_DIR=/materializations \
-  boxmot/boxmot:24.0.0 \
-  boxmot materialize \
-    --experiment mot17/ablation-yolox-lmbn.yaml \
-    --device 0
-
-BUILD_ID=replace-with-the-64-character-build-id
-
-docker run --rm --gpus all --ipc=host \
-  -v "$PWD/datasets/mot:/opt/boxmot/datasets/mot:ro" \
-  -v "$PWD/runs/materializations:/materializations:ro" \
-  -v "$PWD/models:/opt/boxmot/models:ro" \
-  -e BOXMOT_BUILDS_DIR=/materializations \
-  boxmot/boxmot:24.0.0 \
-  boxmot eval \
-    --experiment mot17/ablation-yolox-lmbn.yaml \
-    --build "$BUILD_ID" \
-    --tracker occluboost
-```
-
-Using the same mount points preserves source references and lets an ID passed to
-`--build` resolve under `BOXMOT_BUILDS_DIR`. Built-in artifact paths are relative
-to `/opt/boxmot`, which is why the model volume is mounted there. For CPU jobs,
-use `boxmot/boxmot:24.0.0-cpu`, remove `--gpus all`, and materialize with
-`--device cpu`.
+Use the CLI image for materialization and evaluation. Keep datasets, builds,
+and models on host volumes so they persist between runs; the
+[Docker batch-job guide](../integrations/docker.md#reproducible-batch-jobs)
+provides the mount paths and commands.

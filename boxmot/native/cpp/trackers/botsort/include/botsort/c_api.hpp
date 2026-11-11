@@ -41,9 +41,10 @@ struct BoxMOTBotSortHandle;
 BOXMOT_BOTSORT_API BoxMOTBotSortHandle* boxmot_botsort_create_v3(const BoxMOTBotSortConfigV3* config);
 BOXMOT_BOTSORT_API void boxmot_botsort_destroy(BoxMOTBotSortHandle* handle);
 BOXMOT_BOTSORT_API int boxmot_botsort_reset(BoxMOTBotSortHandle* handle);
-BOXMOT_BOTSORT_API int boxmot_botsort_update_v2(BoxMOTBotSortHandle* handle,
+BOXMOT_BOTSORT_API int boxmot_botsort_update_v3(BoxMOTBotSortHandle* handle,
                                                 const BoxMOTDetectionBatchV2* detections,
                                                 const BoxMOTImageV2* image,
+                               double dt,
                                                 BoxMOTTrackBatchV2** output);
 BOXMOT_BOTSORT_API void boxmot_botsort_result_free_v2(BoxMOTTrackBatchV2* output);
 BOXMOT_BOTSORT_API const char* boxmot_botsort_last_error();

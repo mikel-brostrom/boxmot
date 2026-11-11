@@ -17,6 +17,7 @@ from boxmot.detectors import DetectorSpec
 from boxmot.detectors.config import resolve_detector_spec
 from boxmot.detectors.factory import detector_capabilities
 from boxmot.engine.config.experiments import resolve_experiment_config
+from boxmot.engine.config.runtime import resolve_mode_args
 from boxmot.engine.materialization import (
     BuildPlan,
     DatasetMaterializer,
@@ -204,12 +205,14 @@ def _stage_plan(
 
 
 def materialize(
-    args: Any,
+    args: Any | None = None,
     *,
     progress: MaterializationProgressReporter | None = None,
+    **options: Any,
 ) -> Path:
-    """Resolve components and execute one immutable local build."""
+    """Execute one immutable local build from keyword options or prepared args."""
 
+    args = resolve_mode_args("materialize", args, options)
     progress = progress or MaterializationProgress()
     device_override = _device_override(args)
     command_device = normalize_device(getattr(args, "device", None) or "cpu")

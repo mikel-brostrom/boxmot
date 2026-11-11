@@ -88,9 +88,10 @@ int boxmot_botsort_reset(BoxMOTBotSortHandle* handle) {
         "Unknown native BotSort failure");
 }
 
-int boxmot_botsort_update_v2(BoxMOTBotSortHandle* handle,
+int boxmot_botsort_update_v3(BoxMOTBotSortHandle* handle,
                              const BoxMOTDetectionBatchV2* detections,
                              const BoxMOTImageV2* image,
+                               double dt,
                              BoxMOTTrackBatchV2** output) {
     return boxmot::native::GuardCall(
         [&]() {
@@ -101,6 +102,7 @@ int boxmot_botsort_update_v2(BoxMOTBotSortHandle* handle,
                 throw std::runtime_error("Native BotSort input/output pointers are null.");
             }
             *output = nullptr;
+            boxmot::trackers::base::ValidateElapsedStep(dt);
             const std::vector<botsort::Detection> converted =
                 boxmot::trackers::base::ConvertLiveDetectionsV2<botsort::Detection, true>(
                     *detections, "BotSort");
@@ -116,7 +118,7 @@ int boxmot_botsort_update_v2(BoxMOTBotSortHandle* handle,
                 throw std::runtime_error("Native BotSort requires precomputed embeddings.");
             }
             const std::vector<botsort::TrackOutput> tracks =
-                handle->tracker->Update(converted, image_mat);
+                handle->tracker->Update(converted, image_mat, dt);
             *output =
                 boxmot::trackers::base::AllocateLiveOutputV2(tracks, detections->geometry_cols);
         },

@@ -9,6 +9,41 @@ Ray workers use the local installation and dataset/model paths. Running with
 `uv run --no-sync` keeps the existing environment without uploading the project
 directory to Ray.
 
+Tune an existing perception build from either interface. Replace `BUILD_ID`
+with the ID or directory produced by [materialization](materialize.md), using
+the same experiment:
+
+=== "CLI"
+
+    ```bash
+    boxmot tune \
+      --experiment mot17/ablation-yolox-lmbn.yaml \
+      --build BUILD_ID \
+      --tracker botsort \
+      --n-trials 200
+    ```
+
+=== "Python"
+
+    ```python
+    from boxmot.engine.tuning.tuner import run_tune
+
+    if __name__ == "__main__":
+        result = run_tune(
+            experiment="mot17/ablation-yolox-lmbn.yaml",
+            build="BUILD_ID",
+            tracker="botsort",
+            n_trials=200,
+        )
+        print(result.best_yaml)
+    ```
+
+`run_tune` returns a `TuneResult` with completed trials, best metrics, and the
+selected configuration path. The direct Python API requires a prepared build
+for image tuning. Keep the `__main__` guard in scripts so workers can start safely.
+
+The CLI can also prepare the build automatically and calibrate its Kalman filter:
+
 ```bash
 boxmot tune \
   --dataset mot17 \
@@ -24,7 +59,9 @@ boxmot tune \
 
 This command prepares 2 FPS data, calibrates the KF from cached detections and
 ground truth, then runs 200 tracker trials with the KF settings fixed. Omit
-`--calibrate-kf` to keep default or loaded KF settings without fitting them.
+`--calibrate-kf` to skip fitting. Ordinary Python 2D tuning can still search
+`kalman.type`; an explicit filter type or calibration profile fixes it. Noise
+scales stay fixed unless selected with `--tune-kf`.
 
 The dataset and component selectors resolve a matching authored experiment.
 You can select it directly with `--experiment mot17/ablation-yolox-lmbn.yaml`
@@ -50,10 +87,38 @@ Other modes can still record its fixed runtime default in `results.csv` and
 trial configs. A recorded value alone does not mean the optimizer sampled it;
 the analysis excludes these inactive defaults using the recorded search schema.
 
+## Choose objectives and search budget
+
+Image tuning defaults to 10 trials, Optuna TPE, and maximizing HOTA. Set
+`--n-trials` for the total trial budget and `--max-concurrent-trials` for the
+number running at once. Automatic concurrency is at most four trials, or one
+with temporal EdgeTAM guidance. `--seed` controls parameter sampling; concurrent
+completion order and runtime differences can still change an adaptive search.
+
+`--objectives` supplies the default primary metric: omitting `--maximize`
+maximizes its first value. Trial reports retain the standard metrics regardless
+of this list. Use `--maximize` and `--minimize` to select optimization directions.
+Maximizable metrics are `HOTA`, `MOTA`, `IDF1`, `AssA`, and `AssRe`; minimizable
+metrics are `IDSW`, `IDs`, and `IDSW_rate` (`IDSW / max(IDs, 1)`). For example:
+
+```bash
+boxmot tune --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID \
+  --tracker botsort --n-trials 100 --seed 0 \
+  --maximize HOTA --minimize IDSW_rate --search-alg optuna
+```
+
+HyperOpt supports a single optimization metric. Optuna supports multiple
+directions; random search samples the configured distributions without using
+scores to choose later candidates. With minimization objectives, the summary
+includes a Pareto front. The exported `best.yaml` is one candidate, ranked
+lexicographically by maximized metrics followed by negated minimized metrics;
+inspect the frontier when a different tradeoff matters.
+
 ## Inspect image-tracker tuning results
 
-Each image-tracker run saves `results.csv`, `best.yaml`, and `summary.md` under
-its reported run directory. The analysis uses that run's `search-space.json`
+Each image-tracker run with successful trials saves `results.csv`, `best.yaml`,
+and `summary.md` under `<project>/ray/<experiment-or-dataset>/<tracker>_<index>`.
+Use the actual path printed by tuning. The analysis uses that run's `search-space.json`
 and trial JSON metadata to explain which parameters were actually searched:
 
 | Output | What to inspect |
@@ -234,7 +299,7 @@ saved 2D/3D detections. Split overrides can select different prediction sets.
 You can also pass `dataset.yaml` itself; an absolute
 `--dataset` path works from any working directory. Keep the `./` prefix when
 selecting the local folder by name; bare `kitti-mots` selects the built-in
-image dataset profile.
+multimodal dataset profile and its configured storage layout.
 
 For your own synchronized camera and 3D observations, start from the
 [sensor dataset template](../config/datasets.md#bring-your-own-sensor-dataset).
@@ -283,9 +348,10 @@ boxmot tune --dataset ./my-sensor-dataset --tracker eagermot \
   --split train --calibrate-kf --n-trials 50 --seed 0
 ```
 
-The five covariance scales and `kalman.is_angular` stay fixed for each class by
-default. Add `--tune-kf` to refine selected scales around each class's fitted
-values. Reuse calibration without fitting again with
+The five covariance scales stay fixed unless explicitly selected with `--tune-kf`.
+Calibration also fixes `kalman.is_angular` for each class. Add `--tune-kf`
+to refine selected scales around each class's fitted values. Reuse calibration
+without fitting again with
 `--class-config path/to/kf-tuning/calibrated.yaml`. Both that starting profile
 and the final `best.yaml` contain separate `car` and `pedestrian` settings.
 `--class-config` also holds the loaded `kalman.is_angular` choices fixed; tuning
@@ -625,10 +691,10 @@ Changing a scale's starting value, a class prior, or timing requires a new run.
 
 ### OC-SORT base process noise
 
-OC-SORT and DeepOCSORT use fixed reference process covariances of `0.01` for
-centre velocity and `0.0001` for bounding-box area velocity. OBB angular
-velocity also uses `0.0001`. Python Kalman calibration scales these priors
-with the shared velocity multiplier:
+With their default XYSR filter, OC-SORT and DeepOCSORT use reference process
+covariances of `0.01` for center velocity and `0.0001` for bounding-box area velocity. OBB angular
+velocity also uses `0.0001`. Without per-coordinate calibration, the global
+velocity multiplier scales these priors:
 
 ```text
 centre-velocity noise = 0.01   × kalman.noise.process_velocity_scale
@@ -637,10 +703,12 @@ angular-velocity noise = 0.0001 × kalman.noise.process_velocity_scale  (OBB)
 ```
 
 These products describe reference noise before time-unit conversion and
-integration into `Q(dt)`. The relative balance between centre, area, and
-angular velocity noise is fixed by the filter; calibration scales them
-together. The five shared `kalman.noise.*_scale` settings are the noise-calibration
-interface.
+integration into `Q(dt)`. Coordinate-wise calibration additionally multiplies
+each derivative by its entry in `kalman.noise.process_velocity_diagonal`, so
+it can change the relative balance between center, area, and angular velocity.
+Subsequent `--tune-kf process_velocity_scale` refinement scales the calibrated
+group together while preserving those fitted ratios. Selecting another
+`kalman.type` uses that filter's own reference priors and coordinate layout.
 
 ## Arguments
 

@@ -167,6 +167,7 @@ def test_bundle_accepts_explicit_supported_controls(
             "--eval-masks",
             "--per-class",
             "--verbose",
+            "--variable-dt",
         ],
     )
 
@@ -178,6 +179,7 @@ def test_bundle_accepts_explicit_supported_controls(
     assert args.cache_inputs is True
     assert args.project == tmp_path / "custom-results"
     assert args.verbose is True
+    assert args.variable_dt is True
     assert args.sequence_workers == 1
 
 
@@ -243,7 +245,6 @@ def test_tune_help_explains_sensor_class_profiles() -> None:
         ["--build-root", "builds"],
         ["--experiment", "experiment.yaml"],
         ["--tracker-config", "override.yaml"],
-        ["--variable-dt"],
         ["--fps", "5"],
         ["--resume-tune", "old-study"],
         ["--time-budget-s", "10"],

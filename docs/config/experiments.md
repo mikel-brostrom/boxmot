@@ -28,6 +28,19 @@ explicit external YAML uses its own path. Experiment files do not define an
 Tracker selection remains an engine runtime choice and is not embedded in
 the experiment.
 
+Choose the experiment type that matches the data you have:
+
+| Experiment inputs | Supported workflows |
+| --- | --- |
+| Images plus detector, optional segmentor/ReID | `materialize`; `eval`/`tune` with automatic preparation or a matching build; `research` with an explicit build. |
+| Saved 2D boxes and optional ReID | `eval` directly; no perception build. |
+| Saved 2D/3D sensor predictions and calibration | EagerMOT `eval` and `tune` directly; no perception build. |
+
+For `eval` and `tune`, `--split` overrides the experiment's `dataset.split`.
+Otherwise that field wins over the dataset's `default_split`. Perception
+`materialize` uses the authored split; its `--split` option belongs only to
+`--time-variant` derivation. A build must match the effective split.
+
 Class maps use semantic names. The resolver looks up numeric IDs in the dataset
 and detector registries and builds the numeric bridge consumed by evaluation.
 Use `class_map: auto` when target class names match detector class names.
@@ -35,8 +48,9 @@ Use `class_map: auto` when target class names match detector class names.
 ReID crop extraction follows the resolved detection geometry automatically.
 AABB detections use clipped axis-aligned crops, while OBB detections use the
 canonical rectified OBB transform. Experiments do not select a crop strategy.
-Built-in ReID profiles do not consume detection masks; a custom mask-dependent
-encoder declares that requirement through its encoder contract.
+Built-in ReID profiles do not consume detection masks. The materialization CLI
+does not attach masks to its embedding stage; use the
+[Python pipeline API](../python/index.md) for a custom mask-dependent encoder.
 
 ## Dataset input selection
 

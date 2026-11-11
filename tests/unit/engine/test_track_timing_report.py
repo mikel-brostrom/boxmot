@@ -155,11 +155,11 @@ def test_track_reporter_renders_detailed_final_timing_and_outputs() -> None:
 
     for expected in (
         "Tracking complete",
-        "2 frames",
-        "12 detections",
-        "9 track rows",
-        "4 unique IDs",
-        "1 sequence",
+        "Frames completed",
+        "Detections",
+        "Track rows",
+        "Unique IDs",
+        "Sequences",
         "Startup",
         "Detector load",
         "Tracker load",
@@ -198,6 +198,15 @@ def test_track_reporter_renders_detailed_final_timing_and_outputs() -> None:
         assert expected in rendered
     assert "Counters" not in rendered
     assert "Segmentor\n" not in rendered
+    summary_rows = [
+        [cell.strip() for cell in line.split("│")[1:-1]]
+        for line in rendered.splitlines()
+        if "│" in line
+    ]
+    assert ["Frames completed", "2", "Runtime", "100.0 ms"] in summary_rows
+    assert ["Detections", "12", "Run FPS", "20.0"] in summary_rows
+    assert ["Track rows", "9", "Unique IDs", "4"] in summary_rows
+    assert ["Sequences", "1", "", ""] in summary_rows
 
 
 @pytest.mark.parametrize("interrupted_field", ("interrupted", "stopped_by_user"))
@@ -225,14 +234,21 @@ def test_track_reporter_renders_partial_zero_frame_shutdown(interrupted_field: s
     rendered = capture_renderable(TrackWorkflowReporter(SimpleNamespace()).result(run), width=140)
 
     assert "Tracking stopped by user" in rendered
-    assert "0/1 frames completed" in rendered
+    assert "Frames completed" in rendered
+    assert "0/1" in rendered
     assert "Startup" in rendered
     assert "16.0 ms total" in rendered
     assert rendered.count("ReID encoder") >= 2
     assert "Overall" in rendered
     assert "42.0" in rendered
     assert "30.00" in rendered
-    assert "42.0 ms runtime  •  — FPS" in rendered
+    summary_rows = [
+        [cell.strip() for cell in line.split("│")[1:-1]]
+        for line in rendered.splitlines()
+        if "│" in line
+    ]
+    assert ["Frames completed", "0/1", "Runtime", "42.0 ms"] in summary_rows
+    assert ["Detections", "0", "Run FPS", "—"] in summary_rows
     assert "Avg/attempt (ms)" in rendered
     assert "1 attempted frame (0 completed)" in rendered
     assert "Counters" not in rendered
@@ -331,8 +347,19 @@ def test_track_reporter_is_responsive_without_truncating_timing_categories(width
     ):
         assert category in rendered
     assert "<0.1" in rendered
+    assert "Total (ms)" in rendered
+    assert "Avg/frame (ms)" in rendered
+    assert "FPS" in rendered
+    # Parent and sub-stage totals share the same numeric column at all widths.
+    engine_lines = rendered.split("Engine stages", 1)[1].split("Outputs", 1)[0].splitlines()
+    engine_rows = [line for line in engine_lines if line.startswith("│")]
+    assert len({tuple(index for index, char in enumerate(line) if char == "│") for line in engine_rows}) == 1
+    cells = [[cell.strip() for cell in line.split("│")[1:-1]] for line in engine_rows]
+    assert ["Tracker", "4.0", "2.00", "498.8"] in cells
+    assert ["association", "<0.1", "", ""] in cells
+    assert ["Overall", "100.0", "50.00", "20.0"] in cells
     if width < 120:
-        assert "Component" not in rendered
+        assert "Component / phase" in rendered
         assert "preprocess" in rendered
         assert "inference" in rendered
         assert "postprocess" in rendered

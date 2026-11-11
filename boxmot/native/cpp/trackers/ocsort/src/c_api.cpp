@@ -79,9 +79,10 @@ int boxmot_ocsort_reset(BoxMOTOCSORTHandle* handle) {
         "Unknown native OcSort failure");
 }
 
-int boxmot_ocsort_update_v2(BoxMOTOCSORTHandle* handle,
+int boxmot_ocsort_update_v3(BoxMOTOCSORTHandle* handle,
                             const BoxMOTDetectionBatchV2* detections,
                             const BoxMOTImageV2* image,
+                               double dt,
                             BoxMOTTrackBatchV2** output) {
     return boxmot::native::GuardCall(
         [&]() {
@@ -92,13 +93,14 @@ int boxmot_ocsort_update_v2(BoxMOTOCSORTHandle* handle,
                 throw std::runtime_error("Native OcSort input/output pointers are null.");
             }
             *output = nullptr;
+            boxmot::trackers::base::ValidateElapsedStep(dt);
             const std::vector<ocsort::Detection> converted =
                 boxmot::trackers::base::ConvertLiveDetectionsV2<ocsort::Detection>(*detections,
                                                                                    "OcSort");
             const cv::Mat image_mat =
                 boxmot::trackers::base::WrapOptionalLiveImageV2(image, "OcSort");
             const std::vector<ocsort::TrackOutput> tracks =
-                handle->tracker->Update(converted, image_mat);
+                handle->tracker->Update(converted, image_mat, dt);
             *output =
                 boxmot::trackers::base::AllocateLiveOutputV2(tracks, detections->geometry_cols);
         },

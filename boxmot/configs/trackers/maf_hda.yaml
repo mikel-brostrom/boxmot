@@ -1,4 +1,13 @@
 # MOTS20 training defaults from the upstream GMPHD_MAF implementation.
+kalman:
+  variable_dt:
+    default: false
+  noise:
+    time_unit:
+      default: null
+    reference_dt_s:
+      default: 0.03333333333333333
+
 det_thresh:
   type: uniform
   default: 0.7

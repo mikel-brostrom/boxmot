@@ -12,6 +12,7 @@ from boxmot.engine.cli import boxmot
 from boxmot.engine.config.experiments import EXPERIMENT_CONFIGS_DIR, resolve_experiment_path
 
 EXPECTED_COMMAND_ORDER = (
+    "ui",
     "track",
     "materialize",
     "eval",

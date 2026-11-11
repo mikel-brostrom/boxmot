@@ -51,7 +51,8 @@ For shared component settings, an entry with only `default` is also fixed. If th
 block, a true value enables the children's search ranges and a false value
 keeps the children fixed. A searchable parent's default does not fix its
 children: the selected trial value controls Optuna and HyperOpt branches.
-Random search samples variable branches as a flat space.
+Random search also uses branch-specific choice dictionaries. Inactive branches
+carry fixed child defaults without sampling those children.
 
 Use `association` to declare which metrics a search parameter applies to.
 An overlap threshold is searched only for the listed overlap metrics, while
@@ -163,6 +164,12 @@ field accepts a `KalmanNoiseConfig`.
 `time_unit: null` to derive units from it; calibrated profiles save the resolved
 unit. Timing and the reference interval remain fixed during tuning.
 
+Python trackers except SFSORT, plus native ByteTrack, BotSort, OcSort, and
+OccluBoost, support variable timing. EagerMot applies it to 3D motion and MafHda
+to Gaussian motion and tracklet recovery. SFSORT uses fixed steps and rejects
+Kalman settings on both backends. Native trackers reject covariance scaling. See
+[capture timing](../python/index.md#elapsed-time) for timestamp requirements.
+
 `kalman.adaptive_kf` selects innovation-based adaptation in BoostTrack and
 OccluBoost. `kalman.is_angular` selects EagerMOT's object yaw-velocity state.
 OccluBoost's `kalman.ams` group holds `enabled`, `alpha0`, `threshold`,
@@ -192,8 +199,11 @@ compare types and noise profiles before tuning tracker thresholds.
 For 2D calibration, the five covariance groups also support coordinate vectors:
 `process_position_diagonal`, `process_velocity_diagonal`,
 `measurement_noise_diagonal`, `initial_position_diagonal`, and
-`initial_velocity_diagonal`. Their lengths match the selected filter's
-measurement coordinates. Calibration fits these vectors and saves the global
+`initial_velocity_diagonal`. Position and measurement vectors follow the
+measurement-coordinate order; velocity vectors follow the modeled derivative
+state order. These lengths can differ: AABB XYSR measures four coordinates
+but models only three derivatives (`vx`, `vy`, and area velocity). Calibration
+fits these vectors and saves the global
 `*_scale` multipliers as `1.0`; explicit `--tune-kf` options refine those
 multipliers while preserving the fitted coordinate ratios. EagerMOT's 3D
 calibration continues to use five scalar scales.

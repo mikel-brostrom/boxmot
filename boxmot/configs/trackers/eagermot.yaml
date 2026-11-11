@@ -53,6 +53,8 @@ iou_3d_threshold:
   range: [0.01, 0.5]
 
 kalman:
+  variable_dt:
+    default: false
   is_angular:
     type: choice
     default: false
@@ -71,6 +73,6 @@ kalman:
     initial_velocity_scale:
       default: 1.0
     time_unit:
-      default: frames
+      default: null
     reference_dt_s:
       default: 0.03333333333333333

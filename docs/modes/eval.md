@@ -2,6 +2,40 @@
 
 `eval` measures tracking performance from perception builds or saved detections.
 For existing KITTI 2D predictions, use the [saved-box workflow](#saved-2d-detections).
+For synchronized 2D/3D predictions and calibration, use
+[EagerMOT sensor evaluation](#eagermot-with-saved-sensor-inputs). These direct
+saved-input workflows do not accept a perception build.
+
+Evaluate an existing perception build from either interface. Replace `BUILD_ID`
+with the ID or directory produced by [materialization](materialize.md), using
+the same experiment:
+
+=== "CLI"
+
+    ```bash
+    boxmot eval \
+      --experiment mot17/ablation-yolox-lmbn.yaml \
+      --build BUILD_ID \
+      --tracker botsort
+    ```
+
+=== "Python"
+
+    ```python
+    from boxmot.engine.eval.evaluator import run_eval
+
+    if __name__ == "__main__":
+        result = run_eval(
+            experiment="mot17/ablation-yolox-lmbn.yaml", build="BUILD_ID", tracker="botsort"
+        )
+        print(result.summary)
+        print(result.exp_dir)
+    ```
+
+`run_eval` returns a `ValidationResult` with metrics and the output directory.
+The direct Python API requires a prepared build for image evaluation. Keep the
+`__main__` guard in scripts so sequence workers can start safely.
+
 For perception-build evaluation, it streams an immutable materialized build
 through the live tracker API. Select an authored experiment with `--experiment` or use
 dataset and component flags as shorthand for a matching catalog experiment.
@@ -485,13 +519,13 @@ An unbound build created before canonical experiment materialization can be
 evaluated only with the explicit `--allow-noncanonical-build` escape hatch.
 This relaxes the missing build-binding check; it does not turn incompatible
 artifacts into compatible ones. Use it only after independently verifying the
-build's source, split, detector, ReID model, geometry, and class taxonomy. For
-example, to diagnose the known MMOT build on one sequence:
+build's source, split, detector, ReID model, geometry, and class taxonomy.
+For example, to inspect an unbound MMOT Parquet build on one sequence:
 
 ```bash
 boxmot eval \
   --experiment mmot-obb/test-yolo11l-lmbn.yaml \
-  --build faf16842d9d15fc048a50247df8ae927e7299d5760c9f461af4581cabfa279e6 \
+  --build /path/to/unbound-build \
   --data-root datasets/mot \
   --tracker botsort \
   --sequence data23-1 \
@@ -499,7 +533,8 @@ boxmot eval \
 ```
 
 Omit `--sequence data23-1` to evaluate every sequence. Canonical builds remain
-the default and do not need this flag.
+the default and do not need this flag. This option does not support positional
+NumPy/NPZ caches or text-only caches; those must be materialized again.
 
 ## CMC by sequence
 
@@ -648,8 +683,8 @@ Each run writes:
 
 - `<run>/kf-tuning/calibrated.yaml`: resolved tracker settings, tracker
   name, and a nested `kalman` configuration containing timing and filter policies.
-  Its `noise` group holds the five scales, explicit units, reference interval,
-  and any class profiles.
+  Its `noise` group holds the fitted coordinate vectors, five global scales,
+  explicit units, reference interval, and any class profiles.
 - `<run>/kf-tuning/calibration.json`: calibration evidence, timing settings,
   and the final evaluation result.
 

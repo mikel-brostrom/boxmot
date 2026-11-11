@@ -234,6 +234,7 @@ def test_shared_entrypoints_route_sensor_datasets_without_ray(
         ({"detector": "yolov8n"}, "does not support detector"),
         ({"tracker_config": "tracker.yaml"}, "does not support tracker_config"),
         ({"calibrate_kf": True}, "--calibrate-kf requires 3D ground truth with track IDs"),
+        ({"calibrate_kf": True, "variable_dt": True}, "calibration uses fixed frame steps"),
         ({"select_kf": True}, "--select-kf requires an image dataset"),
         ({"select_cmc": True}, "--select-cmc requires an image dataset"),
         ({"eval_3d": True}, "eval_3d is available on eval only"),

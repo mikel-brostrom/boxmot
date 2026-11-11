@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import click
@@ -32,8 +33,13 @@ def _parse_target(value: str):
     return EvalTarget(dataset=dataset, data_dir=path)
 
 
-def main(args: Any) -> dict[str, Any]:
-    """Run domain comparison and persist aggregate and per-model reports."""
+def main(args: Any = None, **options: Any) -> dict[str, Any]:
+    """Compare ReID checkpoints from keyword options or resolved arguments."""
+
+    if args is not None and options:
+        raise TypeError("Pass either resolved arguments or keyword options, not both.")
+    if args is None:
+        args = SimpleNamespace(**options)
 
     from boxmot.reid.evaluation.comparison import ReIDComparisonConfig
     from boxmot.reid.evaluation.comparison import compare_reid as run_comparison
@@ -245,8 +251,6 @@ def _write_map_latency_plot(results: list[dict[str, Any]], path: Path) -> Path |
 )
 def compare_reid(**kwargs: Any) -> Any:
     """Compare trained ReID checkpoints across target datasets."""
-
-    from types import SimpleNamespace
 
     return _run_engine_workflow(__name__, SimpleNamespace(**kwargs))
 

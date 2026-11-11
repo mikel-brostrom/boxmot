@@ -4,25 +4,45 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from boxmot.trackers.common.geometry.obb import transform_aabbs, transform_obbs, transform_points
 from boxmot.trackers.common.motion.models import MotionModelAdapter
 
+if TYPE_CHECKING:
+    from boxmot.trackers.common.motion.kalman_filters.base import BaseKalmanFilter
+
 
 def transform_filter_histories(
-    filters: Sequence,
-    transform_states: Callable,
-    transform_measurements: Callable,
+    filters: Sequence[BaseKalmanFilter],
+    transform_states: Callable[[np.ndarray, np.ndarray], tuple[np.ndarray, np.ndarray, np.ndarray]],
+    transform_measurements: Callable[[np.ndarray], np.ndarray],
 ) -> None:
-    """Warp live, frozen and timed states together, retaining history shapes."""
+    """Warp live and recovery states, including each saved prediction model.
+
+    The state callback returns means, covariances and their local Jacobians.
+    Replay models use the Jacobians at both ends of each prediction: exact
+    for affine state maps, locally linear for nonlinear camera/box maps.
+    """
     state_records = []
     measurement_records = []
+    prediction_records = []
     for kalman in filters:
         state_records.append((kalman, None, kalman.x, kalman.P))
         if kalman._prediction_origin is not None:
+            indices = [len(state_records)]
             state_records.append((kalman, "_prediction_origin", *kalman._prediction_origin))
+            mean = np.asarray(kalman._prediction_origin[0]).reshape(-1)
+            for _, transition, noise, control in kalman._prediction_steps:
+                mean = transition @ mean
+                if control is not None:
+                    mean = mean + np.asarray(control).reshape(-1)
+                indices.append(len(state_records))
+                # The endpoint supplies the Jacobian for this step's noise.
+                state_records.append((None, None, mean, noise))
+            prediction_records.append((kalman, indices))
         owners = [kalman]
         if not kalman.observed and kalman.attr_saved is not None:
             saved = kalman.attr_saved
@@ -35,11 +55,13 @@ def transform_filter_histories(
                 measurement_records.append((owner, name, value))
 
     if state_records:
-        means, covariances = transform_states(
+        means, covariances, jacobians = transform_states(
             np.asarray([np.asarray(record[2]).reshape(-1) for record in state_records]),
             np.asarray([record[3] for record in state_records]),
         )
         for (owner, name, original, _), mean, covariance in zip(state_records, means, covariances):
+            if owner is None:
+                continue
             mean = mean.reshape(np.asarray(original).shape)
             if name is not None:
                 setattr(owner, name, (mean, covariance))
@@ -47,6 +69,8 @@ def transform_filter_histories(
                 owner["x"], owner["P"] = mean, covariance
             else:
                 owner.x, owner.P = mean, covariance
+        for kalman, indices in prediction_records:
+            _transform_prediction_steps(kalman, indices, means, covariances, jacobians)
 
     measurements = []
     for _, _, value in measurement_records:
@@ -67,6 +91,37 @@ def transform_filter_histories(
             owner[name] = result
         else:
             setattr(owner, name, result)
+
+
+def _transform_prediction_steps(
+    kalman: BaseKalmanFilter,
+    indices: list[int],
+    means: np.ndarray,
+    covariances: np.ndarray,
+    jacobians: np.ndarray,
+) -> None:
+    """Express saved dynamics in the same coordinates as the replay origin."""
+    steps = []
+    transforms = jacobians[indices]
+    try:
+        if not np.isfinite(transforms).all() or np.any(np.linalg.cond(transforms) > 1e12):
+            raise np.linalg.LinAlgError("Camera mapping cannot be inverted reliably for replay")
+        for (interval, transition, _, _), start, end in zip(
+            kalman._prediction_steps, indices[:-1], indices[1:], strict=True
+        ):
+            # Solve F' J_start = J_end F without explicitly inverting J_start.
+            mapped_transition = np.linalg.solve(jacobians[start].T, (jacobians[end] @ transition).T).T
+            # This also carries affine offsets and any original control input.
+            control = means[end] - mapped_transition @ means[start]
+            steps.append((interval, mapped_transition, covariances[end], control.reshape(kalman.x.shape)))
+    except np.linalg.LinAlgError:
+        # As with an overlong gap, recover directly from the compensated live
+        # state when the saved models cannot be represented in this frame.
+        kalman._prediction_origin = None
+        kalman._prediction_steps.clear()
+        kalman._prediction_history_overflowed = True
+        return
+    kalman._prediction_steps = steps
 
 
 def transform_observation_histories(
@@ -156,9 +211,7 @@ def transform_directions(
             setattr(owner, name, normalized[index, ::-1].copy())
 
 
-def transform_prediction_histories(
-    tracks: Sequence, transform: np.ndarray, *, model: MotionModelAdapter
-) -> None:
+def transform_prediction_histories(tracks: Sequence, transform: np.ndarray, *, model: MotionModelAdapter) -> None:
     """Warp retained prediction rows together without changing array ownership."""
     rows = [np.asarray(box).reshape(1, -1) for track in tracks for box in track.history]
     if not rows:
@@ -204,6 +257,6 @@ def transform_ocsort_tracks(
 
     transform_filter_histories(
         [track.kf for track in tracks],
-        lambda means, covariances: model.transform_states(means, covariances, transform),
+        lambda means, covariances: model.transform_states(means, covariances, transform, return_jacobian=True),
         lambda measurements: model.transform_measurements(measurements, transform),
     )

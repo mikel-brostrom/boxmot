@@ -289,6 +289,7 @@ ENGINE_COMMAND_LAYOUT = (
     "engine/commands/research.py",
     "engine/commands/track.py",
     "engine/commands/tune.py",
+    "engine/commands/ui.py",
     "engine/commands/reid/__init__.py",
     "engine/commands/reid/_options.py",
     "engine/commands/reid/ablation.py",

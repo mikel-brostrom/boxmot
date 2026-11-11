@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from rich import box
 from rich.console import Console, ConsoleOptions, Group, RenderableType, RenderResult
 from rich.rule import Rule
 from rich.table import Table
@@ -183,25 +184,15 @@ def _average_ms(total_ms: float, timed_frames: int) -> float:
     return float(total_ms) / timed_frames if timed_frames else 0.0
 
 
-def _count_token(value: int, singular: str, plural: str | None = None) -> Text:
-    label = singular if value == 1 else (plural or f"{singular}s")
-    token = Text()
-    token.append(f"{value:,}", style=ui.STYLE_TEXT_STRONG)
-    token.append(f" {label}", style=ui.STYLE_MUTED)
-    return token
-
-
-def _frame_token(completed: int, attempted: int) -> Text:
-    if attempted != completed:
-        token = Text()
-        token.append(f"{completed:,}/{attempted:,}", style=ui.STYLE_TEXT_STRONG)
-        token.append(" frames completed", style=ui.STYLE_MUTED)
-        return token
-    return _count_token(completed, "frame")
-
-
-def _append_separator(text: Text) -> None:
-    text.append("  •  ", style=ui.STYLE_SUBTLE)
+def _report_table() -> Table:
+    """Keep numeric report columns separated by a consistent visible grid."""
+    return Table(
+        expand=True,
+        box=box.ROUNDED,
+        border_style=ui.STYLE_BORDER,
+        header_style=ui.STYLE_TABLE_HEADER,
+        padding=(0, 1),
+    )
 
 
 def _build_status_summary(
@@ -209,40 +200,30 @@ def _build_status_summary(
     runtime: Mapping[str, float],
     *,
     timed_frames: int,
-    compact: bool,
 ) -> RenderableType:
+    """Separate run status from labeled, right-aligned summary measurements."""
     completed = _summary_counter(summary, "frames")
     stopped = bool(getattr(summary, "interrupted", False)) or bool(getattr(summary, "stopped_by_user", False))
 
     status = Text()
     status.append("■ " if stopped else "✓ ", style=ui.STYLE_STATUS_ACTIVE if stopped else ui.STYLE_STATUS_DONE)
     status.append("Tracking stopped by user" if stopped else "Tracking complete", style=ui.STYLE_TEXT_STRONG)
-    _append_separator(status)
-    status.append(_format_duration_ms(runtime["overall"]), style=ui.STYLE_TEXT_STRONG)
-    status.append(" runtime", style=ui.STYLE_MUTED)
-    _append_separator(status)
     # The headline is observed run throughput, so only completed frames count.
     # Detailed stage rows deliberately use ``timed_frames`` to retain work from
     # an interrupted partial frame.
     overall_avg = _average_ms(runtime["overall"], completed)
-    status.append(_format_fps(overall_avg), style=ui.STYLE_TEXT_STRONG)
-    status.append(" FPS", style=ui.STYLE_MUTED)
-
-    counters = [
-        _frame_token(completed, timed_frames),
-        _count_token(_summary_counter(summary, "detections"), "detection"),
-        _count_token(_summary_counter(summary, "track_rows", "tracks"), "track row"),
-        _count_token(_summary_counter(summary, "unique_track_ids", "unique_tracks"), "unique ID"),
-        _count_token(_summary_counter(summary, "sequences"), "sequence"),
-    ]
-    column_count = 3 if compact else len(counters)
-    grid = Table.grid(expand=True, padding=(0, 2))
-    for _ in range(column_count):
-        grid.add_column(ratio=1)
-    for index in range(0, len(counters), column_count):
-        row: list[RenderableType] = list(counters[index : index + column_count])
-        row.extend(Text() for _ in range(column_count - len(row)))
-        grid.add_row(*row)
+    grid = _report_table()
+    for _ in range(2):
+        grid.add_column("Metric", style=ui.STYLE_ACCENT, ratio=1)
+        grid.add_column("Value", style=ui.STYLE_TEXT_STRONG, justify="right", no_wrap=True)
+    frames = f"{completed:,}/{timed_frames:,}" if timed_frames != completed else f"{completed:,}"
+    grid.add_row("Frames completed", frames, "Runtime", _format_duration_ms(runtime["overall"]))
+    grid.add_row("Detections", f"{_summary_counter(summary, 'detections'):,}", "Run FPS", _format_fps(overall_avg))
+    grid.add_row(
+        "Track rows", f"{_summary_counter(summary, 'track_rows', 'tracks'):,}",
+        "Unique IDs", f"{_summary_counter(summary, 'unique_track_ids', 'unique_tracks'):,}",
+    )
+    grid.add_row("Sequences", f"{_summary_counter(summary, 'sequences'):,}", "", "")
     return Group(status, grid)
 
 
@@ -258,21 +239,22 @@ _STARTUP_LABELS = {
 }
 
 
-def _build_startup_section(timings: Mapping[str, float], *, compact: bool) -> Group:
+def _build_startup_section(timings: Mapping[str, float]) -> Group:
+    """Align startup measurements in milliseconds using two label/value pairs."""
     title = Text("Startup", style=ui.STYLE_TITLE)
     title.append(f"  {_format_duration_ms(timings['total'])} total", style=ui.STYLE_MUTED)
 
-    pair_count = 2 if compact else 4
-    table = Table.grid(expand=True, padding=(0, 1))
+    pair_count = 2
+    table = _report_table()
     for _ in range(pair_count):
-        table.add_column(style=ui.STYLE_ACCENT, no_wrap=True)
-        table.add_column(style=ui.STYLE_TEXT, justify="right", no_wrap=True, ratio=1)
+        table.add_column("Stage", style=ui.STYLE_ACCENT, ratio=1)
+        table.add_column("Time (ms)", style=ui.STYLE_TEXT, justify="right", no_wrap=True)
 
     items = [(key, _STARTUP_LABELS[key]) for key in TRACK_STARTUP_TIMING_COMPONENTS]
     for index in range(0, len(items), pair_count):
         row: list[RenderableType | str] = []
         for key, label in items[index : index + pair_count]:
-            row.extend((label, _format_duration_ms(timings[key])))
+            row.extend((label, _format_ms(timings[key], decimals=1)))
         row.extend("" for _ in range(2 * pair_count - len(row)))
         table.add_row(*row)
 
@@ -324,35 +306,44 @@ def _runtime_component_rows(
     return rows
 
 
-def _compact_timing_row(
+def _timing_table(label: str, denominator: str) -> Table:
+    """Build a timing grid that also fits ordinary 80-column terminals."""
+    table = _report_table()
+    table.add_column(label, style=ui.STYLE_ACCENT, ratio=2, overflow="fold")
+    table.add_column("Total (ms)", justify="right", no_wrap=True, min_width=10)
+    average_header = f"Avg/{denominator} (ms)"
+    table.add_column(average_header, justify="right", no_wrap=True, min_width=len(average_header))
+    table.add_column("FPS", justify="right", no_wrap=True, min_width=5)
+    return table
+
+
+def _add_timing_rows(
+    table: Table,
     label: str,
     breakdown: tuple[tuple[str, float], ...],
     total_ms: float,
     timed_frames: int,
     *,
-    denominator: str,
     strong: bool = False,
-) -> Text:
+) -> None:
+    """Align stage totals and their measured sub-stages in the same columns."""
     average = _average_ms(total_ms, timed_frames)
-    text = Text()
-    text.append(label, style=ui.STYLE_TEXT_STRONG if strong else ui.STYLE_ACCENT)
-    text.append("  ")
-    text.append(_format_ms(total_ms, decimals=1, unit=True), style=ui.STYLE_TEXT_STRONG if strong else ui.STYLE_TEXT)
-    text.append(" total", style=ui.STYLE_MUTED)
-    text.append("  ·  ", style=ui.STYLE_SUBTLE)
-    text.append(_format_ms(average, decimals=2, unit=True), style=ui.STYLE_TEXT_STRONG if strong else ui.STYLE_TEXT)
-    text.append(f"/{denominator}", style=ui.STYLE_MUTED)
-    text.append("  ·  ", style=ui.STYLE_SUBTLE)
-    text.append(_format_fps(average), style=ui.STYLE_TEXT_STRONG if strong else ui.STYLE_TEXT)
-    text.append(" FPS", style=ui.STYLE_MUTED)
-    if breakdown:
-        text.append("\n  ")
-        for index, (stage, value) in enumerate(breakdown):
-            if index:
-                text.append("  ·  ", style=ui.STYLE_SUBTLE)
-            text.append(f"{stage} ", style=ui.STYLE_MUTED)
-            text.append(_format_ms(value, decimals=1, unit=True), style=ui.STYLE_TEXT)
-    return text
+    table.add_row(
+        label,
+        _format_ms(total_ms, decimals=1),
+        _format_ms(average, decimals=2),
+        _format_fps(average),
+        style=ui.STYLE_TEXT_STRONG if strong else ui.STYLE_TEXT,
+        end_section=not breakdown,
+    )
+    for index, (stage, value) in enumerate(breakdown):
+        table.add_row(
+            Text(f"  {stage}", style=ui.STYLE_MUTED),
+            _format_ms(value, decimals=1),
+            "",
+            "",
+            end_section=index == len(breakdown) - 1,
+        )
 
 
 def _build_perception_table(
@@ -370,28 +361,12 @@ def _build_perception_table(
         include_reid=include_reid,
     )
     if compact:
-        table = Table.grid(expand=True, padding=(0, 0))
-        table.add_column(overflow="fold")
+        table = _timing_table("Component / phase", denominator)
         for label, breakdown, total_ms in rows:
-            table.add_row(
-                _compact_timing_row(
-                    label,
-                    breakdown,
-                    total_ms,
-                    timed_frames,
-                    denominator=denominator,
-                )
-            )
+            _add_timing_rows(table, label, breakdown, total_ms, timed_frames)
         return table
 
-    table = Table(
-        expand=True,
-        box=None,
-        show_header=True,
-        header_style=ui.STYLE_TABLE_HEADER,
-        pad_edge=False,
-        padding=(0, 1),
-    )
+    table = _report_table()
     table.add_column("Component", style=ui.STYLE_ACCENT, no_wrap=True, ratio=1)
     table.add_column("Pre (ms)", justify="right", no_wrap=True)
     table.add_column("Infer (ms)", justify="right", no_wrap=True)
@@ -442,65 +417,17 @@ def _runtime_engine_rows(
     ]
 
 
-def _breakdown_text(values: tuple[tuple[str, float], ...]) -> Text:
-    text = Text()
-    for index, (stage, value) in enumerate(values):
-        if index:
-            text.append("  ·  ", style=ui.STYLE_SUBTLE)
-        text.append(f"{stage} ", style=ui.STYLE_MUTED)
-        text.append(_format_ms(value, decimals=1), style=ui.STYLE_TEXT)
-    return text
-
-
 def _build_engine_table(
     runtime: Mapping[str, float],
     timed_frames: int,
     *,
-    compact: bool,
     denominator: str,
 ) -> Table:
+    """Keep engine-stage timings in aligned columns at every report width."""
     rows = _runtime_engine_rows(runtime)
-    if compact:
-        table = Table.grid(expand=True, padding=(0, 0))
-        table.add_column(overflow="fold")
-        for label, breakdown, total_ms, strong in rows:
-            table.add_row(
-                _compact_timing_row(
-                    label,
-                    breakdown,
-                    total_ms,
-                    timed_frames,
-                    denominator=denominator,
-                    strong=strong,
-                )
-            )
-        return table
-
-    table = Table(
-        expand=True,
-        box=None,
-        show_header=True,
-        header_style=ui.STYLE_TABLE_HEADER,
-        pad_edge=False,
-        padding=(0, 1),
-    )
-    table.add_column("Stage", style=ui.STYLE_ACCENT, no_wrap=True)
-    table.add_column("Breakdown (ms)", ratio=1)
-    table.add_column("Total (ms)", justify="right", no_wrap=True)
-    table.add_column(f"Avg/{denominator} (ms)", justify="right", no_wrap=True)
-    table.add_column("FPS", justify="right", no_wrap=True)
+    table = _timing_table("Stage", denominator)
     for label, breakdown, total_ms, strong in rows:
-        average = _average_ms(total_ms, timed_frames)
-        style = ui.STYLE_TEXT_STRONG if strong else None
-        table.add_row(
-            label,
-            _breakdown_text(breakdown),
-            _format_ms(total_ms, decimals=1),
-            _format_ms(average, decimals=2),
-            _format_fps(average),
-            style=style,
-            end_section=label == "Other overhead",
-        )
+        _add_timing_rows(table, label, breakdown, total_ms, timed_frames, strong=strong)
     return table
 
 
@@ -550,8 +477,8 @@ def _build_track_result(run: Any, *, compact: bool) -> Group:
     include_reid = startup["reid_encoder_load"] > 0.0 or runtime["reid_total"] > 0.0
 
     sections: list[RenderableType] = [
-        _build_status_summary(summary, runtime, timed_frames=timed_frames, compact=compact),
-        _build_startup_section(startup, compact=compact),
+        _build_status_summary(summary, runtime, timed_frames=timed_frames),
+        _build_startup_section(startup),
         Rule(Text("Runtime", style=ui.STYLE_TITLE), style=ui.STYLE_RULE),
         Text("Perception", style=ui.STYLE_ACCENT),
         _build_perception_table(
@@ -566,7 +493,6 @@ def _build_track_result(run: Any, *, compact: bool) -> Group:
         _build_engine_table(
             runtime,
             timed_frames,
-            compact=compact,
             denominator=denominator,
         ),
     ]

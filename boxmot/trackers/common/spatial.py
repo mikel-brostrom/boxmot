@@ -30,20 +30,21 @@ def prepare_camera(
     camera: CameraModel | np.ndarray,
     *,
     frame: Frame | np.ndarray | None,
-    image_size: tuple[int, int] | None,
     camera_to_world: np.ndarray | None,
 ) -> CameraModel:
-    """Validate calibration or construct it from NumPy matrices and image size."""
+    """Validate calibration or construct it from NumPy matrices and frame dimensions."""
     if isinstance(camera, CameraModel):
-        if image_size is not None or camera_to_world is not None:
-            raise ValueError("Pass image_size and camera_to_world separately only with a NumPy camera projection.")
+        if camera_to_world is not None:
+            raise ValueError("Pass camera_to_world separately only with a NumPy camera projection.")
         camera.validate()
         return camera
     projection = _camera_tensor(camera, name="camera projection", shape=(3, 4))
-    if image_size is None:
-        if frame is None:
-            raise ValueError("A NumPy camera projection requires image_size or a frame.")
-        image_size = frame_image_size(frame)
+    if frame is None:
+        raise ValueError(
+            "A NumPy camera projection requires a frame to infer image dimensions; "
+            "pass a CameraModel when no frame is available."
+        )
+    image_size = frame_image_size(frame)
     pose = (
         None
         if camera_to_world is None

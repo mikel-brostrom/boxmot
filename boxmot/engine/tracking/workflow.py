@@ -11,6 +11,7 @@ from boxmot import create_tracker
 from boxmot.components.resolution import component_options
 from boxmot.detectors import Detector, DetectorSpec, create_detector
 from boxmot.detectors.config import resolve_detector_spec
+from boxmot.engine.config.runtime import resolve_mode_args
 from boxmot.engine.config.trackers import edgetam_checkpoint, resolve_tracker_options
 from boxmot.engine.tracking.profiling import RuntimeProfiler, profile_components, startup_stage
 from boxmot.engine.tracking.runner import RunSummary, TrackingRunner
@@ -247,18 +248,32 @@ def _default_sinks(
 
 
 def run_track(
-    args: Any,
+    args: Any | None = None,
     *,
-    detector: Detector | None = None,
-    segmentor: Segmentor | None = None,
+    detector: Detector | str | Path | None = None,
+    segmentor: Segmentor | str | Path | None = None,
     encoder: AppearanceEncoder | None = None,
-    tracker: Tracker | None = None,
-    source: FrameSource | None = None,
+    tracker: Tracker | str | None = None,
+    source: FrameSource | str | Path | int | None = None,
     sinks: tuple[TrackSink, ...] | None = None,
     ui_pipeline: PipelineTracker | None = None,
+    **options: Any,
 ) -> TrackRun:
-    """Run one source through the v24 component/pipeline/engine stack."""
+    """Track using keyword options or prepared args, with optional component instances."""
 
+    if isinstance(detector, (str, Path)):
+        options["detector"] = detector
+        detector = None
+    if isinstance(segmentor, (str, Path)):
+        options["segmentor"] = segmentor
+        segmentor = None
+    if isinstance(tracker, str):
+        options["tracker"] = tracker
+        tracker = None
+    if isinstance(source, (str, Path, int)):
+        options["source"] = source
+        source = None
+    args = resolve_mode_args("track", args, options)
     profiler = RuntimeProfiler()
     startup_timings_ms: dict[str, float] = {}
     geometry = str(getattr(args, "geometry", "aabb") or "aabb")

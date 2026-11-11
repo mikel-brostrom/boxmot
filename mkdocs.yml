@@ -1,12 +1,13 @@
 site_name: "BoxMOT"
 site_url: https://mikel-brostrom.github.io/boxmot/
-site_description: Pluggable multi-object tracking for detection, segmentation, and pose models.
+site_description: Multi-object tracking for axis-aligned boxes, oriented boxes, and instance masks.
 repo_url: https://github.com/mikel-brostrom/boxmot
 repo_name: mikel-brostrom/boxmot
 edit_uri: blob/master/docs/
 theme:
   name: material
   logo: logo/logo_white.png
+  favicon: logo/favicon.png
   icon:
     repo: fontawesome/brands/github
   palette:
@@ -110,8 +111,10 @@ nav:
   - Home:
       - Overview: index.md
       - Installation: getting-started/installation.md
+      - PyTorch and source setup: getting-started/pytorch.md
   - Modes:
       - Overview: modes/index.md
+      - Terminal UI: modes/ui.md
       - Install dependencies: modes/install.md
       - Tracking:
           - Track: modes/track.md
@@ -128,9 +131,10 @@ nav:
           - Export: modes/export.md
   - Tasks:
       - Overview: tasks/index.md
-      - Bounding Boxes: tasks/aabb.md
+      - 2D Boxes: tasks/aabb.md
       - Oriented Boxes: tasks/obb.md
       - Masks: tasks/masks.md
+      - 2D/3D Fusion: tasks/fusion.md
   - Trackers:
       - Overview: trackers/index.md
       - Motion-only:
@@ -148,12 +152,13 @@ nav:
           - MafHda: trackers/maf_hda.md
       - Sensor fusion:
           - EagerMot: trackers/eagermot.md
-  - Compare: compare/index.md
-  - Data:
-      - Config System Overview: config/index.md
+  - Datasets:
+      - Supported Datasets: datasets/index.md
+      - Dataset Profiles: config/datasets.md
+  - Configuration:
+      - Overview: config/index.md
       - Mode Defaults: config/modes.md
       - Experiments: config/experiments.md
-      - Dataset Profiles: config/datasets.md
       - Detector Profiles: config/detectors.md
       - ReID Models: config/reid-models.md
       - ReID Runtime Profiles: config/reid.md
@@ -164,7 +169,7 @@ nav:
           - Canonical Geometry: concepts/index.md
           - Tracking Pipeline: concepts/tracking-pipeline.md
       - Workflows:
-          - Migrating to v24: guides/v24-migration.md
+          - Compare Trackers and ReID: guides/comparison.md
           - Experiment Workflows: guides/experiments.md
           - Evaluation and Postprocessing: guides/evaluation.md
           - Kalman Calibration: guides/kalman-calibration.md
@@ -172,6 +177,7 @@ nav:
           - CSL-TinyViT-7M HP-GRD: guides/csl-tinyvit-7m-hpgrd.md
   - Integrations:
       - Overview: integrations/index.md
+      - Docker: integrations/docker.md
       - Tracker Service: guides/deployment.md
       - Native C++: native/index.md
   - Reference:

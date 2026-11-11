@@ -258,7 +258,8 @@ std::vector<TrackOutput> BotSortTracker::PrepareOutput(
 }
 
 std::vector<TrackOutput> BotSortTracker::Update(const std::vector<Detection>& detections,
-                                                const cv::Mat& image) {
+                                                const cv::Mat& image, const double dt) {
+    boxmot::trackers::base::ValidateElapsedStep(dt);
     if (boxmot::trackers::base::AssociationModeRequiresFrameDimensions(association_mode_) &&
         (association_frame_width_ <= 0 || association_frame_height_ <= 0)) {
         if (image.empty()) {
@@ -311,7 +312,7 @@ std::vector<TrackOutput> BotSortTracker::Update(const std::vector<Detection>& de
 
     std::vector<Track::Ptr> strack_pool = JointTracks(active_tracks, lost_tracks_);
     for (auto& track : strack_pool) {
-        track->Predict(kalman_filter_);
+        track->Predict(kalman_filter_, dt);
     }
     ApplyCameraMotionCompensation(image, working_detections, strack_pool, unconfirmed);
 

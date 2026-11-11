@@ -17,7 +17,7 @@ public:
     explicit OccluBoostTracker(Config config);
 
     std::vector<TrackOutput> Update(const std::vector<Detection>& detections,
-                                    const cv::Mat& image) override;
+                                    const cv::Mat& image, double dt = 0.0) override;
     void Reset() override;
     [[nodiscard]] bool SupportsObb() const noexcept override { return true; }
     [[nodiscard]] bool SupportsEmbeddings() const noexcept override { return true; }
@@ -25,7 +25,7 @@ public:
 private:
     // OBB-only update branch (mirrors Python OccluBoost._update_obb).
     std::vector<TrackOutput> UpdateObb(const std::vector<Detection>& detections,
-                                       const cv::Mat& image);
+                                       const cv::Mat& image, double dt);
 
     // Confidence boosting (use_dlo_boost / use_duo_boost branches).
     void DloConfidenceBoost(std::vector<Detection>& detections) const;

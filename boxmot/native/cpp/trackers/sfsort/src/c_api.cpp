@@ -89,9 +89,10 @@ int boxmot_sfsort_reset(BoxMOTSFSORTHandle* handle) {
         "Unknown native SFSORT failure");
 }
 
-int boxmot_sfsort_update_v2(BoxMOTSFSORTHandle* handle,
+int boxmot_sfsort_update_v3(BoxMOTSFSORTHandle* handle,
                             const BoxMOTDetectionBatchV2* detections,
                             const BoxMOTImageV2* image,
+                            double dt,
                             BoxMOTTrackBatchV2** output) {
     return boxmot::native::GuardCall(
         [&]() {
@@ -102,13 +103,14 @@ int boxmot_sfsort_update_v2(BoxMOTSFSORTHandle* handle,
                 throw std::runtime_error("Native SFSORT input/output pointers are null.");
             }
             *output = nullptr;
+            boxmot::trackers::base::ValidateElapsedStep(dt);
             const std::vector<sfsort::Detection> converted =
                 boxmot::trackers::base::ConvertLiveDetectionsV2<sfsort::Detection>(*detections,
                                                                                    "SFSORT");
             const cv::Mat image_mat =
                 boxmot::trackers::base::WrapOptionalLiveImageV2(image, "SFSORT");
             const std::vector<sfsort::TrackOutput> tracks =
-                handle->tracker->Update(converted, image_mat);
+                handle->tracker->Update(converted, image_mat, dt);
             *output =
                 boxmot::trackers::base::AllocateLiveOutputV2(tracks, detections->geometry_cols);
         },

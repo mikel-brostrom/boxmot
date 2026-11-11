@@ -10,20 +10,39 @@ loss is simulated.
 Start with a complete [materialized build](materialize.md) for the source
 dataset and split:
 
-```bash
-boxmot materialize --time-variant \
-  --dataset mot17 \
-  --split ablation \
-  --sequence MOT17-10-FRCNN \
-  --build BUILD_ID \
-  --seed 0
-```
+=== "CLI"
+
+    ```bash
+    boxmot materialize --time-variant \
+      --dataset mot17 \
+      --split ablation \
+      --sequence MOT17-10-FRCNN \
+      --build BUILD_ID \
+      --seed 0
+    ```
+
+=== "Python"
+
+    ```python
+    from boxmot.engine.dataset_variants.workflow import main as create_time_variant
+
+    result = create_time_variant(
+        dataset="mot17",
+        split="ablation",
+        sequence="MOT17-10-FRCNN",
+        build="BUILD_ID",
+        seed=0,
+    )
+    ```
 
 `--build` accepts a build ID or directory. Use `--build-root` and `--data-root`
 when the cached build or source dataset lives outside the default roots.
 The command reuses perception results from that build, so it does not run a
 detector or appearance encoder. The source must be a MOT image sequence with
-ground truth and complete cached frame coverage.
+ground truth, AABB geometry, complete cached frame coverage, and at least 30 frames with
+finite, strictly increasing capture timestamps. `--fps`, `--experiment`,
+perception publication flags, executor options, and `--resume` cannot be
+combined with `--time-variant`.
 
 `--name` selects a new dataset identifier. The default is the lowercase sequence
 name followed by `-variable-time`, such as `mot17-10-frcnn-variable-time`.
@@ -57,12 +76,10 @@ classes, ignore flags, and visibility. Dropped frames are absent from the new
 sequence. A timestamp sidecar preserves the irregular intervals independently
 of frame numbering.
 
-The local MOT17-10-FRCNN ablation example contains 326 source frames at 30 FPS,
-spanning 10.833 seconds between its first and last timestamps. It is a useful
-moving-camera example: the original benchmark identifies sequence 10 as a
-moving camera at night, and MOT17 uses the same videos with updated labels.
-[MOT16 benchmark paper, Table 2](https://arxiv.org/pdf/1603.00831),
-[MOT17 dataset](https://motchallenge.net/data/MOT17/).
+Inspect `variant.json` for the actual source and retained frame counts,
+duration, effective FPS, interval histogram, outage bounds, and retained-to-source
+frame mapping. These values depend on the selected split, source timeline, and
+seed; they should accompany reported fixed-step versus variable-time results.
 
 ## Evaluate
 
@@ -88,18 +105,19 @@ boxmot eval \
 ```
 
 Run the same command with `--fixed-dt` to compare timing modes on identical
-images, detections, and labels. Add `--calibrate-kf` to calibrate the five noise
-scales for the selected mode; see [Kalman calibration](eval.md#kalman-calibration).
+images, detections, and labels. Add `--calibrate-kf` to fit coordinate-wise noise
+for the five covariance groups in the selected mode; see
+[Kalman calibration](eval.md#kalman-calibration).
 
-To view the tracking results after calibration, load the `calibrated.yaml` printed by the
-calibration run:
+To view the tracking results after calibration, load the `calibrated.yaml` printed
+by that run and select the same tracker. For the ByteTrack run above:
 
 ```bash
 boxmot eval \
   --dataset datasets/mot/variants/mot17-10-frcnn-variable-time/dataset.yaml \
   --split variable \
   --build VARIANT_BUILD_ID \
-  --tracker botsort \
+  --tracker bytetrack \
   --tracker-config path/to/kf-tuning/calibrated.yaml \
   --variable-dt \
   --show --save

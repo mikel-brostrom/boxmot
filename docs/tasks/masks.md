@@ -1,7 +1,15 @@
-# Mask Tracking
+# Mask-assisted 2D Tracking
 
-Masks are canonical full-frame, detection-aligned `MaskBatch` values with
-`bool[N,H,W]` CPU-contiguous storage.
+Track AABB detections together with their instance masks using MafHda. Choose
+motion and masked appearance, or motion-only association. Both variants require
+nonempty masks and emit boxes, masks, and track IDs.
+
+## Variants
+
+### Motion and masked appearance
+
+The default MafHda configuration uses current images to build its masked
+correlation-filter appearance cue:
 
 ```bash
 boxmot track \
@@ -15,8 +23,28 @@ boxmot track \
 
 [MafHda](../trackers/maf_hda.md) uses AABB detections, their masks, and the current
 image to combine motion with masked correlation-filter appearance. Each detection
-mask must contain foreground. Supply the image on every update, including frames
-with no detections; OBB geometry is not supported by this tracker.
+mask must contain foreground. With its default appearance stages, supply the
+image on every update, including frames with no detections. OBB geometry is
+not supported by this tracker.
+
+### Motion-only association
+
+Set both association stages to `motion` to use MafHda without image pixels:
+
+```python
+from boxmot import MafHda, MafHdaConfig
+
+tracker = MafHda(config=MafHdaConfig(s2ta_mode="motion", t2ta_mode="motion"))
+```
+
+Continue supplying AABB detections with nonempty full-frame masks. Masks remain
+required for duplicate handling and mask outputs. See
+[MafHda's requirements](../trackers/maf_hda.md#what-boxmot-needs) for all stage options.
+
+## Mask inputs and outputs
+
+Masks are canonical full-frame, detection-aligned `MaskBatch` values with
+`bool[N,H,W]` CPU-contiguous storage.
 
 Masks can come from the detector or a standalone segmentor. SAM and official
 EdgeTAM box prompting are available through `boxmot.segmentors`.
@@ -29,6 +57,12 @@ enriched = detections.with_masks(
 )
 tracks = tracker.update(enriched, frame=frame)
 ```
+
+Here `tracker` is a configured MafHda instance, `frame` is the current canonical
+image, and `detections` holds its aligned boxes, scores, and classes. See the
+[complete mask-tracking example](../trackers/maf_hda.md#python-example).
+For a box tracker that does not accept detection masks, use a pipeline to
+retain masks for rendering while supplying only the tracker's required inputs.
 
 MafHda emits currently observed, confirmed tracks with aligned full-frame masks.
 Lost tracks retain state for later recovery and are not emitted on missing
@@ -127,10 +161,14 @@ uv run --no-sync boxmot track --source video.mp4 \
   --device mps --save
 
 uv run --no-sync boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml \
+  --build BUILD_ID \
   --tracker ocsort --tracker-backend python --asso-func iou \
   --edgetam --mask-guidance-weights edgetam.pt --mask-guidance-max-objects 96 \
   --device mps --sequence-workers 1
 ```
+
+Replace `BUILD_ID` with a build materialized from that experiment. Its source
+images must remain available because temporal guidance needs current pixels.
 
 Guidance is off by default in `track`, `eval`, and `tune`. `--edgetam` uses the
 default `edgetam.pt` checkpoint, resolved into `./models`; use

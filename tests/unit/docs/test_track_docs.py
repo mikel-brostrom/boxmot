@@ -110,8 +110,7 @@ def test_guides_and_examples_do_not_teach_removed_surface(removed_surface: str) 
     offenders = [
         path.relative_to(REPO_ROOT)
         for path in _public_text_files()
-        if path != REPO_ROOT / "docs" / "guides" / "v24-migration.md"
-        and removed_surface in path.read_text(encoding="utf-8")
+        if removed_surface in path.read_text(encoding="utf-8")
     ]
 
     assert offenders == []

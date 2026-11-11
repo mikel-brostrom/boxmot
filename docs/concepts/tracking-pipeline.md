@@ -60,6 +60,21 @@ Frame + Detections
 `TrackingPipeline.step_detections(frame, detections)` serves HTTP requests and
 cached replay. It does not bypass validation or invoke a detector.
 
+Output enrichments and tracker inputs are separate. A pipeline can preserve
+masks or embeddings in `PipelineResult.detections` for rendering or export
+while stripping channels the configured tracker does not consume. A direct
+`tracker.update()` call instead rejects unsupported enrichments.
+
+## Sensor fusion path
+
+`TrackingPipeline` handles image tracking only. It rejects trackers requiring
+3D detections or calibration at construction. Call
+[EagerMot.update](../trackers/eagermot.md#sensor-fusion-example) directly with
+independent 2D/3D batches and a camera model. With canonical image detections,
+this call returns `MultimodalTracks`; NumPy input returns a pair of packed
+arrays. The saved-sensor `eval` and `tune` workflows orchestrate whole sequences
+and return `ValidationResult` and `TuneResult`, respectively.
+
 ## State
 
 A pipeline instance tracks exactly one sequence. If frame indices are supplied,

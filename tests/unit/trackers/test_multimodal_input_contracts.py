@@ -101,13 +101,13 @@ def test_eager_ego_poses_are_optional_but_consumed_when_declared() -> None:
 
 
 @pytest.mark.parametrize("tracker_class", [EagerMot, MafHda])
-def test_multimodal_trackers_explicitly_use_fixed_frame_timing(tracker_class: type) -> None:
+def test_multimodal_trackers_opt_into_capture_timing(tracker_class: type) -> None:
     tracker = tracker_class()
-    assert tracker.supports_variable_dt is False
+    assert tracker.supports_variable_dt is True
     assert tracker.requirements.timestamp is False
-    error = ValueError if tracker_class is EagerMot else TypeError
-    with pytest.raises(error, match="kalman"):
-        tracker_class(kalman=KalmanConfig(variable_dt=True))
+    timed = tracker_class(kalman=KalmanConfig(variable_dt=True))
+    assert timed.requirements.timestamp is True
+    assert timed.kalman_noise_config.time_unit == "seconds"
 
 
 @pytest.mark.parametrize("tracker_class", [EagerMot, MafHda])

@@ -218,9 +218,9 @@ def test_removed_scalar_kalman_constructor_keywords_are_rejected(tracker_name: s
         tracker(**{option: 1.0})
 
 
-@pytest.mark.parametrize("tracker_name", ["sfsort", "maf_hda"])
+@pytest.mark.parametrize("tracker_name", ["maf_hda"])
 @pytest.mark.parametrize("config", [None, boxmot.KalmanConfig()])
-def test_trackers_without_kalman_motion_reject_configuration_objects(tracker_name: str, config) -> None:
+def test_trackers_accept_timing_configuration_objects(tracker_name: str, config) -> None:
     tracker = getattr(boxmot, _TRACKER_MANIFEST[tracker_name].class_path.rsplit(".", 1)[1])
-    with pytest.raises(TypeError, match="does not accept kalman"):
-        tracker(kalman=config)
+    instance = tracker(kalman=config)
+    assert instance.variable_dt is False

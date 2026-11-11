@@ -265,8 +265,8 @@ KalmanBoxTracker::KalmanBoxTracker(const Detection& detection,
     }
 }
 
-Eigen::Vector4d KalmanBoxTracker::Predict() {
-    kf.Predict();
+Eigen::Vector4d KalmanBoxTracker::Predict(const double dt) {
+    kf.Predict(dt);
     age += 1;
     if (time_since_update > 0) {
         hit_streak = 0;

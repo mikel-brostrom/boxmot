@@ -10,6 +10,7 @@ from __future__ import annotations
 import ctypes
 import threading
 from dataclasses import dataclass
+from numbers import Real
 from pathlib import Path
 from typing import Any
 
@@ -68,10 +69,11 @@ class CTrackBatchV2(ctypes.Structure):
 
 CTrackBatchV2Pointer = ctypes.POINTER(CTrackBatchV2)
 
-LIVE_UPDATE_V2_ARGTYPES = [
+LIVE_UPDATE_V3_ARGTYPES = [
     ctypes.c_void_p,
     ctypes.POINTER(CDetectionBatchV2),
     ctypes.POINTER(CImageV2),
+    ctypes.c_double,
     ctypes.POINTER(CTrackBatchV2Pointer),
 ]
 LIVE_RESULT_FREE_V2_ARGTYPES = [CTrackBatchV2Pointer]
@@ -143,11 +145,13 @@ def ensure_tracker_library(
     )
 
 
-def configure_update_v2(library: ctypes.CDLL, *, prefix: str) -> tuple[Any, Any]:
-    """Configure and return a tracker's ABI v2 update/free functions."""
+def configure_update_v3(library: ctypes.CDLL, *, prefix: str) -> tuple[Any, Any]:
+    """Configure the timed update ABI v3 and typed-result ABI v2 free function."""
 
-    update = getattr(library, f"boxmot_{prefix}_update_v2")
-    update.argtypes = LIVE_UPDATE_V2_ARGTYPES
+    update = getattr(library, f"boxmot_{prefix}_update_v3", None)
+    if update is None:
+        raise RuntimeError("Native tracker library has an incompatible update ABI; rebuild the native library.")
+    update.argtypes = LIVE_UPDATE_V3_ARGTYPES
     update.restype = ctypes.c_int
     result_free = getattr(library, f"boxmot_{prefix}_result_free_v2")
     result_free.argtypes = LIVE_RESULT_FREE_V2_ARGTYPES
@@ -181,7 +185,7 @@ def _image_input(image: np.ndarray | None) -> CImageV2 | None:
     )
 
 
-def call_update_v2(
+def call_update_v3(
     update_fn: Any,
     result_free_fn: Any,
     *,
@@ -194,9 +198,23 @@ def call_update_v2(
     image: np.ndarray | None,
     display_name: str,
     last_error: Any,
+    dt: float = 0.0,
 ) -> NativeTrackBatch:
-    """Invoke a native update once and copy its library-owned typed result."""
+    """Invoke timed ABI v3 and copy its library-owned typed v2 result.
 
+    ``dt`` is elapsed seconds divided by the fixed reference interval; zero
+    selects the original discrete model. Native velocities remain expressed
+    per reference frame, including their covariance and process-noise priors.
+    """
+
+    if isinstance(dt, (bool, np.bool_)) or not isinstance(dt, Real):
+        raise ValueError("Native dt must be finite and non-negative (zero selects fixed steps).")
+    try:
+        dt = float(dt)
+    except OverflowError as error:
+        raise ValueError("Native dt must be finite and non-negative (zero selects fixed steps).") from error
+    if not np.isfinite(dt) or dt < 0.0:
+        raise ValueError("Native dt must be finite and non-negative (zero selects fixed steps).")
     rows = _require_array(geometry, name="geometry", dtype=np.float32, rank=2)
     geometry_cols = int(geometry.shape[1])
     if geometry_cols not in {4, 5}:
@@ -231,6 +249,7 @@ def call_update_v2(
         handle,
         ctypes.byref(batch),
         None if image_input is None else ctypes.byref(image_input),
+        dt,
         ctypes.byref(result),
     )
     if ok == 0:
@@ -296,7 +315,7 @@ __all__ = (
     "FloatPointer",
     "Int64Pointer",
     "NativeTrackBatch",
-    "call_update_v2",
-    "configure_update_v2",
+    "call_update_v3",
+    "configure_update_v3",
     "ensure_tracker_library",
 )

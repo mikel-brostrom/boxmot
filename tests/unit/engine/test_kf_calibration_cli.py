@@ -110,19 +110,19 @@ def test_kalman_calibration_dispatch_needs_no_search_dependencies(monkeypatch) -
     assert captured["args"].calibrate_kf is True
 
 
-@pytest.mark.parametrize("tracker,backend", [("sfsort", "python"), ("botsort", "cpp")])
+@pytest.mark.parametrize("tracker,backend", [("botsort", "cpp")])
 @pytest.mark.parametrize("mode", ["eval", "tune"])
-def test_unsupported_timestamp_mode_fails_before_materialization(monkeypatch, mode, tracker, backend) -> None:
-    def unexpected_workflow(*args):
-        pytest.fail("Unsupported timestamp modes must fail before materialization")
-
-    monkeypatch.setattr(_support, "_run_engine_workflow", unexpected_workflow)
+def test_timestamp_mode_reaches_workflow_for_remaining_backends(monkeypatch, mode, tracker, backend) -> None:
+    captured = {}
+    monkeypatch.setattr(_support, "_run_engine_workflow", lambda module, args: captured.setdefault("args", args))
     result = CliRunner().invoke(
         boxmot,
         [
             mode,
             "--experiment",
             "mot17/ablation-yolox-lmbn.yaml",
+            "--build",
+            "fixture-build",
             "--tracker",
             tracker,
             "--tracker-backend",
@@ -130,10 +130,8 @@ def test_unsupported_timestamp_mode_fails_before_materialization(monkeypatch, mo
             "--variable-dt",
         ],
     )
-    assert result.exit_code == 2
-    assert (
-        "does not support kalman settings" if tracker == "sfsort" else "kalman.variable_dt=True requires"
-    ) in result.output
+    assert result.exit_code == 0, result.output
+    assert captured["args"].variable_dt is True
 
 
 def test_live_config_unit_conflict_fails_before_detector_loading(monkeypatch, tmp_path) -> None:

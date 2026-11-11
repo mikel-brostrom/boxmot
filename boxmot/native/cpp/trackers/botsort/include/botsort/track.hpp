@@ -21,7 +21,7 @@ public:
                     const KalmanFilterXYWH& kalman_filter,
                     int frame_id);
     void Update(const Track& new_track, const KalmanFilterXYWH& kalman_filter, int frame_id);
-    void Predict(const KalmanFilterXYWH& kalman_filter);
+    void Predict(const KalmanFilterXYWH& kalman_filter, double dt = 0.0);
     void ApplyAffine(const Eigen::Matrix2d& linear, const Eigen::Vector2d& translation);
 
     void MarkLost() { state = TrackState::kLost; }

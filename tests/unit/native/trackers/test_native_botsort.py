@@ -34,6 +34,7 @@ class _FakeLibrary:
         detection_indices,
         embeddings,
         image,
+        dt=0.0,
     ):
         self.calls.append(("update", handle, embeddings, image, geometry.shape[1]))
         return empty_native_batch(geometry.shape[1])

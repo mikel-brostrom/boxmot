@@ -36,6 +36,7 @@ EXPECTED_PUBLIC_API = (
     *(public_name for _, public_name in EXPECTED_TRACKERS),
 )
 EXPECTED_CLI_COMMANDS = (
+    "ui",
     "track",
     "materialize",
     "eval",

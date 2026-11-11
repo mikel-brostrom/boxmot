@@ -34,7 +34,10 @@ class FrameRequest(BaseModel):
     timestamp_s: float | None = Field(
         default=None,
         allow_inf_nan=False,
-        description="Capture time in seconds; supply on every session frame to enable variable-time prediction.",
+        description=(
+            "Capture time in seconds; required on every frame when BOXMOT_VARIABLE_DT is enabled. "
+            "Otherwise retained as metadata."
+        ),
     )
     box_type: BoxType = BoxType.AABB
     # Keep integer JSON numbers intact for IDs while continuing to accept the

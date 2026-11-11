@@ -60,6 +60,7 @@ _SENSOR_OPTIONS = frozenset(
         "per_class",
         "verbose",
         "show_timing",
+        "variable_dt",
     }
 )
 
@@ -261,6 +262,8 @@ def _prepare_sensor_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -
         )
         if path is None:
             return None
+        if payload.get("calibrate_kf") and payload.get("variable_dt"):
+            raise ValueError("EagerMOT 3D KF calibration uses fixed frame steps; omit --variable-dt.")
         spec = parse_tracker_spec(payload["tracker"], default_backend=payload["tracker_backend"])
         validate_sensor_workflow_inputs(
             path,

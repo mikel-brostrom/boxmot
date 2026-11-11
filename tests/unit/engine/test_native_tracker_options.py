@@ -85,8 +85,8 @@ def test_sparse_config_selection_keeps_preset_metadata_validation_and_python_def
 
 
 def test_native_sparse_options_still_validate_timing_and_calibrated_noise(tmp_path) -> None:
-    with pytest.raises(ValueError, match="variable_dt"):
-        resolve_tracker_options(_args("bytetrack", variable_dt=True), include_defaults=True, factory_options=True)
+    options = resolve_tracker_options(_args("bytetrack", variable_dt=True), include_defaults=True, factory_options=True)
+    assert options["kalman.variable_dt"] is True
     profile = tmp_path / "calibrated.yaml"
     profile.write_text("tracker: bytetrack\nkalman:\n  noise:\n    measurement_noise_scale: 0.5\n")
     with pytest.raises(ValueError, match="requires a Python Kalman tracker"):

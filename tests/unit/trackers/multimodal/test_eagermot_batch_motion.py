@@ -16,7 +16,8 @@ from boxmot.trackers.eagermot.motion import Kalman3D
 
 
 @pytest.mark.parametrize("angular", [False, True, None])
-def test_batch_motion_matches_independent_filters_over_long_trajectories(angular: bool | None) -> None:
+@pytest.mark.parametrize("timed", [False, True])
+def test_batch_motion_matches_independent_filters_over_long_trajectories(angular: bool | None, timed: bool) -> None:
     """Different priors, Q/R/F, missing observations, and yaw wraps remain independent."""
     rng = np.random.default_rng(321)
     truth = rng.normal(size=(12, 7))
@@ -32,6 +33,7 @@ def test_batch_motion_matches_independent_filters_over_long_trajectories(angular
                 measurement_noise_scale=0.5 + index,
                 initial_position_scale=2 + index,
                 initial_velocity_scale=1 + index / 3,
+                time_unit="seconds" if timed else "frames",
             ),
         )
         for index, box in enumerate(truth)
@@ -47,8 +49,9 @@ def test_batch_motion_matches_independent_filters_over_long_trajectories(angular
         truth[:, 3] += 0.14
         measurements = truth.copy()
         measurements[:, 3] = (measurements[:, 3] + np.pi) % (2 * np.pi) - np.pi
-        expected = np.stack([model.predict() for model in scalar])
-        prediction = Kalman3D.multi_predict(models)
+        dt = (0.04, 0.12, 0.3)[frame % 3] if timed else None
+        expected = np.stack([model.predict(dt=dt) for model in scalar])
+        prediction = Kalman3D.multi_predict(models, dt=dt)
         np.testing.assert_allclose(prediction, expected, rtol=1e-12, atol=1e-11)
         observed = np.flatnonzero(rng.random(len(models)) > 0.35) if frame % 11 else np.empty(0, dtype=int)
         original = measurements.copy()
@@ -94,6 +97,19 @@ def test_batch_update_validates_before_mutating_any_filter(bad_box: np.ndarray) 
 def test_empty_motion_batches_have_box_shape() -> None:
     assert Kalman3D.multi_predict([]).shape == (0, 7)
     assert Kalman3D.multi_update([], np.empty((0, 7))).shape == (0, 7)
+
+
+@pytest.mark.parametrize("dt", [None, 0.0, -0.1, np.nan, np.inf, True, 1e200])
+def test_batch_prediction_validates_timing_before_mutating_any_filter(dt: float | None) -> None:
+    """Even mixed-unit batches fail before an earlier valid filter can advance."""
+    box = np.array([0, 1, 20, 0, 4, 2, 2])
+    filters = [Kalman3D(box), Kalman3D(box, noise_config=KalmanNoiseConfig(time_unit="seconds"))]
+    original = deepcopy(filters)
+    with pytest.raises(ValueError, match="dt"):
+        Kalman3D.multi_predict(filters, dt=dt)
+    for actual, reference in zip(filters, original):
+        np.testing.assert_array_equal(actual.state, reference.state)
+        np.testing.assert_array_equal(actual.covariance, reference.covariance)
 
 
 def _sensor_frame(frame: int, world: bool) -> tuple[Detections, Detections3D, CameraModel]:
@@ -159,8 +175,8 @@ def test_tracker_batch_motion_preserves_associations_lifecycle_and_masks(
     batched = EagerMot(config=EagerMotConfig(max_age=4), kalman=KalmanConfig(is_angular=angular), per_class=True)
     scalar = EagerMot(config=EagerMotConfig(max_age=4), kalman=KalmanConfig(is_angular=angular), per_class=True)
 
-    def scalar_predict(filters: list[Kalman3D]) -> np.ndarray:
-        return np.asarray([model.predict() for model in filters], dtype=float).reshape(-1, 7)
+    def scalar_predict(filters: list[Kalman3D], *, dt: float | None = None) -> np.ndarray:
+        return np.asarray([model.predict(dt=dt) for model in filters], dtype=float).reshape(-1, 7)
 
     def scalar_update(filters: list[Kalman3D], boxes: np.ndarray) -> np.ndarray:
         return np.asarray([model.update(box) for model, box in zip(filters, boxes)], dtype=float).reshape(-1, 7)
