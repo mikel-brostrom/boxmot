@@ -1,4 +1,4 @@
-# BoxMOT AGPL-3.0 license
+# BoxMOT Apache-2.0 license
 
 """Training-only Jigsaw Patch Module for CSL-TinyViT ReID models."""
 
