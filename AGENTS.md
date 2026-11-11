@@ -9,7 +9,12 @@
 
 ### Python & `uv`
 
-- Use **Python 3.11** (or the version configured in `pyproject.toml`).
+- Support **Python 3.10, 3.11, 3.12, and 3.13**, matching
+  `requires-python = ">=3.10,<3.14"` in `pyproject.toml`.
+- Use **Python 3.11** as the default local development interpreter.
+- Keep syntax, standard-library APIs, dependency constraints, and build tooling
+  compatible across the supported range. Use existing backports such as
+  `typing_extensions` when needed for Python 3.10.
 - Install the `uv` version required by the root `pyproject.toml` (safe to rerun
   even if present):
 
@@ -165,58 +170,45 @@ PR / task descriptions should include:
 
 **What to run**
 
-- Default: run the pytest suite from the repo root:
+- Default to the smallest existing test selection that covers changed behavior.
+  Run tests as modules from the repo root:
 
   ```bash
-  uv run --no-sync pytest
+  uv run --no-sync python -m pytest tests/path/to/affected_module_tests.py
   ```
 
-- If the full suite is too heavy, at least run the tests relevant to your change, e.g.:
+- For shared infrastructure, include directly affected callers and contract tests.
+- For Python-version-sensitive changes, run focused checks on the affected
+  versions, especially the 3.10 and 3.13 boundaries. Leave the full supported
+  version matrix to CI.
+- For documentation-only changes, check the affected documentation and skip
+  unrelated Python tests. Instruction-only prose edits normally need only a
+  diff review and whitespace check; build the docs when rendering or navigation
+  is affected.
+- For PR consolidation, focus on conflicts and interactions between combined
+  changes. Reuse relevant validation results when the tested code is unchanged.
+- Do not repeat passing tests unless subsequent changes invalidate their results.
+- Leave full regression coverage to CI unless explicitly requested or justified
+  by evidence of a broader regression. Before expanding validation, explain what
+  additional risk it will check and the expected runtime when known.
+- When touching CLI / engine entry points, smoke-test the affected command's
+  help or a small fixture-based invocation. For example, for `track`:
 
   ```bash
-  uv run --no-sync pytest tests/unit/engine/test_cli.py
-  uv run --no-sync pytest tests/path/to/affected_module_tests.py
-  ```
-
-- When touching CLI / engine entry points, it’s useful to smoke-test common commands:
-
-  ```bash
-  uv run --no-sync python -m boxmot.engine.cli --help
-
-  # Example invocations (adjust source/paths as available in your env)
-  uv run --no-sync python -m boxmot.engine.cli track --source <path-or-url> ...
-  uv run --no-sync python -m boxmot.engine.cli materialize --experiment <experiment-yaml> ...
-  uv run --no-sync python -m boxmot.engine.cli eval --experiment <experiment-yaml> --build <path-or-id> ...
-  uv run --no-sync python -m boxmot.engine.cli tune --experiment <experiment-yaml> --build <path-or-id> ...
+  uv run --no-sync python -m boxmot.engine.cli track --help
   ```
 
 **If tests or commands cannot be run**
 
-Sometimes the provided environment is missing GPUs, large datasets, or external services. In that case:
-
-1. Try the following first:
-
-   ```bash
-   uv sync --extra cpu --extra yolo --extra evolve --extra service \
-     --group dev --group test --group docs
-
-   uv run --no-sync python -m boxmot.engine.cli --help
-
-   uv run --no-sync pytest
-   ```
-
-2. If something still fails for reasons outside your control (e.g., missing CUDA runtime, no network for model downloads, etc.), do not fake test results. Instead, document clearly in your Testing section, for example:
-
-   ```text
-   Testing
-   - uv run --no-sync python -m boxmot.engine.cli --help  ✅
-   - uv run --no-sync pytest ❌ (not run)
-
-   Reason: pytest requires GPU / CUDA dependencies that are not available in the current container.
-   Please run `uv sync --extra cpu --extra yolo --extra evolve --extra service --group dev --group test --group docs` and `uv run --no-sync pytest` in a fully configured environment.
-   ```
-
-- Include the exact commands you ran and a brief reason why anything couldn’t be completed.
+- Diagnose the specific blocker with a small reproduction. If dependencies need
+  installing, use the environment workflow in section 1 and preserve the selected
+  CPU/CUDA profile. Retry only the affected checks after resolving the blocker.
+- Missing GPUs, datasets, network access, or sandbox capabilities are reasons to
+  report a validation limitation, not to launch unrelated suites or repeatedly
+  rebuild a working environment.
+- Report exactly what passed, failed, was skipped, or was not tested. Include the
+  exact commands run, brief reasons for incomplete checks, and any necessary CI
+  or hardware follow-up. Do not claim an interrupted suite passed in full.
 
 ## 7. Documentation & Examples
 
