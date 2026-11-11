@@ -39,6 +39,24 @@ def _command_options(command_name: str) -> dict[str, click.Option]:
     return {param.name: param for param in command.params if isinstance(param, click.Option)}
 
 
+@pytest.mark.parametrize("detector", ["yolov8n", "yolov8n-obb"])
+def test_track_defaults_to_detector_geometry(monkeypatch: pytest.MonkeyPatch, detector: str) -> None:
+    """The CLI leaves geometry to the loaded detector, independent of image size."""
+    from boxmot.engine.commands import _support
+    from boxmot.engine.config.runtime import BOXMOT_DEFAULTS, build_mode_namespace
+
+    captured = {}
+
+    def run_workflow(module_name: str, args: SimpleNamespace) -> None:
+        captured["args"] = args
+
+    monkeypatch.setattr(_support, "_run_engine_workflow", run_workflow)
+    result = CliRunner().invoke(boxmot, ["track", "--detector", detector, "--imgsz", "1024"])
+    assert result.exit_code == 0, result.output
+    assert captured["args"].geometry == "auto"
+    assert BOXMOT_DEFAULTS.track.geometry == build_mode_namespace("track", {}).geometry == "auto"
+
+
 def test_v24_command_set_is_exact() -> None:
     command_names = boxmot.list_commands(click.Context(boxmot))
     assert command_names == list(EXPECTED_COMMAND_ORDER)
@@ -184,6 +202,9 @@ def test_materialize_rejects_non_experiment_semantic_selectors(option: str, valu
 def test_perception_materialization_filters_variant_options_from_dispatch(monkeypatch) -> None:
     options = _command_options("materialize")
     perception_options = {
+        "auto_batch",
+        "auto_batch_max_size",
+        "auto_batch_memory_fraction",
         "build_root",
         "data_root",
         "device",
@@ -1056,6 +1077,7 @@ def test_track_dispatches_saved_trackrcnn_paths_and_class_separated_python_track
     args = captured["args"]
     assert args.tracker == (tracker or "maf_hda")
     assert args.tracker_backend == "python"
+    assert args.geometry == "aabb"
     assert args.per_class is True
     assert args.detections == args.images == args.instances == tmp_path
     assert args.tracker_config == str(config)
@@ -1064,6 +1086,46 @@ def test_track_dispatches_saved_trackrcnn_paths_and_class_separated_python_track
     assert args.project == Path("runs/trackrcnn")
     assert args.workflow_mode == "track"
     assert args.tracker_explicit is (tracker is not None)
+    assert f"Results: {tmp_path / 'results'}" in result.output
+
+
+def test_saved_trackrcnn_resolves_geometry_before_calibration_validation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Saved AABB detections must not inherit unresolved live detector geometry."""
+    import yaml
+
+    from boxmot.engine.config.trackers import resolve_tracker_options
+    from boxmot.trackers.common.config import load_tracker_config
+    from boxmot.trackers.common.motion.kalman_filters.profile import calibration_profile_signature
+
+    config = tmp_path / "calibrated.yaml"
+    signature = calibration_profile_signature("bytetrack", "aabb", load_tracker_config("bytetrack", None))
+    config.write_text(yaml.safe_dump({"calibration": signature}), encoding="utf-8")
+
+    def run(args: SimpleNamespace) -> Path:
+        resolve_tracker_options(args, include_defaults=True)
+        return tmp_path / "results"
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.eval.trackrcnn", SimpleNamespace(run_trackrcnn=run))
+    result = CliRunner().invoke(
+        boxmot,
+        [
+            "track",
+            "--detections",
+            str(tmp_path),
+            "--images",
+            str(tmp_path),
+            "--instances",
+            str(tmp_path),
+            "--tracker",
+            "bytetrack",
+            "--tracker-config",
+            str(config),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
     assert f"Results: {tmp_path / 'results'}" in result.output
 
 

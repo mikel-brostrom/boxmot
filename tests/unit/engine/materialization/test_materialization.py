@@ -539,7 +539,8 @@ def test_materializer_runs_all_components_publishes_atomically_and_reuses(tmp_pa
     assert output == plan.output_root
     assert output.is_dir()
     assert not plan.staging_root.exists()
-    assert (output / "_materialization_state.json").is_file()
+    assert not (output / plan.state_path.name).exists()
+    assert not (output / plan.state_path.with_suffix(".jsonl").name).exists()
     assert not (plan.build_root / ".state").exists()
     assert validate_dataset(output).samples == 2
     dataset = CachedVisionDataset(output, load_masks=True, load_embeddings=True)
@@ -861,8 +862,12 @@ def test_embed_stage_bounds_model_rows_and_resume_preserves_keyed_output(tmp_pat
             assert sha256_file(completed_path) == completed_hash
             return super().run(context)
 
-    output = DatasetMaterializer(
+    resumed_plan = replace(
         plan,
+        stages=tuple(replace(stage, batch_size=1) if stage.name == "embed" else stage for stage in plan.stages),
+    )
+    resumed = DatasetMaterializer(
+        resumed_plan,
         [
             DetectStage(ThreeRowDetector(), samples),
             EmbedStage(
@@ -874,11 +879,16 @@ def test_embed_stage_bounds_model_rows_and_resume_preserves_keyed_output(tmp_pat
                 embedding_metadata={"encoder_fingerprint": encoder_fingerprint, "dim": 2},
             ),
         ],
-    ).run()
+    )
+    output = resumed.run()
 
     resumed_ids = {instance_id for call in resumed_encoder.calls for instance_id in call}
-    assert all(":sample-0:" not in instance_id and ":sample-1:" not in instance_id for instance_id in resumed_ids)
-    assert hashed_sources == [source_root / f"sample-{index}.png" for index in range(2, 5)]
+    assert all(":sample-0:" not in instance_id for instance_id in resumed_ids)
+    assert all(len(call) == 1 for call in resumed_encoder.calls)
+    assert resumed.state.state.by_name["embed"].batch_size == 1
+    assert hashed_sources == [source_root / f"sample-{index}.png" for index in range(1, 5)]
+    assert len(tuple((output / "embeddings").glob("part-*.parquet"))) == len(samples)
+    assert sha256_file(output / "embeddings" / completed_path.name) == completed_hash
     dataset = CachedVisionDataset(output, load_embeddings=True)
     assert len(dataset) == 5
     for sample in dataset:
@@ -1006,6 +1016,73 @@ def test_resume_decodes_only_pending_detection_shards(tmp_path, monkeypatch, req
 
     assert decoded_ids == ["sample-0"]
     assert hashed_sources == [tmp_path / "source-frames" / "sample-0.png"]
+
+
+def test_resume_honors_smaller_batches_before_first_checkpoint(tmp_path: Path) -> None:
+    """A failed first batch must not prevent reducing detection and ReID memory use."""
+    detect = StagePlan.create("detect", batch_size=16)
+    embed = StagePlan.create(
+        "embed", batch_size=64, depends_on=("detect",), upstream_fingerprints=(detect.fingerprint,)
+    )
+    finalize = StagePlan.create("finalize", depends_on=("embed",), upstream_fingerprints=(embed.fingerprint,))
+    plan = BuildPlan.create(
+        build_root=tmp_path / "builds",
+        dataset_name="batch-recovery",
+        box_type="aabb",
+        source_fingerprint=fingerprint("batch-recovery-source"),
+        publish=PublishOptions(image_references=False, embeddings=True),
+        stages=(detect, embed, finalize),
+    )
+    samples = _source_samples(tmp_path)
+
+    class FailedDetector(FakeDetector):
+        def predict(self, frames):
+            raise RuntimeError("first batch too large")
+
+    interrupted = DatasetMaterializer(
+        plan,
+        [
+            DetectStage(FailedDetector(), samples),
+            EmbedStage(FakeEncoder(), samples, encoder_fingerprint=embed.fingerprint),
+            FinalizeStage(),
+        ],
+    )
+    with pytest.raises(RuntimeError, match="first batch too large"):
+        interrupted.run()
+    assert interrupted.state.state.by_name["detect"].completed_shards == ()
+    assert interrupted.state.state.by_name["detect"].batch_size == 16
+    assert interrupted.state.state.by_name["embed"].status == "pending"
+
+    detection_batches: list[int] = []
+    embedding_batches: list[int] = []
+
+    class RecordingDetector(FakeDetector):
+        def predict(self, frames):
+            detection_batches.append(len(frames))
+            return super().predict(frames)
+
+    class RecordingEncoder(FakeEncoder):
+        def encode(self, frames, detections):
+            embedding_batches.append(sum(len(batch) for batch in detections))
+            return super().encode(frames, detections)
+
+    requested = replace(plan, stages=tuple(replace(stage, batch_size=1) for stage in plan.stages))
+    resumed = DatasetMaterializer(
+        requested,
+        [
+            DetectStage(RecordingDetector(), samples),
+            EmbedStage(RecordingEncoder(), samples, encoder_fingerprint=embed.fingerprint),
+            FinalizeStage(),
+        ],
+    )
+    output = resumed.run()
+
+    assert detection_batches == [1, 1]
+    assert embedding_batches == [1, 1]
+    assert all(stage.batch_size == 1 for stage in resumed.state.state.stages)
+    manifest = DatasetManifest.load(output)
+    assert manifest.artifact(SAMPLES_ARTIFACT).rows == len(samples)
+    assert all(stage.batch_size == 1 for stage in manifest.stages)
 
 
 def test_completed_perception_stages_do_not_rehash_sources_on_resume(tmp_path, monkeypatch) -> None:
@@ -1602,7 +1679,8 @@ def test_repaired_detection_shard_invalidates_all_downstream_stages(tmp_path) ->
     assert (detector.calls, segmentor.calls, encoder.calls) == (3, 4, 4)
 
 
-def test_failed_publication_removes_success_marker_from_staging(tmp_path, monkeypatch) -> None:
+def test_failed_publication_preserves_checkpoints_and_removes_success_marker(tmp_path, monkeypatch) -> None:
+    """Keep resumable metadata in staging when the final directory rename fails."""
     import boxmot.engine.materialization.finalize as finalize_module
 
     plan = _detect_finalize_plan(tmp_path / "builds")
@@ -1610,6 +1688,11 @@ def test_failed_publication_removes_success_marker_from_staging(tmp_path, monkey
     detect_stage = DetectStage(detector, _source_samples(tmp_path))
     materializer = DatasetMaterializer(plan, [detect_stage, FinalizeStage()])
     _checkpoint_detect_stage(materializer, detect_stage)
+    snapshot = plan.state_path.read_bytes()
+    journal_path = plan.state_path.with_suffix(".jsonl")
+    journal = journal_path.read_bytes()
+    assert journal
+    recorded = materializer.state.state.by_name["detect"]
     real_replace = finalize_module.os.replace
 
     def fail_publication(source, destination):
@@ -1617,13 +1700,17 @@ def test_failed_publication_removes_success_marker_from_staging(tmp_path, monkey
             raise OSError("injected directory rename failure")
         return real_replace(source, destination)
 
-    monkeypatch.setattr(finalize_module.os, "replace", fail_publication)
-
-    with pytest.raises(FinalizeError, match="atomically publish"):
-        finalize_build(plan)
+    with monkeypatch.context() as patch:
+        patch.setattr(finalize_module.os, "replace", fail_publication)
+        with pytest.raises(FinalizeError, match="atomically publish"):
+            finalize_build(plan)
 
     assert not (plan.staging_root / "_SUCCESS").exists()
     assert not (plan.staging_root / ".publishing" / "_SUCCESS").exists()
+    assert plan.state_path.read_bytes() == snapshot
+    assert journal_path.read_bytes() == journal
+    assert not (plan.staging_root / ".publishing" / plan.state_path.name).exists()
+    assert not (plan.staging_root / ".publishing" / journal_path.name).exists()
     with pytest.raises(ValueError, match="not published"):
         validate_dataset(plan.staging_root / ".publishing")
 
@@ -1633,8 +1720,21 @@ def test_failed_publication_removes_success_marker_from_staging(tmp_path, monkey
     )
     with pytest.raises(ValueError, match="staging directories"):
         validate_dataset(
-            plan.staging_root, manifest=DatasetManifest.load(plan.staging_root / ".publishing"),
+            plan.staging_root,
+            manifest=DatasetManifest.load(plan.staging_root / ".publishing"),
         )
+
+    resumed = DatasetMaterializer(plan, [detect_stage, FinalizeStage()])
+    restored = resumed.state.initialize(plan).by_name["detect"]
+    assert restored.completed_shards == recorded.completed_shards
+    assert restored.shard_hashes == recorded.shard_hashes
+    calls = detector.calls
+    output = resumed.run()
+    assert detector.calls == calls
+    assert validate_dataset(output).samples == 2
+    assert not plan.staging_root.exists()
+    assert not (output / plan.state_path.name).exists()
+    assert not (output / journal_path.name).exists()
 
 
 def test_relative_build_root_materializes_successfully(tmp_path, monkeypatch) -> None:
@@ -1895,7 +1995,7 @@ def test_resume_repairs_corrupt_detector_native_intermediate_mask(tmp_path) -> N
     assert validate_dataset(output).embeddings == 2
 
 
-@pytest.mark.parametrize("boundary", ["samples", "embeddings", "publish"])
+@pytest.mark.parametrize("boundary", ["samples", "masks", "publish"])
 def test_interrupted_finalization_preserves_inference_checkpoints(tmp_path, monkeypatch, boundary) -> None:
     """An interruption after compaction must never invalidate inference hashes."""
     import boxmot.engine.materialization.finalize as finalize_module
@@ -1914,12 +2014,15 @@ def test_interrupted_finalization_preserves_inference_checkpoints(tmp_path, monk
     encoder = CountingEncoder()
 
     def materializer():
-        return DatasetMaterializer(plan, [
-            DetectStage(detector, samples),
-            SegmentStage(FakeSegmentor(), samples),
-            EmbedStage(encoder, samples, encoder_fingerprint=fingerprint("encoder")),
-            FinalizeStage(),
-        ])
+        return DatasetMaterializer(
+            plan,
+            [
+                DetectStage(detector, samples),
+                SegmentStage(FakeSegmentor(), samples),
+                EmbedStage(encoder, samples, encoder_fingerprint=fingerprint("encoder")),
+                FinalizeStage(),
+            ],
+        )
 
     real_compact = finalize_module.compact_artifact
     real_success = finalize_module._write_success
@@ -1951,6 +2054,8 @@ def test_interrupted_finalization_preserves_inference_checkpoints(tmp_path, monk
     assert validate_dataset(output).embeddings == 2
     assert not plan.staging_root.exists()
     assert not (output / ".publishing").exists()
+    assert not (output / plan.state_path.name).exists()
+    assert not (output / plan.state_path.with_suffix(".jsonl").name).exists()
 
 
 def test_exact_published_build_reuses_changed_batching(published_detect_build) -> None:
@@ -1967,11 +2072,24 @@ def test_exact_published_build_reuses_changed_batching(published_detect_build) -
 
 def test_execution_device_and_encoder_batch_preserve_build_identity(tmp_path) -> None:
     def create(device, batch):
-        stage = StagePlan.create("embed", batch_size=batch, component={"spec": {
-            "device": device, "precision": "fp32", "options": (("batch_size", batch), ("embedding_dim", 512)),
-        }})
-        return BuildPlan.create(
-            build_root=tmp_path, dataset_name="execution", box_type="aabb",
-            source_fingerprint=fingerprint("source"), publish=PublishOptions(), stages=(stage,),
+        stage = StagePlan.create(
+            "embed",
+            batch_size=batch,
+            component={
+                "spec": {
+                    "device": device,
+                    "precision": "fp32",
+                    "options": (("batch_size", batch), ("embedding_dim", 512)),
+                }
+            },
         )
+        return BuildPlan.create(
+            build_root=tmp_path,
+            dataset_name="execution",
+            box_type="aabb",
+            source_fingerprint=fingerprint("source"),
+            publish=PublishOptions(),
+            stages=(stage,),
+        )
+
     assert create("cpu", 2).build_id == create("cuda:0", 16).build_id

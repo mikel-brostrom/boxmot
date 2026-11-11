@@ -36,13 +36,17 @@ def _source_count(plan: Any) -> int | None:
     return value
 
 
-def _total_shards(plan: Any, stage: Any) -> int | None:
+def _total_checkpoints(plan: Any, stage: Any) -> int | None:
+    """Count saved images for embedding and batch shards for other stages."""
+
     name = str(getattr(stage, "name", ""))
     if name == "finalize":
         return 1
     if name not in {"detect", "segment", "embed"}:
         return None
     count = _source_count(plan)
+    if name == "embed":
+        return count
     batch_size = getattr(stage, "batch_size", None)
     if count is None or isinstance(batch_size, bool) or not isinstance(batch_size, int) or batch_size <= 0:
         return None
@@ -286,7 +290,7 @@ class MaterializeWorkflowReporter(RichWorkflowReporter):
         self._totals.clear()
         for stage in getattr(plan, "ordered_stages")():
             name = str(stage.name)
-            total = _total_shards(plan, stage)
+            total = _total_checkpoints(plan, stage)
             task_id = self._progress.add_task(
                 _description(name, "todo"),
                 total=total,
@@ -325,18 +329,20 @@ class MaterializeWorkflowReporter(RichWorkflowReporter):
         self._finish(output_root, reused=False)
 
     def stage_started(self, plan: Any, stage: Any, *, completed_shards: int) -> None:
-        del plan
         name = str(stage.name)
         self._started_s[name] = self._clock()
         self._initial_completed[name] = completed_shards
-        total = self._totals.get(name)
+        total = _total_checkpoints(plan, stage)
+        self._totals[name] = total
         pending = "unknown" if total is None else str(max(total - completed_shards, 0))
+        unit = "images" if name == "embed" else "shards"
         self._update_task(
             name,
             description=_description(name, "active"),
+            total=total,
             completed=completed_shards,
             summary=(
-                f"{completed_shards}/{total if total is not None else '?'} shards • {pending} pending "
+                f"{completed_shards}/{total if total is not None else '?'} {unit} • {pending} pending "
                 f"• batch {stage.batch_size} • {stage.workers} worker(s)"
             ),
             start=True,
@@ -358,17 +364,18 @@ class MaterializeWorkflowReporter(RichWorkflowReporter):
         processed = max(completed_shards - self._initial_completed.get(stage_name, 0), 1)
         rate = processed / elapsed if elapsed > 0 else None
         total = self._totals.get(stage_name)
+        unit = "images" if stage_name == "embed" else "shards"
         counts = []
-        if items is not None:
+        if items is not None and stage_name != "embed":
             counts.append(f"{items} items")
         if rows is not None:
             counts.append(f"{rows} rows")
         timing = _duration(elapsed)
         if rate is not None:
-            timing += f" • {rate:.2f} shards/s"
+            timing += f" • {rate:.2f} {unit}/s"
             if total is not None:
                 timing += f" • ETA {_duration(max(total - completed_shards, 0) / rate)}"
-        summary = f"{completed_shards}/{total if total is not None else '?'} shards"
+        summary = f"{completed_shards}/{total if total is not None else '?'} {unit}"
         if counts:
             summary += f" • {' • '.join(counts)}"
         summary += f" • {timing}"

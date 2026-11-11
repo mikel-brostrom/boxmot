@@ -400,8 +400,8 @@ def test_second_reid_build_reuses_detections_and_rekeys_instances(tmp_path: Path
 
     assert first_detector.calls == 1
     assert second_detector.calls == 0
-    assert first_encoder.calls == 1
-    assert second_encoder.calls == 1
+    assert first_encoder.calls == len(samples)
+    assert second_encoder.calls == len(samples)
     restored = read_detection_batches(second_output, "aabb")
     assert {instance_id for detections in restored.values() for instance_id in detections.instance_ids or ()} == {
         f"{second_plan.build_id}:{sample.sample_id}:0" for sample in samples
@@ -440,7 +440,7 @@ def test_detection_cache_reuses_outputs_across_devices(tmp_path: Path, device: s
 
     assert first_detector.calls == 1
     assert second_detector.calls == 0
-    assert second_encoder.calls == 1
+    assert second_encoder.calls == len(samples)
     assert first_cache.cache_id == DetectionCache.from_plan(second_plan, samples).cache_id
     assert DatasetManifest.load(first_output) == original_manifest
     assert original_manifest.stages[0].component["spec"]["device"] == "cuda:0"

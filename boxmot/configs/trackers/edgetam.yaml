@@ -1,0 +1,6 @@
+# Manual box/point initialization; no detection association or tuning search.
+max_objects:
+  default: 32
+
+batch_size:
+  default: 8

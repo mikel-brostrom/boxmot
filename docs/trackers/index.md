@@ -22,6 +22,7 @@ describe further association settings.
 | [BoostTrack](boosttrack.md) | [2D boxes (AABB)](../tasks/aabb.md), [Oriented boxes (OBB)](../tasks/obb.md) | Appearance-assisted (ReID) | Motion-only |
 | [OccluBoost](occluboost.md) | [2D boxes (AABB)](../tasks/aabb.md), [Oriented boxes (OBB)](../tasks/obb.md) | Appearance-assisted (ReID) | Motion-only |
 | [MafHda](maf_hda.md) | [Masks](../tasks/masks.md) (AABB + instance masks) | Motion and masked appearance | Motion-only association |
+| [EdgeTAM](edgetam.md) | [Masks](../tasks/masks.md) from manual boxes or points | Prompted video propagation | — |
 | [EagerMot](eagermot.md) | [2D/3D fusion](../tasks/fusion.md) | Calibrated fusion without ego poses | Fusion with ego-motion compensation |
 
 For the five configurable ReID trackers, set `use_embeddings=False` in the
@@ -82,6 +83,11 @@ each non-`Unused` column once, including optional and configurable inputs.
 - **MafHda:** Its default appearance stages need pixels, including empty
   detection updates. Setting both `s2ta_mode: motion` and `t2ta_mode: motion`
   removes that requirement. Centroid association still needs dimensions.
+- **EdgeTAM:** Requires current image pixels on every update and box or
+  point prompts for selected objects. Pass empty detections; its model creates
+  masks and enclosing AABBs. It has no detection-association or Kalman stage.
+  [Prompted evaluation](../modes/eval.md#edgetam-with-ground-truth-prompts)
+  can initialize pedestrians from their first eligible ground-truth boxes.
 - **Masks:** MafHda requires full-frame boolean masks aligned with its AABB
   detections, with foreground in every nonempty detection row. Supply an
   empty mask batch with empty detections. EagerMot accepts masks and preserves
@@ -105,7 +111,7 @@ each non-`Unused` column once, including optional and configurable inputs.
   `CameraModel.camera_to_world`. With poses it tracks motion in world
   coordinates; without them it uses camera coordinates. Keep pose availability
   consistent throughout a sequence. Calibration projection remains required.
-- **Timing:** Python trackers except SFSORT, plus native ByteTrack, BotSort,
+- **Timing:** Python trackers except SFSORT and EdgeTAM, plus native ByteTrack, BotSort,
   OcSort, and OccluBoost, support `kalman.variable_dt=True`. This then
   requires a capture timestamp on every update through `Frame.timestamp_s`
   or `timestamp_s=`. Otherwise timestamps are metadata and prediction uses
@@ -177,9 +183,10 @@ guidance and a workflow that evaluates trackers on the same detections.
 - Start with `bytetrack` when you want a fast motion-only baseline.
 - Use `botsort`, `strongsort`, `deepocsort`, `hybridsort`, `boosttrack`, or `occluboost` when appearance cues matter.
 - Use `maf_hda` for AABB detections with full-frame instance masks; its default appearance stages also use current image pixels.
+- Use `edgetam` to select objects with boxes or points in the UI and propagate their masks through a video.
 - Use `eagermot` through Python when 3D detections and camera calibration are available alongside image detections.
-- OBB support is listed in the table above; MafHda and EagerMot accept AABB image geometry only.
-- Image trackers expose the same selectable `asso_func`; see
+- OBB support is listed in the table above; MafHda, EdgeTAM, and EagerMot accept AABB image geometry only.
+- Detection-based image trackers expose the same selectable `asso_func`; see
   [tracker configuration](../config/trackers.md#association-function) for the
   supported AABB and OBB choices. EagerMot uses IoU for image association and
   exposes a separate 3D association metric.
@@ -198,7 +205,7 @@ configuration, factory, protocols, registry, and specifications. The shared
   frames may still be optional association inputs.
 - `mask`: an instance mask is the primary state.
 - `multimodal`: multiple primary representations or model memory are
-  fundamental to the method, as in MafHda and EagerMot.
+  fundamental to the method, as in MafHda, EdgeTAM, and EagerMot.
 
 The family is capability metadata; algorithm directories are flat. Each
 registered implementation also declares immutable geometry and input

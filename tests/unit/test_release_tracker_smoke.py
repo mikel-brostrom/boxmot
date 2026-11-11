@@ -75,11 +75,23 @@ def test_tracker_smoke_requires_packaged_tracker_defaults(monkeypatch: pytest.Mo
     [
         (name, public_name, geometry)
         for name, public_name in release_contract.EXPECTED_TRACKERS
+        if name != "edgetam"
         for geometry in (("aabb",) if name in {"eagermot", "maf_hda"} else ("aabb", "obb"))
     ],
 )
 def test_tracker_smoke_runs_real_default_trackers_without_models(name: str, public_name: str, geometry: str) -> None:
     release_contract.check_tracker_tracking(name, getattr(boxmot, public_name), geometry)
+
+
+def test_prompt_tracker_smoke_does_not_construct_a_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The installed prompt smoke must inject synthetic masks even when weights are absent."""
+    from boxmot.segmentors.propagation import prompted
+
+    def unexpected_model_loading(*args, **kwargs):
+        raise AssertionError("Release prompt smoke must not construct an EdgeTAM backend")
+
+    monkeypatch.setattr(prompted, "EdgeTAMPromptPropagator", unexpected_model_loading)
+    release_contract.check_prompt_tracker_tracking(boxmot.EdgeTAM)
 
 
 def test_tracker_api_smoke_covers_every_geometry_and_runs_the_packed_api(
@@ -90,7 +102,11 @@ def test_tracker_api_smoke_covers_every_geometry_and_runs_the_packed_api(
     def record_tracking(name: str, tracker_class: type, geometry: str) -> None:
         calls.append((name, tracker_class, geometry))
 
+    def record_prompt_tracking(tracker_class: type) -> None:
+        calls.append(("edgetam", tracker_class, "manual-prompts"))
+
     monkeypatch.setattr(release_contract, "check_tracker_tracking", record_tracking)
+    monkeypatch.setattr(release_contract, "check_prompt_tracker_tracking", record_prompt_tracking)
 
     # Keep the direct ByteTrack NumPy smoke real while checking its dispatcher.
     release_contract.check_tracker_api()
@@ -98,5 +114,9 @@ def test_tracker_api_smoke_covers_every_geometry_and_runs_the_packed_api(
     assert calls == [
         (name, getattr(boxmot, public_name), geometry)
         for name, public_name in release_contract.EXPECTED_TRACKERS
-        for geometry in (("aabb",) if name in {"eagermot", "maf_hda"} else ("aabb", "obb"))
+        for geometry in (
+            ("manual-prompts",)
+            if name == "edgetam"
+            else (("aabb",) if name in {"eagermot", "maf_hda"} else ("aabb", "obb"))
+        )
     ]

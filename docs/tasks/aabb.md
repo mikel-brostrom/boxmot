@@ -4,6 +4,9 @@ Use AABB tracking when object orientation is not part of the output. Choose
 motion-only association or add ReID appearance features; both variants emit
 axis-aligned boxes and track IDs.
 
+`boxmot track` selects AABB automatically from an AABB detector such as
+`yolov8n`. Image size changes inference resolution, not tracking geometry.
+
 ## Variants
 
 ### Motion-only
@@ -13,7 +16,6 @@ Start with ByteTrack for association without an appearance encoder:
 ```bash
 boxmot track \
   --detector yolov8n \
-  --geometry aabb \
   --tracker bytetrack \
   --source video.mp4 \
   --save
@@ -27,7 +29,6 @@ uses an OSNet checkpoint trained for person ReID:
 ```bash
 boxmot track \
   --detector yolov8n \
-  --geometry aabb \
   --tracker botsort \
   --reid osnet_x0_25_msmt17 \
   --classes 0 \
@@ -45,22 +46,25 @@ from the current frame. See [live ReID](../python/index.md#live-embeddings-in-re
 ```python
 import torch
 
-from boxmot import ByteTrack
+from boxmot import create_tracker
 from boxmot.structures import Boxes, Detections
 
-tracker = ByteTrack()
 detections = Detections(
     geometry=Boxes(torch.tensor([[20, 30, 80, 150]], dtype=torch.float32)),
     scores=torch.tensor([0.9], dtype=torch.float32),
     class_ids=torch.tensor([0], dtype=torch.int64),
     sample_id="sequence-1:42",
 )
+tracker = create_tracker("bytetrack", detections=detections)
 tracks = tracker.update(detections)
 
 print(tracks.geometry.values)       # float32[M,4] xyxy
 print(tracks.track_ids)             # int64[M]
 print(tracks.detection_indices)     # int64[M], -1 for coasting rows
 ```
+
+The factory selects AABB from `Boxes` without processing the batch; the first
+`update()` processes it. Direct construction with `ByteTrack()` also uses AABB.
 
 `Boxes` validates finite `float32[N,4]` values with `x2 > x1` and `y2 > y1`.
 `Detections.select()` keeps geometry, scores, classes, instance IDs, masks,

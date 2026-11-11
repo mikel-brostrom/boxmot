@@ -65,6 +65,15 @@ enough. See [Installation](docs/getting-started/installation.md) for optional
 workflows and [PyTorch and source setup](docs/getting-started/pytorch.md) for
 CPU/CUDA profiles and YOLOX.
 
+For CUDA materialization, measure and apply detector/ReID batch sizes with:
+
+```bash
+boxmot materialize --experiment mot17/ablation-yolox-lmbn.yaml --device cuda:0 --auto-batch
+```
+
+See [automatic GPU batch sizing](docs/modes/materialize.md#automatic-gpu-batch-sizing)
+for supported backends, memory limits, and sizing one stage at a time.
+
 ## Benchmark Results
 
 <div align="center" markdown="1">
@@ -251,6 +260,17 @@ boxmot ui
 
 The [terminal UI](docs/modes/ui.md) previews the command before you run it and
 enables an interactive dashboard for workflows that report live progress.
+
+To track objects you select yourself, choose `track` and tracker `edgetam` in
+the launcher. Its video window accepts bounding boxes or foreground/background
+points, then propagates object masks and IDs. See the
+[EdgeTAM setup and controls](docs/trackers/edgetam.md).
+
+To evaluate EdgeTAM by prompting each pedestrian at its first fully visible,
+in-frame ground-truth box, use
+`boxmot eval --dataset mot17-mini --tracker edgetam --prompt-source first-visible`.
+See the [prompted evaluation protocol](docs/trackers/edgetam.md#evaluate-first-visible-people)
+for visibility requirements, object capacity, and scoring.
 
 CLI:
 

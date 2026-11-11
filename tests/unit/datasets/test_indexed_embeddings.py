@@ -165,7 +165,8 @@ def test_stream_early_close_releases_decoder_and_files(materialized_build, monke
     original_close = IndexedEmbeddingReader.close
 
     def recording_close(self):
-        opened.extend(self._files)
+        if self._active_file is not None:
+            opened.append(self._active_file)
         original_close(self)
 
     monkeypatch.setattr(IndexedEmbeddingReader, "close", recording_close)
@@ -176,6 +177,36 @@ def test_stream_early_close_releases_decoder_and_files(materialized_build, monke
     assert opened and all(parquet.closed for parquet in opened)
     # A repeated replay creates independent decoder state and has identical values.
     assert torch.equal(next(iter(stream)).detections.embeddings, first.detections.embeddings)
+
+
+@pytest.mark.parametrize("invalid_keys", [False, True])
+def test_many_image_files_keep_only_one_parquet_handle_open(tmp_path, monkeypatch, invalid_keys) -> None:
+    """Per-image checkpoints must not exhaust descriptors during indexing or replay."""
+    rows = _rows(frames=48, detections=1)
+    dataset = _dataset(tmp_path, rows, shards=len(rows))
+    if invalid_keys:
+        dataset._instances_by_sample[rows[-1]["sample_id"]] = [{"instance_id": "missing-instance"}]
+    opened = []
+    original_init = pq.ParquetFile.__init__
+
+    def recording_init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        opened.append(self)
+        assert sum(not parquet.closed for parquet in opened) <= 1
+
+    monkeypatch.setattr(pq.ParquetFile, "__init__", recording_init)
+    if invalid_keys:
+        with pytest.raises(DatasetValidationError, match="foreign sample/instance"):
+            IndexedEmbeddingReader(dataset)
+    else:
+        with IndexedEmbeddingReader(dataset, cache_bytes=28) as reader:
+            assert all(parquet.closed for parquet in opened)
+            # Reverse replay forces reopening indexed shards in a different order.
+            for row in reversed(rows):
+                keys = ((row["sample_id"], row["instance_id"]),)
+                assert reader.take(keys).tolist() == [row["values"]]
+            reader.finish()
+    assert opened and all(parquet.closed for parquet in opened)
 
 
 @pytest.mark.parametrize("source", ["manifest.json", "_SUCCESS", "instances/part-00000.parquet"])

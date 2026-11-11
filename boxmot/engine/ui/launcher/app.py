@@ -8,6 +8,7 @@ from dataclasses import field as dataclass_field
 
 import click
 from rich import box
+from rich.align import Align
 from rich.console import Console, Group, RenderableType
 from rich.layout import Layout
 from rich.live import Live
@@ -26,6 +27,15 @@ from boxmot.engine.ui.launcher.model import (
     display_value,
     field_choices,
 )
+
+# Terminal-cell renditions of the bundled assets/logo_white.png alpha mask.
+# Keep them as text so opening the launcher never loads an image or ML runtime.
+_LOGO = """ ⢀⣤⠶⠛⠶⣤⡀
+⣾⢯⣀   ⣠⠉⣷ ⢰⢀⡀  ⡀     ⣀ ⡀  ⡀ ⣠⡀
+⣿ ⣍⠛⣠⠞⠁ ⣿ ⢸⡋⢹⣶⡏⢙⡧⢻⣞⠁⣿⢹⡏⢹⣧⡟⠙⣷⢹⡋
+⢿⣀⠈⠛⣿  ⣠⡿ ⠘⠛⠋ ⠙⠛⠑⠋⠘⠃⠋⠈⠃⠘⠃⠙⠛⠁⠘⠛
+ ⠈⠛⠶⣿⠶⠛⠁"""
+_LOGO_ICON = "⣠⠖⠋⠓⢤⡀\n⡏⢽⣢⠞ ⡇\n⠑⠦⣽⡤⠚⠁"
 
 
 @dataclass
@@ -96,29 +106,61 @@ class Editor:
         return False, None
 
 
-def _panel(content: RenderableType, title: str, *, accent: bool = False) -> Panel:
+def _panel(content: RenderableType, title: str, *, accent: bool = False, hint: str | None = None) -> Panel:
     """Use a consistent, compact visual style throughout the launcher."""
     return Panel(
         content,
         title=Text(title, style="bold cyan" if accent else "bold"),
+        subtitle=Text(hint, style="dim") if hint else None,
         border_style="cyan" if accent else "bright_black",
         box=box.ROUNDED,
         padding=(0, 1),
     )
 
 
+def _header(workflow: str, width: int, height: int) -> tuple[Panel, int]:
+    """Show the logo at a size that leaves room for configuration and controls."""
+    if width < 60 or height < 26:
+        content = Text.assemble(("BoxMOT", "bold cyan"), "  /  ", (workflow, "bold"))
+        content.no_wrap = True
+        content.overflow = "ellipsis"
+        return _panel(content, "Command launcher"), 3
+    full_logo = width >= 80 and height >= 32
+    logo = Text(_LOGO if full_logo else _LOGO_ICON, style="cyan", no_wrap=True)
+    table = Table.grid(padding=(0, 3), expand=True)
+    table.add_column(width=30 if full_logo else 6)
+    table.add_column(ratio=1)
+    table.add_row(
+        logo,
+        Align(
+            Group(Text("BoxMOT", style="bold cyan"), Text(workflow, style="bold", no_wrap=True, overflow="ellipsis")),
+            vertical="middle",
+            height=5 if full_logo else 3,
+        ),
+    )
+    return _panel(table, "Command launcher"), 7 if full_logo else 5
+
+
 def _summary(model: LauncherModel) -> RenderableType:
-    """Render the experiment's resolved components, without starting a run."""
+    """Render current settings or resolved experiment components for review."""
     try:
         experiment = model.resolved_experiment()
     except (OSError, ValueError, TypeError) as error:
         return Text(str(error), style="yellow", overflow="fold")
     if experiment is None:
-        return Group(
-            Text(COMMAND_LABELS[model.name], style="bold cyan"),
-            Text("\nSelect a field and press Enter to edit. Search model catalogs or type a custom path."),
-            Text("\nDefaults come from the command. Only your edits appear in the command preview.", style="dim"),
-        )
+        table = Table.grid(padding=(0, 2), expand=True)
+        table.add_column(style="dim", no_wrap=True)
+        table.add_column(ratio=1, overflow="fold")
+        for field in model.fields:
+            value = Text(model.field_display(field.name) or ("Required" if field.option.required else "Not set"))
+            if field.name not in model.values:
+                value.append("  · default", style="dim")
+            table.add_row(Text(field.label), value)
+        if model.name == "track":
+            table.add_row(
+                "Geometry", Text("AABB (prompts)" if model.value("tracker") == "edgetam" else "Automatic from detector")
+            )
+        return Group(Text("Settings", style="bold cyan"), table)
     table = Table.grid(padding=(0, 1), expand=True)
     table.add_column(style="dim", no_wrap=True)
     table.add_column(ratio=1, overflow="fold")
@@ -156,6 +198,62 @@ class LauncherApp:
         self._validated_argv: list[str] | None = None
         self.review_offset = 0
 
+    @property
+    def stage(self) -> str:
+        """Derive the active stage from the focused field, including navigation rows."""
+        fields = self.model.fields
+        if self.cursor <= 0:
+            return self.model.stages[0]
+        if self.cursor > len(fields):
+            return self.model.stages[-1]
+        return fields[self.cursor - 1].group
+
+    def _select_stage(self, index: int) -> None:
+        """Focus the first row of a stage without changing any configured values."""
+        stages = self.model.stages
+        if not 0 <= index < len(stages):
+            return
+        self.cursor = (
+            0
+            if index == 0
+            else next(i + 1 for i, field in enumerate(self.model.fields) if field.group == stages[index])
+        )
+
+    def _set_value(self, name: str, value: str | bool | None) -> None:
+        """Keep focus on the edited field when its value changes visible stages."""
+        self.model.set_value(name, value)
+        fields = self.model.fields
+        self.cursor = next(
+            (i + 1 for i, field in enumerate(fields) if field.name == name), min(self.cursor, len(fields) + 1)
+        )
+
+    def _stage_bar(self, width: int) -> Text:
+        """Show workflow order, keeping the active stage legible in narrow terminals."""
+        stages = self.model.stages
+        active = self.stage
+        bar = Text(no_wrap=True, overflow="ellipsis")
+        for index, name in enumerate(stages):
+            if index:
+                bar.append(" → ", style="dim")
+            bar.append(
+                f" {index + 1} {name} ", style="bold black on cyan" if name == active and not self.review else "dim"
+            )
+        if self.review:
+            bar.append(" → ", style="dim")
+            bar.append(" Review ", style="bold black on cyan")
+        if bar.cell_len > width:
+            if self.review:
+                bar = Text.assemble((" Review ", "bold cyan"), (f" · Esc back to {active}", "dim"))
+            else:
+                bar = Text.assemble(
+                    (f" {stages.index(active) + 1}/{len(stages)} ", "dim"),
+                    (active, "bold cyan"),
+                    ("  · Tab next · Shift+Tab back", "dim"),
+                )
+            bar.no_wrap = True
+            bar.overflow = "ellipsis"
+        return bar
+
     def _begin_edit(self, field: FormField | None) -> None:
         """Open a searchable selector, or immediately toggle a boolean field."""
         self.error = ""
@@ -174,9 +272,9 @@ class LauncherApp:
             current = bool(self.model.value(field.name))
             value = not current
             if not value and not option.secondary_opts:
-                self.model.set_value(field.name, None)
+                self._set_value(field.name, None)
             else:
-                self.model.set_value(field.name, value)
+                self._set_value(field.name, value)
             return
         choices = field_choices(self.model.name, option)
         self.editor = Editor(
@@ -222,7 +320,7 @@ class LauncherApp:
             self.finished = True
             return
         if self.editor is not None:
-            if key == "escape":
+            if key == "escape" or (key == "left" and self.editor.choices):
                 self.editor = None
                 return
             accepted, value = self.editor.handle_key(key)
@@ -238,7 +336,7 @@ class LauncherApp:
                         except ValueError as error:
                             self.error = str(error) + ". Finish the quoted value, or press Esc to cancel."
                             return
-                    self.model.set_value(self.editor.name, value)
+                    self._set_value(self.editor.name, value)
                 self.error = ""
                 self.editor = None
             return
@@ -257,10 +355,15 @@ class LauncherApp:
                 self.review_offset = 1_000_000
             return
         fields = self.model.fields
+        self.cursor = max(0, min(self.cursor, len(fields) + 1))
         if key in {"escape", "q"}:
             self.finished = True
-        elif key in {"up", "shift+tab", "down", "tab", "pageup", "pagedown"}:
-            delta = {"up": -1, "shift+tab": -1, "down": 1, "tab": 1, "pageup": -8, "pagedown": 8}[key]
+        elif key in {"tab", "shift+tab"}:
+            self._select_stage(self.model.stages.index(self.stage) + (1 if key == "tab" else -1))
+        elif len(key) == 1 and key in "123456789":
+            self._select_stage(int(key) - 1)
+        elif key in {"up", "down", "pageup", "pagedown"}:
+            delta = {"up": -1, "down": 1, "pageup": -8, "pagedown": 8}[key]
             self.cursor = max(0, min(len(fields) + 1, self.cursor + delta))
         elif key == "home":
             self.cursor = 0
@@ -270,50 +373,114 @@ class LauncherApp:
             self._prepare_run()
         elif key == "enter":
             self._begin_edit(fields[self.cursor - 1] if self.cursor else None)
+        elif key == "right" and self.cursor <= len(fields):
+            field = fields[self.cursor - 1] if self.cursor else None
+            if field is None or (not field.option.is_bool_flag and field_choices(self.model.name, field.option)):
+                self._begin_edit(field)
         elif key in {"d", "delete", "backspace"} and 0 < self.cursor <= len(fields):
-            self.model.set_value(fields[self.cursor - 1].name, None)
+            self._set_value(fields[self.cursor - 1].name, None)
             self.error = ""
 
-    def _form(self, height: int) -> RenderableType:
-        """Keep the selected option visible even in a short IDE terminal."""
+    def _form(self, height: int, *, inline_help: bool = True) -> RenderableType:
+        """Show only the active stage, keeping its selected field in view."""
         fields = self.model.fields
         self.cursor = min(self.cursor, len(fields) + 1)
-        rows: list[tuple[str, str, str]] = [("Workflow", "Command", self.model.name)]
-        for field in fields:
+        stage = self.stage
+        rows: list[tuple[int, str, str]] = []
+        if stage == self.model.stages[0]:
+            rows.append((0, "Command", self.model.name))
+        for index, field in enumerate(fields, start=1):
+            if field.group != stage:
+                continue
             value = self.model.field_display(field.name)
             value = value or ("Required" if field.option.required else "Not set")
             suffix = "" if field.name in self.model.values else "  · default"
-            rows.append((field.group, field.label, value + suffix))
-        rows.append(("Launch", "Review and run", "Enter to review"))
-        visible = max(3, height - 7)
-        start = max(0, min(self.cursor - visible // 2, len(rows) - visible))
+            rows.append((index, field.label, value + suffix))
+        if stage == self.model.stages[-1]:
+            rows.append((len(fields) + 1, "Review and run", "Enter to review"))
+        position = next(i for i, (index, _, _) in enumerate(rows) if index == self.cursor)
+        visible = max(1, height - (5 if inline_help else 3))
+        start = max(0, min(position - visible // 2, len(rows) - visible))
         table = Table.grid(expand=True, padding=(0, 1))
         table.add_column(width=1)
         table.add_column(ratio=2, overflow="ellipsis", no_wrap=True)
         table.add_column(ratio=3, overflow="ellipsis", no_wrap=True)
-        for index in range(start, min(len(rows), start + visible)):
-            _, label, value = rows[index]
-            style = "bold black on cyan" if index == self.cursor else ""
+        for index, label, value in rows[start : start + visible]:
+            style = ("bold cyan" if self.editor else "bold black on cyan") if index == self.cursor else ""
             table.add_row(
                 Text("›" if index == self.cursor else " ", style=style),
                 Text(label, style=style),
                 Text(value, style=style),
             )
-        group = rows[self.cursor][0]
         help_text = "Choose which workflow to configure."
         if 0 < self.cursor <= len(fields):
             help_text = fields[self.cursor - 1].option.help or ""
         elif self.cursor == len(fields) + 1:
             help_text = "Review the exact command and start it with Enter."
+        content: list[RenderableType] = [
+            Text(f"{stage}  ·  {position + 1}/{len(rows)}", style="cyan"),
+            table,
+        ]
+        if inline_help:
+            content.extend((Text(""), Text(help_text, style="dim", overflow="ellipsis", no_wrap=True)))
+        return _panel(Group(*content), "Configure", accent=self.editor is None)
+
+    def _details(self) -> RenderableType:
+        """Explain the selected field using the command's own option metadata."""
+        fields = self.model.fields
+        if self.cursor == 0:
+            return _panel(
+                Group(
+                    Text("Command", style="bold cyan"),
+                    Text("Switch workflows; each keeps your settings."),
+                    Text(""),
+                    Text("The preview includes your edits. Other settings use CLI defaults.", style="dim"),
+                ),
+                "Details",
+                hint="→ / Enter choose command",
+            )
+        if self.cursor > len(fields):
+            return _panel(
+                Group(
+                    Text("Review and run", style="bold cyan"),
+                    Text("Review the full command and settings before starting."),
+                    Text(""),
+                    Text("Enter open review · Enter again to run", style="cyan"),
+                    Text("Esc returns from review to this form.", style="dim"),
+                ),
+                "Details",
+            )
+        field = fields[self.cursor - 1]
+        option = field.option
+        heading = Text.assemble((field.label, "bold cyan"), (f"  {option.opts[0]}", "dim"))
+        if field.name == "experiment" and self.model.values.get("experiment"):
+            return _panel(Group(heading, Text(""), _summary(self.model)), "Details", hint="→ / Enter choose · d reset")
+
+        empty = "Required" if option.required else "Not set"
+        current = Text(self.model.field_display(field.name) or empty, overflow="fold")
+        edited = field.name in self.model.values
+        current.append("  · edited" if edited else "  · CLI default", style="dim")
+        values = Table.grid(padding=(0, 1), expand=True)
+        values.add_column(style="dim", no_wrap=True)
+        values.add_column(ratio=1, overflow="fold")
+        values.add_row("Current", current)
+        if edited:
+            values.add_row("Default", Text(display_value(self.model.default(field.name)) or empty))
+        if self.model.name == "track" and field.name in {"detector", "tracker", "tracker_backend"}:
+            geometry = "AABB (prompts)" if self.model.value("tracker") == "edgetam" else "Automatic from detector"
+            values.add_row("Geometry", Text(geometry))
+        if option.is_bool_flag:
+            action = "Enter toggle · d reset"
+        elif isinstance(option.type, click.Choice):
+            action = "→ / Enter choose · d reset"
+        elif field_choices(self.model.name, option):
+            action = "→ / Enter browse · d reset"
+        else:
+            action = "Enter edit · d reset"
         return _panel(
-            Group(
-                Text(f"{group}  ·  {self.cursor + 1}/{len(rows)}", style="cyan"),
-                table,
-                Text(""),
-                Text(help_text, style="dim", overflow="ellipsis", no_wrap=True),
-            ),
-            "Configure",
-            accent=True,
+            Group(heading, Text(""), values, Text(""), Text(option.help or "")),
+            "Details",
+            hint=action,
         )
 
     def _editor_view(self, height: int) -> RenderableType:
@@ -322,11 +489,11 @@ class LauncherApp:
         editor = self.editor
         rows = editor.rows()
         editor.cursor = min(editor.cursor, max(0, len(rows) - 1))
-        visible = max(2, height - 9)
+        visible = max(1, height - 7)
         start = max(0, min(editor.cursor - visible // 2, len(rows) - visible))
         table = Table.grid(expand=True)
-        table.add_column(width=3)
-        table.add_column(overflow="ellipsis", no_wrap=True)
+        table.add_column(width=3, min_width=3, no_wrap=True)
+        table.add_column(ratio=1, overflow="ellipsis", no_wrap=True)
         for index in range(start, min(len(rows), start + visible)):
             value, label = rows[index]
             marker = "✓" if value in editor.selected else " "
@@ -336,13 +503,16 @@ class LauncherApp:
             table.add_row(Text(marker, style=style), Text(label, style=style))
         if not rows:
             table.add_row("", "No matches")
-        hint = "↑↓ select · Enter apply · Esc cancel · Ctrl+U clear"
+        hint = "Ctrl+U clear"
         if editor.multiple and editor.choices:
-            hint = "Space toggle · Enter apply · Esc cancel"
+            hint = "Space toggle · Ctrl+U clear"
+        query = Text.assemble(("Search / value  ", "cyan"), editor.query, ("▏", "cyan"))
+        query.no_wrap = True
+        query.overflow = "ellipsis"
         return _panel(
             Group(
                 Text(editor.help, style="dim", overflow="ellipsis", no_wrap=True),
-                Text.assemble(("Search / value  ", "cyan"), editor.query, ("▏", "cyan")),
+                query,
                 Text(""),
                 table,
                 Text(""),
@@ -357,27 +527,28 @@ class LauncherApp:
         width, height = console.size
         layout = Layout()
         preview_height = min(7, max(4, height // 6))
+        header, header_height = _header(COMMAND_LABELS[self.model.name], width, height)
+        stage_height = 1 if height < 24 else 2
         layout.split_column(
-            Layout(name="header", size=3),
+            Layout(name="header", size=header_height),
+            Layout(name="stages", size=stage_height),
             Layout(name="body", ratio=1, minimum_size=7),
             Layout(name="preview", size=preview_height),
             Layout(name="footer", size=2),
         )
-        layout["header"].update(
-            _panel(
-                Text.assemble(("BoxMOT", "bold cyan"), "  /  ", (COMMAND_LABELS[self.model.name], "bold")),
-                "Command launcher",
-            )
-        )
-        body_height = max(7, height - preview_height - 5)
+        layout["header"].update(header)
+        layout["stages"].update(self._stage_bar(width))
+        body_height = max(7, height - preview_height - header_height - stage_height - 2)
         if self.review:
             layout["body"].update(self._review_view(console, body_height))
+        elif width >= 110 and (self.editor is None or self.editor.choices):
+            layout["body"].split_row(
+                Layout(name="form", ratio=3), Layout(Text(" "), size=1), Layout(name="details", ratio=2)
+            )
+            layout["form"].update(self._form(body_height, inline_help=False))
+            layout["details"].update(self._editor_view(body_height) if self.editor else self._details())
         elif self.editor is not None:
             layout["body"].update(self._editor_view(body_height))
-        elif width >= 110:
-            layout["body"].split_row(Layout(name="form", ratio=3), Layout(name="summary", ratio=2))
-            layout["form"].update(self._form(body_height))
-            layout["summary"].update(_panel(_summary(self.model), "Experiment"))
         else:
             layout["body"].update(self._form(body_height))
         try:
@@ -386,11 +557,14 @@ class LauncherApp:
             preview = str(error)
         content = Text(self.error or preview, style="yellow" if self.error else "green", overflow="fold")
         layout["preview"].update(_panel(content, "Check configuration" if self.error else "Command preview"))
-        footer = "↑↓ / Tab navigate   Enter edit   d reset   r review   q quit"
+        footer = "↑↓ fields   Tab / Shift+Tab stages   1–9 jump   Enter edit   → choices   d reset   r review   q quit"
+        if width < 60:
+            footer = "↑↓ fields  Tab stages  Enter edit  → choices  d reset  r review  q quit"
         if self.review:
             footer = "Enter RUN command   ↑↓ / PgUp/PgDn scroll review   Esc back"
         elif self.editor:
-            footer = "Type to search or enter a value   ↑↓ choose   Enter apply   Esc back"
+            back = "← / Esc" if self.editor.choices else "Esc"
+            footer = f"Type to search or enter a value   ↑↓ choose   Enter apply   {back} back"
         layout["footer"].update(Text(footer, style="dim", overflow="fold"))
         return layout
 
@@ -432,9 +606,10 @@ def run_launcher(
     if not is_interactive(console):
         raise click.UsageError("The launcher needs an interactive terminal. Use boxmot COMMAND --help for CLI options.")
     app = LauncherApp(LauncherModel(root_command, initial_command=initial_command, experiment=experiment))
-    with TerminalInput() as keyboard, Live(
-        app.render(console), console=console, screen=True, auto_refresh=False, transient=True
-    ) as live:
+    with (
+        TerminalInput() as keyboard,
+        Live(app.render(console), console=console, screen=True, auto_refresh=False, transient=True) as live,
+    ):
         size = console.size
         while not app.finished:
             key = keyboard.read_key(timeout=0.1)

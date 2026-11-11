@@ -11,6 +11,7 @@ TrackerName: TypeAlias = Literal[
     "bytetrack",
     "deepocsort",
     "eagermot",
+    "edgetam",
     "hybridsort",
     "maf_hda",
     "occluboost",

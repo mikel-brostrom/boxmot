@@ -89,18 +89,16 @@ def _register_model_config() -> str:
     return _MODEL_CONFIG
 
 
-def build_edgetam_predictor(
-    checkpoint: str | Path, device: str | torch.device, *, precision: str | None = None
-) -> Any:
+def build_edgetam_predictor(checkpoint: str | Path, device: str | torch.device, *, precision: str | None = None) -> Any:
     """Load one official predictor and strict full checkpoint, with no backbone download."""
     selected = resolve_device(device)
     precision = _resolve_precision(selected, precision)
-    checkpoint_path = resolve_edgetam_checkpoint(checkpoint)
     if find_spec("sam2") is None:
         raise ModuleNotFoundError(
-            "EdgeTAM requires the optional official EdgeTAM package; install BoxMOT's mask-guidance group. "
-            "See docs/trackers/bytetrack.md."
+            "EdgeTAM requires the optional official EdgeTAM package; install BoxMOT's edgetam group. "
+            "See docs/trackers/edgetam.md."
         )
+    checkpoint_path = resolve_edgetam_checkpoint(checkpoint)
     builder = import_module("sam2.build_sam").build_sam2_video_predictor
     postprocessing = postprocessing_metadata(selected)
     predictor = builder(

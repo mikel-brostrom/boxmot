@@ -31,9 +31,7 @@ def _frame(sample_id: str = "sample") -> Frame:
 def _detections(frame: Frame, *, empty: bool = False, obb: bool = False) -> Detections:
     """Make ordered boxes with differing sizes and positions."""
     if obb:
-        geometry = OrientedBoxes(
-            torch.tensor([[4.0, 3.0, 4.0, 2.0, math.pi / 2], [2.0, 2.0, 2.0, 2.0, 0.0]])
-        )
+        geometry = OrientedBoxes(torch.tensor([[4.0, 3.0, 4.0, 2.0, math.pi / 2], [2.0, 2.0, 2.0, 2.0, 0.0]]))
     else:
         geometry = Boxes(torch.tensor([[1.0, 1.0, 5.0, 5.0], [2.0, 2.0, 6.0, 4.0]]))
     if empty:
@@ -84,9 +82,7 @@ def image_predictors(monkeypatch):
             self.features = None
             self.resets += 1
 
-    monkeypatch.setattr(
-        backend, "import_module", lambda name: SimpleNamespace(SAM2ImagePredictor=ImagePredictor)
-    )
+    monkeypatch.setattr(backend, "import_module", lambda name: SimpleNamespace(SAM2ImagePredictor=ImagePredictor))
     return instances
 
 
@@ -258,11 +254,12 @@ def test_rejects_unsupported_settings_before_loading(monkeypatch, overrides, mes
 
 def test_missing_optional_dependency_has_install_instruction(monkeypatch) -> None:
     """Core installation can explain the optional dependency when requested."""
+
     def missing(_name):
         raise ModuleNotFoundError("No module named 'sam2'", name="sam2")
 
     monkeypatch.setattr(backend, "import_module", missing)
-    with pytest.raises(ImportError, match="uv sync --extra cpu --group mask-guidance"):
+    with pytest.raises(ImportError, match="uv sync --extra cpu --group edgetam"):
         backend.EdgeTAMSegmentor(SegmentorSpec("edgetam", artifact="edgetam.pt"), model=object())
 
 
@@ -329,9 +326,7 @@ def test_config_resolution_rejects_directory_checkpoint(tmp_path) -> None:
     """An EdgeTAM artifact must contain checkpoint bytes, not a directory."""
     (tmp_path / "weights.pt").write_bytes(b"test checkpoint")
     with pytest.raises(ValueError, match="checkpoint file artifact"):
-        resolve_segmentor_spec(
-            {"backend": "edgetam", "artifact": str(tmp_path)}, geometry="aabb", allow_download=False
-        )
+        resolve_segmentor_spec({"backend": "edgetam", "artifact": str(tmp_path)}, geometry="aabb", allow_download=False)
 
 
 def test_example_resolves_checkpoint_from_project_models_directory(tmp_path) -> None:

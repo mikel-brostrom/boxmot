@@ -353,6 +353,16 @@ class DetectionCache:
             metrics={"cache": "hit", "samples": len(self.samples)},
         )
 
+    def available(self) -> bool:
+        """Check reusable detections without initializing an inference runtime."""
+
+        with self.lock():
+            manifest = self._load_valid_manifest()
+            if manifest is None:
+                self._bootstrap_from_published_builds()
+                manifest = self._load_valid_manifest()
+            return manifest is not None
+
     def publish(self, context: MaterializationContext) -> None:
         """Publish the just-completed detector artifacts into the shared cache."""
 

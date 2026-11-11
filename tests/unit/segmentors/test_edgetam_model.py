@@ -190,15 +190,17 @@ def test_packaged_config_preserves_hydra_initialization():
         assert config.model.num_maskmem == 7 and config.model.image_size == 1024
 
 
-def test_missing_package_is_actionable(tmp_path, monkeypatch):
-    checkpoint = tmp_path / "edgetam.pt"
-    checkpoint.touch()
+def test_missing_package_is_actionable_before_checkpoint_download(monkeypatch):
     monkeypatch.setattr(model, "find_spec", lambda name: None)
+    monkeypatch.setattr(
+        model, "resolve_edgetam_checkpoint", lambda checkpoint: pytest.fail("Missing package must prevent downloads")
+    )
     with pytest.raises(ModuleNotFoundError, match="optional official EdgeTAM package"):
-        model.build_edgetam_predictor(checkpoint, "cpu")
+        model.build_edgetam_predictor("edgetam.pt", "cpu")
 
 
-def test_missing_checkpoint_precedes_optional_import(monkeypatch):
-    monkeypatch.setattr(model, "find_spec", lambda name: pytest.fail("Checkpoint validation must come first"))
+def test_missing_checkpoint_precedes_model_import(monkeypatch):
+    monkeypatch.setattr(model, "find_spec", lambda name: object())
+    monkeypatch.setattr(model, "import_module", lambda name: pytest.fail("Checkpoint validation must precede import"))
     with pytest.raises(FileNotFoundError, match="EdgeTAM checkpoint"):
         model.build_edgetam_predictor("nonexistent-custom-checkpoint.pt", "cpu")

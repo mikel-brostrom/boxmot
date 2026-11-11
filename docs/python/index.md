@@ -86,8 +86,8 @@ from boxmot import create_tracker
 
 tracker = create_tracker(
     "bytetrack",
+    detections=detections,
     backend="python",
-    geometry="aabb",
     per_class=False,
     track_thresh=0.55,
 )
@@ -101,6 +101,14 @@ Pass algorithm settings as keywords. An explicit `TrackerSpec` is also
 accepted; keyword overrides take precedence without changing the original
 spec. Configure model selection and inference on the detector and ReID
 factories separately.
+
+With a tracker name, `detections=first_batch` selects geometry from canonical
+`Boxes` / `OrientedBoxes` or packed NumPy `N x 6` / `N x 7` detections, including
+shaped empty batches. The factory only inspects this batch; pass it to `update()`
+to process the first frame. Geometry stays fixed and later mismatches raise an
+error. An explicit `geometry` or `TrackerSpec` must match the batch. Name-based
+calls without `detections` or explicit geometry retain the AABB default. See
+[geometry from detections](../config/trackers.md#geometry-from-detections).
 
 ### Tracker classes and autocomplete
 

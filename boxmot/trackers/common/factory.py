@@ -7,13 +7,16 @@ from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any, overload
 
+import numpy as np
+
 from boxmot.components.resolution import component_options
 from boxmot.reid.protocols import AppearanceEncoder
 from boxmot.reid.specs import ReIDConfig
-from boxmot.structures import GeometryKind
+from boxmot.structures import Detections, GeometryKind
 from boxmot.trackers.common._model_names import TrackerName
 from boxmot.trackers.common.algorithm_config import TrackerConfig
 from boxmot.trackers.common.config import flatten_tracker_options, get_tracker_config_class, load_tracker_config
+from boxmot.trackers.common.input import infer_detection_geometry
 from boxmot.trackers.common.mask_guidance import (
     MASK_GUIDANCE_OPTIONS,
     MaskGuidance,
@@ -31,6 +34,7 @@ from boxmot.trackers.common.registry import (
     supported_native_trackers,
 )
 from boxmot.trackers.common.specs import TrackerCapabilities, TrackerFamily, TrackerSpec
+from boxmot.trackers.edgetam.config import EdgeTAMModelConfig
 
 _REID_MODEL_OPTIONS = frozenset(
     {
@@ -204,10 +208,12 @@ def _validate_model_options(name: str, options: Mapping[str, Any]) -> None:
 def create_tracker(
     spec: TrackerName,
     *,
+    detections: Detections | np.ndarray | None = None,
     config: TrackerConfig | None = None,
     kalman: KalmanConfig | None = None,
     reid: ReIDConfig | AppearanceEncoder | None = None,
     mask_guidance: MaskGuidanceConfig | MaskGuidance | None = None,
+    prompt_model: EdgeTAMModelConfig | None = None,
     **overrides: Any,
 ) -> Tracker: ...
 
@@ -216,10 +222,12 @@ def create_tracker(
 def create_tracker(
     spec: TrackerSpec | str,
     *,
+    detections: Detections | np.ndarray | None = None,
     config: TrackerConfig | None = None,
     kalman: KalmanConfig | None = None,
     reid: ReIDConfig | AppearanceEncoder | None = None,
     mask_guidance: MaskGuidanceConfig | MaskGuidance | None = None,
+    prompt_model: EdgeTAMModelConfig | None = None,
     **overrides: Any,
 ) -> Tracker: ...
 
@@ -227,10 +235,12 @@ def create_tracker(
 def create_tracker(
     spec: TrackerSpec | str,
     *,
+    detections: Detections | np.ndarray | None = None,
     config: TrackerConfig | None = None,
     kalman: KalmanConfig | None = None,
     reid: ReIDConfig | AppearanceEncoder | None = None,
     mask_guidance: MaskGuidanceConfig | MaskGuidance | None = None,
+    prompt_model: EdgeTAMModelConfig | None = None,
     **overrides: Any,
 ) -> Tracker:
     """Create a tracker from its registered name or an immutable specification.
@@ -246,6 +256,12 @@ def create_tracker(
     ``mask_guidance`` enables the McByte++ mask cue for Python box trackers with
     AABB IoU matching. Supply a config for lazy construction or a MaskGuidance
     runtime dedicated to this tracker to share an already loaded model.
+    ``prompt_model`` selects the checkpoint and device for the standalone
+    EdgeTAM tracker; objects are initialized through its box/point prompt API.
+    ``detections`` infers AABB/OBB geometry when selecting by name without an
+    explicit geometry. A supplied specification or geometry keyword must match
+    the detections. Empty batches retain their geometry. Construction only
+    inspects the batch; pass it to ``update()`` to process its first frame.
 
     The factory does not construct models eagerly. Trackers consume required
     masks, embeddings, or frames through their structured update boundary;
@@ -253,7 +269,22 @@ def create_tracker(
     backend lazily when called without precomputed embeddings.
     """
 
+    infer_geometry = isinstance(spec, str) and "geometry" not in overrides
     spec = _resolve_spec(spec, {})
+    if detections is not None:
+        geometry = infer_detection_geometry(detections).value
+        if infer_geometry:
+            overrides = {**overrides, "geometry": geometry}
+        elif overrides.get("geometry", spec.geometry) != geometry:
+            raise ValueError(
+                f"Detection geometry {geometry!r} conflicts with requested tracker geometry "
+                f"{overrides.get('geometry', spec.geometry)!r}."
+            )
+    if prompt_model is not None:
+        if not isinstance(prompt_model, EdgeTAMModelConfig):
+            raise TypeError("prompt_model must be an EdgeTAMModelConfig or None.")
+        if spec.name != "edgetam":
+            raise ValueError(f"Tracker {spec.name!r} does not accept prompt-model configuration.")
     config_type = get_tracker_config_class(spec.name)
     if config is not None:
         config = config_type.resolve(config)
@@ -272,6 +303,8 @@ def create_tracker(
             raise TypeError("mask_guidance must be a MaskGuidanceConfig, MaskGuidance, or None.")
         validate_mask_guidance_spec(spec)
     definition = get_tracker_definition(spec.name)
+    if spec.per_class and not definition.accepts_per_class:
+        raise ValueError(f"Tracker {spec.name!r} does not support per_class mode.")
     if reid is not None and not definition.capabilities.accepts_embeddings:
         raise ValueError(f"Tracker {spec.name!r} does not accept ReID configuration.")
     tracker_args = load_tracker_config(definition.config_name or definition.name, None, spec.option_dict)
@@ -316,6 +349,8 @@ def create_tracker(
     edgetam = {field: tracker_args.pop(key) for key, field in MASK_GUIDANCE_OPTIONS.items() if key in tracker_args}
     if edgetam:
         tracker_args["edgetam"] = edgetam
+    if prompt_model is not None:
+        tracker_args["prompt_model"] = prompt_model
 
     if definition.capabilities.family is TrackerFamily.BOX:
         tracker_args["is_obb"] = geometry_kind is GeometryKind.OBB

@@ -42,6 +42,10 @@ _TRACKER_MANIFEST: dict[str, _TrackerManifestEntry] = {
         "boxmot.trackers.eagermot.tracker.EagerMot",
         "boxmot.trackers.eagermot.config.EagerMotConfig",
     ),
+    "edgetam": _TrackerManifestEntry(
+        "boxmot.trackers.edgetam.tracker.EdgeTAM",
+        "boxmot.trackers.edgetam.config.EdgeTAMConfig",
+    ),
     "hybridsort": _TrackerManifestEntry(
         "boxmot.trackers.hybridsort.tracker.HybridSort",
         "boxmot.trackers.hybridsort.config.HybridSortConfig",

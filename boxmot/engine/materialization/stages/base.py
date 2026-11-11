@@ -17,6 +17,8 @@ from ..plan import BuildPlan, StagePlan
 from ..state import MaterializationStateStore
 
 if TYPE_CHECKING:
+    from boxmot.structures import Detections
+
     from ..progress import MaterializationProgressReporter
 
 
@@ -42,7 +44,7 @@ class MaterializationContext:
 
     @property
     def completed_shards(self) -> frozenset[str]:
-        return frozenset(self.state.state.by_name[self.stage_plan.name].completed_shards)
+        return self.state.completed_shards(self.stage_plan.name)
 
     def record_shard(
         self,
@@ -60,12 +62,16 @@ class MaterializationContext:
             self.progress.shard_completed(
                 self.stage_plan.name,
                 shard_id,
-                completed_shards=len(self.completed_shards),
+                completed_shards=self.state.completed_shard_count(self.stage_plan.name),
                 items=items,
                 rows=rows,
             )
 
-    def validate_completed_shards(self, *artifact_names: str) -> None:
+    def validate_completed_shards(
+        self,
+        *artifact_names: str,
+        expected_detections: Mapping[str, Detections] | None = None,
+    ) -> None:
         """Reject unsafe resume state before trusting previously written shards."""
 
         for shard_id in self.completed_shards:
@@ -75,15 +81,10 @@ class MaterializationContext:
                 self.staging_root / ARTIFACT_PATHS[artifact_name] / f"part-{shard_id}.parquet"
                 for artifact_name in artifact_names
             ]
-            stage_state = self.state.state.by_name[self.stage_plan.name]
-            recorded_hashes = {
-                artifact: digest
-                for recorded_shard, artifact, digest in stage_state.shard_hashes
-                if recorded_shard == shard_id
-            }
+            recorded_hashes = self.state.shard_hashes(self.stage_plan.name, shard_id)
             try:
                 for artifact_name, path in zip(artifact_names, paths, strict=True):
-                    read_parquet_artifact(
+                    table = read_parquet_artifact(
                         path,
                         artifact_name=artifact_name,
                         box_type=self.build_plan.box_type,
@@ -92,6 +93,18 @@ class MaterializationContext:
                         raise ValueError(
                             f"Completed shard {shard_id!r} for {artifact_name!r} failed its checkpoint hash."
                         )
+                    if expected_detections is not None:
+                        expected = expected_detections.get(shard_id)
+                        if expected is None or table.num_rows != len(expected):
+                            raise ValueError(f"Checkpoint {shard_id!r} does not match its image detections.")
+                        sample_ids = set(table.column("sample_id").to_pylist())
+                        instance_ids = table.column("instance_id").to_pylist()
+                        if (
+                            sample_ids != ({expected.sample_id} if len(expected) else set())
+                            or len(set(instance_ids)) != len(instance_ids)
+                            or set(instance_ids) != set(expected.instance_ids or ())
+                        ):
+                            raise ValueError(f"Checkpoint {shard_id!r} contains unexpected image or detection IDs.")
             except (OSError, ValueError):
                 for path in paths:
                     path.unlink(missing_ok=True)

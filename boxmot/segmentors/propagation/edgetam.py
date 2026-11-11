@@ -51,19 +51,8 @@ def _can_prompt(box: np.ndarray, active_boxes: Mapping[int, np.ndarray], *, prom
     return True
 
 
-class EdgeTAMMaskPropagator:
-    """Propagate previous-frame prompts with bounded objects and temporal state.
-
-    One official model and one image-feature cache serve every object. Compatible
-    temporal histories run in bounded object batches, limiting decoder and attention
-    workspaces. New prompts trigger McByte++'s collective reset and reseed lifecycle.
-
-    Returned dictionaries borrow device boolean tensors; callers must not modify
-    their contents. Call ``retain_tracks``
-    after association to release retired identities. At capacity, visible existing
-    objects precede promptable visible newcomers, followed by the most recently
-    observed lost objects. IDs break ties.
-    """
+class _EdgeTAMStream:
+    """Shared bounded image, temporal-memory, and batched predictor state."""
 
     def __init__(
         self,
@@ -73,7 +62,6 @@ class EdgeTAMMaskPropagator:
         predictor: Any | None = None,
         max_objects: int = 96,
         batch_size: int = DEFAULT_OBJECT_BATCH_SIZE,
-        prompt_overlap: float = 0.10,
     ) -> None:
         """Load a shared model or accept one, retaining at most ``max_objects`` IDs."""
         if isinstance(max_objects, bool) or not isinstance(max_objects, Integral) or max_objects < 1:
@@ -82,11 +70,6 @@ class EdgeTAMMaskPropagator:
         if isinstance(batch_size, bool) or not isinstance(batch_size, Integral) or batch_size < 1:
             raise ValueError("EdgeTAM batch_size must be a positive integer.")
         self.batch_size = int(batch_size)
-        if isinstance(prompt_overlap, bool) or not isinstance(prompt_overlap, Real):
-            raise TypeError("EdgeTAM prompt_overlap must be a finite number in (0, 1].")
-        if not np.isfinite(prompt_overlap) or not 0 < prompt_overlap <= 1:
-            raise ValueError("EdgeTAM prompt_overlap must be a finite number in (0, 1].")
-        self.prompt_overlap = float(prompt_overlap)
         self.device = resolve_device(device)
         self._predictor = build_edgetam_predictor(checkpoint, self.device) if predictor is None else predictor
         model = self._predictor
@@ -112,7 +95,6 @@ class EdgeTAMMaskPropagator:
         self._state: dict[str, Any] | None = None
         self._objects: dict[int, dict[str, dict[int, dict[str, Any]]]] = {}
         self._masks: dict[int, torch.Tensor] = {}
-        self._last_observed: dict[int, int] = {}
         self.frame_shape: tuple[int, int] | None = None
         self.last_frame_index = -1
         self._mean = torch.tensor((0.485, 0.456, 0.406), device=self.device, dtype=torch.float32)[:, None, None]
@@ -123,14 +105,8 @@ class EdgeTAMMaskPropagator:
         """Return the loaded official model for explicit reuse by another adapter."""
         return self._predictor
 
-    def propagate(
-        self,
-        frame_index: int,
-        frame: np.ndarray,
-        active_tracks: Mapping[int, np.ndarray],
-        new_tracks: Mapping[int, np.ndarray],
-    ) -> dict[int, torch.Tensor]:
-        """Return this frame's masks using only confirmed previous-frame tracks."""
+    def _validate_frame(self, frame_index: int, frame: np.ndarray) -> None:
+        """Check sequence position and source geometry before allocating frame state."""
         if isinstance(frame_index, bool) or not isinstance(frame_index, Integral):
             raise TypeError("EdgeTAM frame_index must be an integer.")
         if frame_index != self.last_frame_index + 1:
@@ -142,64 +118,6 @@ class EdgeTAMMaskPropagator:
         shape = tuple(frame.shape[:2])
         if min(shape) < 1 or (self.frame_shape is not None and shape != self.frame_shape):
             raise ValueError("EdgeTAM requires positive, constant frame dimensions; reset before a new sequence.")
-        active = _boxes_by_id(active_tracks, name="active_tracks")
-        new = _boxes_by_id(new_tracks, name="new_tracks")
-        if not set(new).issubset(active):
-            raise ValueError("new_tracks must contain only newly confirmed IDs present in active_tracks.")
-        frame_index = int(frame_index)
-        with inference_context(self.device):
-            self._append_frame(frame_index, frame)
-            if frame_index:
-                prompts = self._select_objects(frame_index, active)
-                if prompts:
-                    self._seed_previous_frame(frame_index - 1, prompts)
-                for track_ids in self._object_batches():
-                    self._frame_masks(frame_index, track_ids)
-                self._prune_history(frame_index)
-        self.last_frame_index = frame_index
-        return dict(self._masks)
-
-    def _select_objects(self, frame_index: int, active: Mapping[int, np.ndarray]) -> dict[int, np.ndarray]:
-        """Choose a deterministic bounded mask pool, retrying unseeded visible IDs."""
-        visible = sorted(set(active) & self._objects.keys())
-        promptable = sorted(
-            track_id
-            for track_id, box in active.items()
-            if track_id not in self._objects and _can_prompt(box, active, prompt_overlap=self.prompt_overlap)
-        )
-        lost = sorted(
-            self._objects.keys() - active.keys(),
-            key=lambda track_id: (-self._last_observed[track_id], track_id),
-        )
-        selected = (visible + promptable + lost)[: self.max_objects]
-        self.retain_tracks(selected)
-        for track_id in selected:
-            if track_id in active:
-                self._last_observed[track_id] = frame_index - 1
-        return {track_id: active[track_id] for track_id in selected if track_id not in self._objects}
-
-    def _seed_previous_frame(self, frame_index: int, prompts: Mapping[int, np.ndarray]) -> None:
-        """Use official singleton prompt/preflight APIs, discarding interactive state."""
-        assert self._state is not None
-        self._objects.clear()
-        for track_id in sorted(self._masks.keys() | prompts.keys()):
-            state = self._prompt_state()
-            if track_id in prompts:
-                self._predictor.add_new_points_or_box(
-                    state, frame_index, track_id, box=prompts[track_id].astype(np.float32)
-                )
-            else:
-                self._predictor.add_new_mask(state, frame_index, track_id, mask=self._masks[track_id])
-            self._predictor.propagate_in_video_preflight(state)
-            current = state["output_dict"]["cond_frame_outputs"][frame_index]
-            self._objects[track_id] = {
-                "cond_frame_outputs": {frame_index: {name: current[name] for name in _MEMORY_FIELDS}},
-                "non_cond_frame_outputs": {},
-            }
-            # Upstream replaces this mapping on a cache miss. Reuse its result in
-            # subsequent objects while releasing the complete interactive state.
-            self._state["cached_features"] = state["cached_features"]
-            del current, state
 
     def _prompt_state(self) -> dict[str, Any]:
         """Create only the temporary upstream state required to initialize one ID."""
@@ -367,6 +285,116 @@ class EdgeTAMMaskPropagator:
                 elif index < spatial_start:
                     recent[index] = {"obj_ptr": recent[index]["obj_ptr"]}
 
+    def reset(self) -> None:
+        """Release stream state and reuse the loaded model for the next sequence."""
+        self._state = None
+        self._objects.clear()
+        self._masks.clear()
+        self.frame_shape = None
+        self.last_frame_index = -1
+
+
+class EdgeTAMMaskPropagator(_EdgeTAMStream):
+    """Propagate previous-frame prompts with bounded objects and temporal state.
+
+    One official model and one image-feature cache serve every object. Compatible
+    temporal histories run in bounded object batches, limiting decoder and attention
+    workspaces. New prompts trigger McByte++'s collective reset and reseed lifecycle.
+
+    Returned dictionaries borrow device boolean tensors; callers must not modify
+    their contents. Call ``retain_tracks``
+    after association to release retired identities. At capacity, visible existing
+    objects precede promptable visible newcomers, followed by the most recently
+    observed lost objects. IDs break ties.
+    """
+
+    def __init__(
+        self,
+        checkpoint: str | Path,
+        *,
+        device: str | torch.device = "cuda",
+        predictor: Any | None = None,
+        max_objects: int = 96,
+        batch_size: int = DEFAULT_OBJECT_BATCH_SIZE,
+        prompt_overlap: float = 0.10,
+    ) -> None:
+        """Load a shared model or accept one, retaining at most ``max_objects`` IDs."""
+        if isinstance(prompt_overlap, bool) or not isinstance(prompt_overlap, Real):
+            raise TypeError("EdgeTAM prompt_overlap must be a finite number in (0, 1].")
+        if not np.isfinite(prompt_overlap) or not 0 < prompt_overlap <= 1:
+            raise ValueError("EdgeTAM prompt_overlap must be a finite number in (0, 1].")
+        self.prompt_overlap = float(prompt_overlap)
+        super().__init__(checkpoint, device=device, predictor=predictor, max_objects=max_objects, batch_size=batch_size)
+        self._last_observed: dict[int, int] = {}
+
+    def propagate(
+        self,
+        frame_index: int,
+        frame: np.ndarray,
+        active_tracks: Mapping[int, np.ndarray],
+        new_tracks: Mapping[int, np.ndarray],
+    ) -> dict[int, torch.Tensor]:
+        """Return this frame's masks using only confirmed previous-frame tracks."""
+        self._validate_frame(frame_index, frame)
+        active = _boxes_by_id(active_tracks, name="active_tracks")
+        new = _boxes_by_id(new_tracks, name="new_tracks")
+        if not set(new).issubset(active):
+            raise ValueError("new_tracks must contain only newly confirmed IDs present in active_tracks.")
+        frame_index = int(frame_index)
+        with inference_context(self.device):
+            self._append_frame(frame_index, frame)
+            if frame_index:
+                prompts = self._select_objects(frame_index, active)
+                if prompts:
+                    self._seed_previous_frame(frame_index - 1, prompts)
+                for track_ids in self._object_batches():
+                    self._frame_masks(frame_index, track_ids)
+                self._prune_history(frame_index)
+        self.last_frame_index = frame_index
+        return dict(self._masks)
+
+    def _select_objects(self, frame_index: int, active: Mapping[int, np.ndarray]) -> dict[int, np.ndarray]:
+        """Choose a deterministic bounded mask pool, retrying unseeded visible IDs."""
+        visible = sorted(set(active) & self._objects.keys())
+        promptable = sorted(
+            track_id
+            for track_id, box in active.items()
+            if track_id not in self._objects and _can_prompt(box, active, prompt_overlap=self.prompt_overlap)
+        )
+        lost = sorted(
+            self._objects.keys() - active.keys(),
+            key=lambda track_id: (-self._last_observed[track_id], track_id),
+        )
+        selected = (visible + promptable + lost)[: self.max_objects]
+        self.retain_tracks(selected)
+        for track_id in selected:
+            if track_id in active:
+                self._last_observed[track_id] = frame_index - 1
+        return {track_id: active[track_id] for track_id in selected if track_id not in self._objects}
+
+    def _seed_previous_frame(self, frame_index: int, prompts: Mapping[int, np.ndarray]) -> None:
+        """Use official singleton prompt/preflight APIs, discarding interactive state."""
+        assert self._state is not None
+        self._objects.clear()
+        for track_id in sorted(self._masks.keys() | prompts.keys()):
+            state = self._prompt_state()
+            if track_id in prompts:
+                self._predictor.add_new_points_or_box(
+                    state, frame_index, track_id, box=prompts[track_id].astype(np.float32)
+                )
+            else:
+                self._predictor.add_new_mask(state, frame_index, track_id, mask=self._masks[track_id])
+            self._predictor.propagate_in_video_preflight(state)
+            current = state["output_dict"]["cond_frame_outputs"][frame_index]
+            self._objects[track_id] = {
+                "cond_frame_outputs": {frame_index: {name: current[name] for name in _MEMORY_FIELDS}},
+                "non_cond_frame_outputs": {},
+            }
+            # Upstream replaces this mapping on a cache miss. Reuse its result in
+            # subsequent objects while releasing the complete interactive state.
+            self._state["cached_features"] = state["cached_features"]
+            del current, state
+
     def retain_tracks(self, track_ids: Collection[int]) -> None:
         """Release retired identities and masks without copying survivors."""
         if any(isinstance(value, bool) or not isinstance(value, Integral) or value < 0 for value in track_ids):
@@ -378,9 +406,5 @@ class EdgeTAMMaskPropagator:
 
     def reset(self) -> None:
         """Release stream state and reuse the loaded model for the next sequence."""
-        self._state = None
-        self._objects.clear()
-        self._masks.clear()
+        super().reset()
         self._last_observed.clear()
-        self.frame_shape = None
-        self.last_frame_index = -1

@@ -1,8 +1,14 @@
-# Mask-assisted 2D Tracking
+# Mask Tracking
 
 Track AABB detections together with their instance masks using MafHda. Choose
 motion and masked appearance, or motion-only association. Both variants require
 nonempty masks and emit boxes, masks, and track IDs.
+
+For manually selected objects, [EdgeTAM](../trackers/edgetam.md) accepts boxes
+or points in a video window and propagates masks without a detector. Launch
+`boxmot ui`, choose `track`, and select tracker `edgetam`. Detector-driven box
+trackers can separately enable [temporal mask guidance](#use-temporal-masks-in-association)
+with `--edgetam`.
 
 ## Variants
 
@@ -14,13 +20,13 @@ correlation-filter appearance cue:
 ```bash
 boxmot track \
   --detector yolo11n-seg.pt \
-  --geometry aabb \
   --tracker maf_hda \
   --per-class \
   --source video.mp4 \
   --save
 ```
 
+The segmentation detector selects AABB geometry automatically.
 [MafHda](../trackers/maf_hda.md) uses AABB detections, their masks, and the current
 image to combine motion with masked correlation-filter appearance. Each detection
 mask must contain foreground. With its default appearance stages, supply the
@@ -85,14 +91,14 @@ installing the `edgetam-export` extra alone does not enable them.
 From a source checkout, install the optional official EdgeTAM package:
 
 ```bash
-uv sync --extra cpu --extra yolo --group mask-guidance
+uv sync --extra cpu --extra yolo --group edgetam
 uv run --no-sync boxmot track --source video.mp4 --detector yolo26n \
   --tracker bytetrack --segmentor boxmot/configs/segmentors/edgetam.yaml \
   --device cpu --save
 ```
 
 Use `--extra cu130` instead of `--extra cpu` for CUDA. Repeat the selected
-PyTorch extra and `--group mask-guidance` on later syncs. The supplied YAML
+PyTorch extra and `--group edgetam` on later syncs. The supplied YAML
 resolves the official full checkpoint into `models/edgetam.pt` and verifies its
 SHA-256. Runtime does not require the cloned EdgeTAM repository.
 

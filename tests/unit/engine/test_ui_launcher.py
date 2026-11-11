@@ -31,6 +31,23 @@ def test_defaults_are_displayed_without_becoming_explicit_arguments() -> None:
     assert "--reid" not in model.argv()
 
 
+@pytest.mark.parametrize("detector", ["yolov8n", "yolov8n-obb", "models/custom.pt"])
+def test_tracking_geometry_follows_detector_without_an_editable_field(detector: str) -> None:
+    """Model selection and image resolution cannot add a conflicting geometry override."""
+    model = LauncherModel(boxmot)
+    model.set_value("detector", detector)
+    model.set_value("imgsz", "1024")
+    assert model.default("geometry") == "auto"
+    assert "geometry" not in {field.name for field in model.fields}
+    assert "--geometry" not in model.validate()
+    app = LauncherApp(model)
+    app.handle_key("3")
+    console = Console(file=io.StringIO(), width=144, height=24, color_system=None)
+    console.print(app.render(console))
+    assert "Automatic from detector" in console.file.getvalue()
+    assert "Geometry  --geometry" not in console.file.getvalue()
+
+
 def test_experiment_selection_clears_conflicting_component_arguments() -> None:
     model = LauncherModel(boxmot, initial_command="eval")
     model.set_value("dataset", "mot17")
@@ -98,6 +115,8 @@ def test_required_inputs_and_real_option_callbacks_validate_before_review() -> N
     app.handle_key("r")
     assert "n-trials" in app.error
     assert not app.review
+    assert app.stage == "Search"
+    assert model.fields[app.cursor - 1].name == "n_trials"
     model.set_value("n_trials", "2")
     app.handle_key("r")
     assert app.review
@@ -252,6 +271,7 @@ def test_reid_evaluation_checks_required_checkpoint_paths(tmp_path) -> None:
     assert not app.review
     assert "does not exist" in app.error
     assert model.fields[app.cursor - 1].name == "weights"
+    assert app.stage == "Model"
     app.handle_key("enter")
     assert app.editor is not None
     checkpoint = tmp_path / "valid weights.pt"
@@ -263,3 +283,131 @@ def test_reid_evaluation_checks_required_checkpoint_paths(tmp_path) -> None:
     assert model.values["weights"] == str(checkpoint)
     app.handle_key("r")
     assert app.review and not app.error
+
+
+def test_stage_navigation_keeps_the_workflow_and_review_reachable() -> None:
+    """Stage shortcuts and field navigation share one continuous form."""
+    model = LauncherModel(boxmot)
+    app = LauncherApp(model)
+    assert model.stages == ["Setup", "Perception", "Tracking", "Output"]
+    assert app.stage == "Setup"
+    app.handle_key("shift+tab")
+    assert app.cursor == 0
+    app.handle_key("tab")
+    assert app.stage == "Perception"
+    assert model.fields[app.cursor - 1].name == "detector"
+    app.cursor = next(index + 1 for index, field in enumerate(model.fields) if field.name == "classes")
+    app.handle_key("down")
+    assert app.stage == "Tracking"
+    assert model.fields[app.cursor - 1].name == "tracker"
+    app.handle_key("up")
+    assert app.stage == "Perception"
+    assert model.fields[app.cursor - 1].name == "classes"
+    app.handle_key("4")
+    assert app.stage == "Output"
+    app.handle_key("tab")
+    assert app.stage == "Output"
+    app.handle_key("shift+tab")
+    assert app.stage == "Tracking"
+    app.handle_key("home")
+    assert app.cursor == 0 and app.stage == "Setup"
+    app.handle_key("end")
+    assert app.cursor == len(model.fields) + 1 and app.stage == "Output"
+    app.handle_key("enter")
+    assert app.review and not app.finished
+
+
+def test_picker_input_does_not_trigger_stage_shortcuts() -> None:
+    """Numbers remain searchable model text while a picker owns input."""
+    model = LauncherModel(boxmot)
+    app = LauncherApp(model)
+    app.handle_key("tab")
+    app.handle_key("right")
+    assert app.editor is not None and app.editor.name == "detector"
+    cursor = app.cursor
+    for key in ("1", "1", "tab"):
+        app.handle_key(key)
+    assert app.editor is not None and app.editor.query == "11"
+    assert app.cursor == cursor and app.stage == "Perception"
+    app.handle_key("left")
+    assert app.editor is None
+    assert "detector" not in model.values
+    assert app.stage == "Perception"
+
+
+def test_tracker_change_and_reset_preserve_focus_when_stages_disappear() -> None:
+    """Changing tracking families must not leave focus on an unrelated row."""
+    model = LauncherModel(boxmot)
+    app = LauncherApp(model)
+    app.handle_key("3")
+    app.handle_key("right")
+    for character in "edgetam":
+        app.handle_key(character)
+    app.handle_key("enter")
+    assert model.value("tracker") == "edgetam"
+    assert "Perception" not in model.stages
+    assert app.stage == "Tracking"
+    assert model.fields[app.cursor - 1].name == "tracker"
+    assert "prompt_weights" in {field.name for field in model.fields}
+    app.handle_key("d")
+    assert "Perception" in model.stages
+    assert app.stage == "Tracking"
+    assert model.fields[app.cursor - 1].name == "tracker"
+    assert "prompt_weights" not in {field.name for field in model.fields}
+
+
+def test_experiment_selection_skips_hidden_perception_stage_until_reset() -> None:
+    """Authored experiments supply perception without leaving an empty step."""
+    model = LauncherModel(boxmot, initial_command="eval")
+    app = LauncherApp(model)
+    app.handle_key("down")
+    app.handle_key("right")
+    for character in "mot17/ablation-yolox-lmbn.yaml":
+        app.handle_key(character)
+    app.handle_key("enter")
+    assert model.values["experiment"] == "mot17/ablation-yolox-lmbn.yaml"
+    assert app.stage == "Setup"
+    assert model.fields[app.cursor - 1].name == "experiment"
+    assert "Perception" not in model.stages
+    app.handle_key("tab")
+    assert app.stage == "Tracking"
+    app.handle_key("home")
+    app.handle_key("down")
+    app.handle_key("d")
+    assert model.fields[app.cursor - 1].name == "experiment"
+    app.handle_key("tab")
+    assert app.stage == "Perception"
+
+
+@pytest.mark.parametrize("size", [(40, 20), (60, 20), (80, 24), (120, 40)])
+def test_stage_form_shows_only_its_fields_and_keeps_picker_visible(size: tuple[int, int]) -> None:
+    """Resizing preserves the active stage and the searchable picker state."""
+    model = LauncherModel(boxmot)
+    app = LauncherApp(model)
+    width, height = size
+    console = Console(file=io.StringIO(), width=width, height=height, color_system=None)
+    console.print(app.render(console), end="")
+    setup = console.file.getvalue()
+    assert "Configure" in setup and "Source" in setup
+    assert "r review" in setup and "q quit" in setup
+    assert "Detector" not in setup and "ReID" not in setup
+    app.handle_key("tab")
+    console.file.seek(0)
+    console.file.truncate()
+    console.print(app.render(console), end="")
+    perception = console.file.getvalue()
+    assert "Detector" in perception and "ReID" in perception
+    assert "Imgsz" not in perception and "Source" not in perception
+    app.handle_key("right")
+    for character in "yolo11":
+        app.handle_key(character)
+    cursor = app.cursor
+    for resized_width, resized_height in (size, (60, 20), (120, 40)):
+        resized = Console(file=io.StringIO(), width=resized_width, height=resized_height, color_system=None)
+        resized.print(app.render(resized), end="")
+        rendered = resized.file.getvalue()
+        assert len(rendered.splitlines()) <= resized_height
+        assert "Perception" in rendered
+        assert "Search / value" in rendered and "yolo11" in rendered
+        assert app.cursor == cursor and app.stage == "Perception"
+        assert app.editor is not None and app.editor.query == "yolo11"

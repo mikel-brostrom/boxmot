@@ -737,6 +737,16 @@ jobs:
             --extra service \
             --extra mots \
             --group test
+      - name: EdgeTAM prompt tracking contracts (headless)
+        run: |
+          # Manual prompts have no detector-driven benchmark. Exercise model
+          # memory, mouse controls, and workflow cleanup with injected backends.
+          .venv/bin/python -m pytest -q \
+            tests/unit/segmentors/test_edgetam_prompted.py \
+            tests/unit/trackers/test_edgetam.py \
+            tests/unit/engine/test_edgetam_cli.py \
+            tests/unit/engine/test_prompt_ui.py \
+            tests/unit/engine/test_prompted_tracking.py
       - name: Pytest tests
         env:
           # directory of PyPi package to be tested

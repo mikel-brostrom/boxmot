@@ -64,8 +64,11 @@ def _validate(settings: Mapping[str, Mapping[str, Any]]) -> None:
             if key not in values:
                 continue
             value = values[key]
+            if key == "batch_size" and stage in {"detect", "embed"} and value == "auto":
+                continue
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-                raise ValueError(f"{stage}.{key} must be a positive integer.")
+                suffix = " or 'auto'" if key == "batch_size" and stage in {"detect", "embed"} else ""
+                raise ValueError(f"{stage}.{key} must be a positive integer{suffix}.")
         if "retries" in values:
             retries = values["retries"]
             if isinstance(retries, bool) or not isinstance(retries, int) or retries < 0:
@@ -78,10 +81,12 @@ def _validate(settings: Mapping[str, Mapping[str, Any]]) -> None:
         if executor not in {"inline", "process"}:
             raise ValueError(f"{stage}.executor must be 'inline' or 'process'.")
         workers = values.get("workers", 1)
-        if executor == "inline" and workers != 1:
+        if values.get("batch_size") == "auto" and workers != 1:
             raise ValueError(
-                f"{stage}.workers > 1 requires executor=process and a serializable component spec."
+                f"Automatic {stage} batching requires workers=1; independent worker models share GPU memory."
             )
+        if executor == "inline" and workers != 1:
+            raise ValueError(f"{stage}.workers > 1 requires executor=process and a serializable component spec.")
 
     if "decode" in settings:
         if "workers" in settings["decode"]:

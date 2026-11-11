@@ -110,9 +110,13 @@ provenance, but a completed embedding build can be reused when only ReID
 precision changes, for example from FP32 to FP16. A matching-precision build is
 preferred when available; otherwise the reused embeddings retain their original
 precision and values. Detector and segmentor precision still must match.
-Execution settings remain recorded in provenance. An interrupted build retains
-its recorded stage batching on resume so completed shard checkpoints continue
-to refer to the same samples.
+Execution settings remain recorded in provenance. On resume, detection and
+segmentation stages with completed shard checkpoints retain their recorded
+batching so those checkpoints continue to refer to the same samples. ReID
+embedding checkpoints cover one image each, independently of inference batch
+size, so the crop batch size can change on resume without repeating saved
+images. An unfinished stage with no completed checkpoints also adopts the newly
+requested batch size.
 
 Use `--device cpu`, `--device mps`, or a CUDA selector such as
 `--device cuda:0` (`--device 0` is equivalent) to override the execution device
@@ -124,6 +128,48 @@ CUDA, including on a machine without the original accelerator. The producing
 device remains recorded in the build's provenance.
 Selectors use the same [device rules as tracking](track.md#device-selection),
 including process-visible CUDA indices and one device per component.
+
+## Automatic GPU batch sizing
+
+Add `--auto-batch` to measure and apply detector and ReID inference batch sizes
+on the selected CUDA GPU before uncached stages run:
+
+```bash
+boxmot materialize \
+  --experiment mot17/ablation-yolox-lmbn.yaml \
+  --device cuda:0 --auto-batch
+```
+
+To size only one stage, use `--set detect.batch_size=auto` or
+`--set embed.batch_size=auto`. The same `batch_size: auto` value is accepted in
+that stage's `--plan` YAML. Explicit numeric sizes remain available; `--auto-batch`
+selects automatic sizing for both active stages.
+
+The profiler runs synthetic inputs at the model's configured resolution,
+warms up each candidate, and measures synchronized inference throughput. It
+tries powers of two up to `--auto-batch-max-size` (default `256`, also tested
+when not a power of two). It chooses the smallest measured batch within 5% of
+the best throughput that fits the memory budget. Detector batches count frames;
+ReID batches count detection crops. Embeddings are saved after each image,
+independently of the crop batch size. The selected ReID size reaches the encoder
+without an additional default 64-crop cap.
+
+`--auto-batch-memory-fraction 0.8` leaves 20% of the currently available CUDA
+memory outside the batch budget. Reduce it for shared GPUs or unusually dense
+scenes. These measurements estimate throughput for the current model and GPU
+load; they do not guarantee an optimal size or sufficient memory for every
+scene. CPU decoding and output writing are not included in the benchmark.
+
+Sizing supports Ultralytics and YOLOX `.pt` detectors, RT-DETR model directories,
+and PyTorch/TorchScript ReID encoders. Detectors currently require FP32; ReID
+supports FP32 and FP16. Automatic sizing requires CUDA and one worker per
+selected stage. Other backends can use explicit numeric batch sizes.
+
+Completed builds and shared detection caches are reused without profiling.
+Resumed detection and segmentation stages with committed shards keep their
+recorded batch sizes, preserving checkpoint boundaries. ReID crop batches can
+be resized for pending images even when other images are already saved.
+Newly measured sizes are recorded in build state.
 
 ## Dataset FPS
 
@@ -232,13 +278,22 @@ encoder remain normal derived stages and can reuse it.
 Use `--plan executor.yaml` for local executor settings and repeat
 `--set stage.field=value` for typed YAML overrides. Unknown fields fail. Resume
 is enabled by default; use `--no-resume` to refuse stale or interrupted staging
-state. Completed inference batches are written as Parquet shards with checkpoint
-hashes. Finalization sorts and validates a separate `.publishing` candidate under
-the staging directory, preserving those checkpoints until publication succeeds.
+state. Detection and segmentation batches are written as Parquet shards with
+checkpoint hashes. ReID embeddings are checkpointed after each image, including
+images with no detections, so an interrupted run reuses every completed image.
+Each checkpoint appends a small, durably flushed journal record; stage transitions
+save a state snapshot instead of rewriting the full checkpoint history after every
+image. The embedding progress bar counts saved images.
+
+Finalization sorts and validates a separate `.publishing` candidate under the
+staging directory, preserving those checkpoints until publication succeeds.
 If finalization is interrupted, rerunning the same command reuses intact inference
-shards and restarts finalization. Masks and embeddings are compacted in bounded
-payload batches. The candidate temporarily requires disk space for the compacted
-artifacts in addition to the inference checkpoints.
+shards and restarts finalization. Published ReID embedding files retain one image
+per file. Masks and detector-native embeddings are compacted in bounded payload
+batches. The candidate temporarily requires disk space for published artifacts
+in addition to the inference checkpoints. The state snapshot and checkpoint journal
+stay in staging and are removed after publication; the published manifest records
+artifact checksums without retaining the recovery history.
 
 ### Executor settings
 
@@ -263,14 +318,19 @@ writer:
 ```
 
 Defaults use batches of 16 for detection, 8 for segmentation, and 64 for
-embedding. `embed.batch_size` also caps detection crops per encoder call, so a
-crowded frame is split into bounded inference batches while checkpoints stay
-aligned to samples. Stages use `executor: inline` with one worker; more stage workers
-require `executor: process` and serializable component specs. The writer
-requires exactly one worker. `retries` counts additional attempts after the
+embedding. `embed.batch_size` caps detection crops per encoder call, so a
+crowded frame is split into bounded inference batches before its embeddings are
+saved together in one image checkpoint. Crops from separate images are processed
+independently, so sparse images may use less than the selected batch capacity.
+Stages use `executor: inline` with one
+worker; more stage workers require `executor: process` and serializable component
+specs. The writer requires exactly one worker. `retries` counts additional attempts after the
 first (default two for inference stages, zero for finalization). CLI `--set`
-values override the plan, which overrides defaults. On resume, completed
-checkpoints retain the original stage batching.
+values override the plan, which overrides defaults. A reduced batch size also
+applies on resume to pending stages or stages that failed before writing their
+first checkpoint. It also applies to pending images in the embedding stage;
+completed images keep their saved embeddings. Detection and segmentation stages
+with completed checkpoints keep their original batch grouping.
 
 The first catalog pass hashes each source file and stores its dimensions and
 digest in the platform cache. Later invocations reuse that metadata only when
@@ -289,10 +349,11 @@ accelerator model is loaded.
 
 In an interactive terminal, BoxMOT keeps setup, model loading, build-lock
 status, and all materialization stages in one Rich progress panel. Percentages
-advance only after a Parquet shard is durably checkpointed; the panel also
-shows resumed shard counts, elapsed time, rate, ETA, retries, and the final
-build ID. When stderr is redirected or no terminal is available, the same
-events are emitted as ordinary log lines.
+advance only after a Parquet shard is durably checkpointed. Embedding progress
+counts images and reports images per second; other inference stages count
+batch shards. The panel also shows resumed counts, elapsed time, ETA, retries,
+and the final build ID. When stderr is redirected or no terminal is available,
+the same events are emitted as ordinary log lines.
 
 Raw datasets default to `./datasets/mot`; pass `--data-root` explicitly to use
 another location. Downloaded tracking datasets stay outside the importable

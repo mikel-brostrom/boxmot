@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import shutil
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
 
@@ -35,6 +35,7 @@ class DatasetMaterializer:
         *,
         executor_factory: ExecutorFactory | None = None,
         progress: MaterializationProgressReporter | None = None,
+        batch_size_resolvers: Mapping[str, Callable[[], int]] | None = None,
     ) -> None:
         self.plan = plan
         self._stages = {stage.name: stage for stage in stages}
@@ -52,6 +53,9 @@ class DatasetMaterializer:
         if finalize_indices and finalize_indices != [len(ordered) - 1]:
             raise ValueError("The finalize stage must be last.")
         self._executor_factory = executor_factory or self._default_executor
+        self._batch_size_resolvers = dict(batch_size_resolvers or {})
+        if set(self._batch_size_resolvers) - expected:
+            raise ValueError("Batch size resolvers must refer to stages in the materialization plan.")
         self.progress = progress or MaterializationProgress()
         self.state = MaterializationStateStore(plan.state_path)
         self._lock_path = plan.build_root / ".locks" / f"{plan.build_id}.lock"
@@ -81,13 +85,16 @@ class DatasetMaterializer:
             return output
 
         self.state.initialize(self.plan)
-        # Checkpoints address shards by ordinal. Keep their recorded grouping
-        # on resume even if a new request changes inference batching; otherwise
-        # skipping a completed ordinal could skip different source samples.
-        self.plan = replace(self.plan, stages=tuple(
-            replace(stage, batch_size=self.state.state.by_name[stage.name].batch_size)
-            for stage in self.plan.stages
-        ))
+        # Apply recovered batch sizes: grouped detection/segmentation checkpoints
+        # keep their original sample boundaries; per-image embedding checkpoints
+        # allow a new crop batch size without changing the saved image identities.
+        self.plan = replace(
+            self.plan,
+            stages=tuple(
+                replace(stage, batch_size=self.state.state.by_name[stage.name].batch_size) for stage in self.plan.stages
+            ),
+        )
+        self._resolve_batch_sizes()
         self.plan.staging_root.mkdir(parents=True, exist_ok=True)
         for stage_plan in self.plan.ordered_stages():
             revalidate_shards = stage_plan.name in {"detect", "segment", "embed"}
@@ -107,6 +114,24 @@ class DatasetMaterializer:
         if result == self.plan.output_root:
             self.progress.build_completed(result)
         return result
+
+    def _resolve_batch_sizes(self) -> None:
+        """Profile pending inference under the lock without changing checkpoint boundaries."""
+
+        if not self._batch_size_resolvers:
+            return
+        stages = []
+        for stage in self.plan.stages:
+            resolver = self._batch_size_resolvers.get(stage.name)
+            persisted = self.state.state.by_name[stage.name]
+            if resolver is not None:
+                if persisted.status == "completed" or (persisted.completed_shards and stage.name != "embed"):
+                    self.progress.setup_status(f"Keeping resumed {stage.name} batch size {persisted.batch_size}…")
+                else:
+                    stage = replace(stage, batch_size=resolver())
+            stages.append(stage)
+        self.plan = replace(self.plan, stages=tuple(stages))
+        self.state.initialize(self.plan)
 
     def _run_stage_with_retries(self, stage_plan: StagePlan) -> Path | None:
         """Run one stage, retaining its runtime across retries and releasing it afterward."""

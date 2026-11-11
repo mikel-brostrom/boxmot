@@ -4,6 +4,9 @@ Use OBB tracking when object angle matters, such as aerial imagery or rotated
 documents. Both motion-only and appearance-assisted variants retain oriented
 geometry during association and in their outputs.
 
+`boxmot track` selects OBB automatically from the loaded detector's output
+format. Use an OBB detector; changing image size does not add orientation.
+
 ## Variants
 
 ### Motion-only
@@ -13,7 +16,6 @@ Use OcSort with an OBB detector to track position, size, and angle without ReID:
 ```bash
 boxmot track \
   --detector yolo11n-obb.pt \
-  --geometry obb \
   --tracker ocsort \
   --source video.mp4 \
   --save
@@ -28,7 +30,6 @@ the object classes in your footage; supply that file before running:
 ```bash
 boxmot track \
   --detector yolo11n-obb.pt \
-  --geometry obb \
   --tracker botsort \
   --reid models/obb_reid.pt \
   --source video.mp4 \
@@ -45,24 +46,30 @@ their own validation. See [ReID training](../modes/train.md) and
 ```python
 import torch
 
-from boxmot import OcSort
+from boxmot import create_tracker
 from boxmot.structures import Detections, OrientedBoxes
 
-tracker = OcSort(is_obb=True)
 detections = Detections(
     geometry=OrientedBoxes(torch.tensor([[50, 90, 60, 120, 0.2]], dtype=torch.float32)),
     scores=torch.tensor([0.9], dtype=torch.float32),
     class_ids=torch.tensor([0], dtype=torch.int64),
     sample_id="sequence-1:42",
 )
+tracker = create_tracker("ocsort", detections=detections)
 tracks = tracker.update(detections)
 ```
 
+The factory selects OBB from `OrientedBoxes` without processing the batch;
+the first `update()` processes it. It also infers OBB from packed NumPy `N x 7`
+rows, including an empty `(0, 7)` array. See
+[geometry from detections](../config/trackers.md#geometry-from-detections).
+
 `OrientedBoxes` contains `float32[N,5]` `(cx, cy, w, h, angle)` values. Width
 and height are positive, angles are radians, and finite angles remain unwrapped
-for temporal continuity. Tracker instances have a fixed AABB or OBB mode.
-Use an OBB detector or explicitly supply OBB measurements: `--geometry obb`
-does not convert an AABB detector's predictions to oriented boxes. All nine
+for temporal continuity. Tracker instances have a fixed AABB or OBB mode;
+direct class construction uses `OcSort(is_obb=True)` for OBB measurements.
+The optional CLI constraint `--geometry obb` rejects AABB detectors instead
+of converting their predictions to oriented boxes. All nine
 box-state trackers support OBB; MafHda and EagerMot do not.
 
 Before updates, OBB trackers resolve equivalent rectangle representations

@@ -106,6 +106,9 @@ def build_mode_namespace(
     elif normalized_mode == "materialize":
         allowed_keys = frozenset(
             {
+                "auto_batch",
+                "auto_batch_max_size",
+                "auto_batch_memory_fraction",
                 "build_root",
                 "data_root",
                 "device",
@@ -258,6 +261,7 @@ class RuntimeModeDefaults:
 @dataclass(frozen=True, slots=True)
 class TrackModeDefaults(RuntimeModeDefaults):
     source: str
+    geometry: str
     benchmark: str
     split: str
 
@@ -266,6 +270,7 @@ class TrackModeDefaults(RuntimeModeDefaults):
         return cls(
             **_runtime_mode_kwargs(values),
             source=str(values.get("source", "0")),
+            geometry=str(values.get("geometry", "auto")),
             benchmark=str(values.get("benchmark", "")),
             split=str(values.get("split", "")),
         )

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import torch
 
 from boxmot.reid.backends.base_backend import BaseModelBackend
@@ -12,10 +14,11 @@ class TorchscriptBackend(BaseModelBackend):
         self.nhwc = False
         self.half = half
 
-    def load_model(self, w):
+    def load_model(self, w: str | Path) -> None:
+        """Load serialized tensors on the selected inference device."""
 
         LOGGER.info(f"Loading {w} for TorchScript inference...")
-        self.model = torch.jit.load(w)
+        self.model = torch.jit.load(w, map_location=self.device).eval()
         self.model.half() if self.half else self.model.float()
 
     def forward(self, im_batch):

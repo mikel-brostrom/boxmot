@@ -136,6 +136,33 @@ These BoT-SORT overrides and the new ByteTrack and OccluBoost algorithm controls
 work with both tracker backends. Rebuild native libraries after upgrading to
 the expanded configuration ABI.
 
+## Geometry from detections
+
+When supplying your own detections, pass the first batch to `create_tracker()`
+to select AABB or OBB before construction and calibration validation:
+
+```python
+import numpy as np
+
+from boxmot import create_tracker
+
+detections = np.array([[50, 90, 60, 120, 0.2, 0.9, 0]], dtype=np.float32)
+tracker = create_tracker("bytetrack", detections=detections)
+tracks = tracker.update(detections)
+```
+
+The factory recognizes canonical `Detections` with `Boxes` or `OrientedBoxes`,
+or packed NumPy rows with exactly six AABB columns or seven OBB columns.
+Shaped empty arrays such as `(0, 6)` and `(0, 7)` also identify the geometry.
+Construction only inspects the batch; call `update()` to process it.
+
+Use a tracker name and omit `geometry` for inference. An explicit `geometry`
+or a `TrackerSpec` constrains the geometry and rejects mismatching detections;
+a geometry keyword overrides the spec's geometry. A name-based call without
+`detections` or explicit geometry still defaults to AABB. Direct class
+constructors use `is_obb=True` for OBB. Once created, a tracker validates every
+update against its fixed geometry; it never switches geometry mid-sequence.
+
 ## Kalman noise
 
 Runtime YAML groups all configurable Kalman settings under `kalman`. Covariance

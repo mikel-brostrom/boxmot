@@ -43,6 +43,21 @@ def _build_track_workflow_fields(args: Any) -> list[tuple[str, object]]:
     """Build workflow fields as compact subsystem cards (like eval view)."""
     fields: list[tuple[str, object]] = []
 
+    if getattr(args, "tracker", None) == "edgetam":
+        return [
+            panel_field("Tracker", [("Name", "EdgeTAM"), ("Prompts", "Boxes or points in video window")]),
+            panel_field("Model", [("Checkpoint", getattr(args, "prompt_weights", None) or "edgetam.pt")]),
+            panel_field("Source", [("Input", getattr(args, "source", "0"))]),
+            panel_field(
+                "Runtime",
+                [
+                    ("Device", getattr(args, "device", "cpu")),
+                    ("Save video", bool(getattr(args, "save", False))),
+                    ("Save txt", bool(getattr(args, "save_txt", False))),
+                ],
+            ),
+        ]
+
     # ── Tracker card ──────────────────────────────────────────────
     tracker = getattr(args, "tracker", None)
     tracker_backend = getattr(args, "tracker_backend", None)
@@ -220,8 +235,10 @@ def _build_status_summary(
     grid.add_row("Frames completed", frames, "Runtime", _format_duration_ms(runtime["overall"]))
     grid.add_row("Detections", f"{_summary_counter(summary, 'detections'):,}", "Run FPS", _format_fps(overall_avg))
     grid.add_row(
-        "Track rows", f"{_summary_counter(summary, 'track_rows', 'tracks'):,}",
-        "Unique IDs", f"{_summary_counter(summary, 'unique_track_ids', 'unique_tracks'):,}",
+        "Track rows",
+        f"{_summary_counter(summary, 'track_rows', 'tracks'):,}",
+        "Unique IDs",
+        f"{_summary_counter(summary, 'unique_track_ids', 'unique_tracks'):,}",
     )
     grid.add_row("Sequences", f"{_summary_counter(summary, 'sequences'):,}", "", "")
     return Group(status, grid)

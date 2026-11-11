@@ -6,7 +6,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from boxmot.structures import Frame
+from boxmot.structures import Detections, Frame, GeometryKind
+from boxmot.trackers.common.detections.layout import infer_detection_layout
 
 
 def resolve_sample_id(*sample_ids: str | None, frame_index: int) -> str:
@@ -40,6 +41,26 @@ def frame_image_size(frame: Frame | np.ndarray) -> tuple[int, int]:
     """Return the height and width of a validated tracker image."""
 
     return frame.image_size if isinstance(frame, Frame) else (int(frame.shape[0]), int(frame.shape[1]))
+
+
+def infer_detection_geometry(detections: Detections | np.ndarray) -> GeometryKind:
+    """Validate a detection batch and identify its geometry before tracker creation."""
+
+    if isinstance(detections, Detections):
+        detections.validate()
+        is_obb = detections.is_obb
+    else:
+        if type(detections) is not np.ndarray:
+            raise TypeError(f"detections must be Detections or a plain numpy.ndarray, got {type(detections).__name__}.")
+        layout = infer_detection_layout(detections)
+        if layout is None:
+            raise ValueError(
+                "Cannot infer detection geometry: expected AABB rows [N, 6] or OBB rows [N, 7], "
+                f"got {detections.shape}."
+            )
+        parse_numpy_detection_rows(detections, is_obb=layout.is_obb)
+        is_obb = layout.is_obb
+    return GeometryKind.OBB if is_obb else GeometryKind.AABB
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,8 +143,7 @@ def _parse_numpy_detection_rows(
                 raise ValueError("Detection class IDs must be non-negative integers.")
             if class_id > max_exact_float64_integer:
                 raise ValueError(
-                    "Detection class IDs must be within the exact float64 integer range; "
-                    f"use {canonical_input}."
+                    f"Detection class IDs must be within the exact float64 integer range; use {canonical_input}."
                 )
     else:
         invalid = class_values < 0
@@ -264,6 +284,7 @@ def pack_numpy_track_rows(
 __all__ = (
     "NumPyDetectionRows",
     "frame_image_size",
+    "infer_detection_geometry",
     "pack_numpy_track_rows",
     "parse_numpy_detection_rows",
     "parse_numpy_detection_rows_3d",
