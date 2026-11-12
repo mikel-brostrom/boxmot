@@ -682,8 +682,11 @@ the same for Python implementations and ReID-enabled native adapters.
 
 For service or cached inputs, construct a pipeline with `detector=None` and call
 `step_detections(frame, detections)`. Both entry points use the same enrichment
-and runtime-validation path. A `PipelineResult` has exactly two fields:
-`detections` and `tracks`.
+and runtime-validation path. A `PipelineResult` contains `detections`, `tracks`,
+and an `attributes` snapshot keyed by track ID. Attributes are empty unless an
+enricher is supplied through `TrackingPipeline(..., attributes=enricher)`;
+see [Track Attributes](../config/attributes.md#python) for configuration,
+observation provenance, and completion handling.
 
 Requested masks or embeddings remain in `result.detections` even when the
 tracker does not consume them; the pipeline removes unsupported channels from

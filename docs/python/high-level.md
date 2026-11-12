@@ -44,6 +44,19 @@ share track IDs rather than row positions.
 
 ::: boxmot.pipelines.PipelineResult
 
+## Track attributes
+
+See [Track Attributes](../config/attributes.md) for Ollama/vLLM setup, profiles, and
+completion handling.
+
+::: boxmot.attributes.AttributeConfig
+
+::: boxmot.attributes.create_attribute_enricher
+
+::: boxmot.attributes.AttributeEnricher
+
+::: boxmot.attributes.AttributeResult
+
 ## Dataset loader
 
 ::: boxmot.datasets.DatasetSample

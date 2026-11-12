@@ -164,6 +164,7 @@ nav:
       - Detector Profiles: config/detectors.md
       - ReID Models: config/reid-models.md
       - ReID Runtime Profiles: config/reid.md
+      - Track Attributes: config/attributes.md
       - Tracker YAMLs: config/trackers.md
   - Guides:
       - Overview: guides/index.md

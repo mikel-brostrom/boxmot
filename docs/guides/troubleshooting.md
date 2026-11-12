@@ -51,6 +51,29 @@ uv run --no-sync python -m boxmot.engine.cli --help
 python boxmot/engine/cli.py --help
 ```
 
+### OpenCV preview reports "The function is not implemented"
+
+`--show` needs OpenCV built with GUI support. If a headless wheel overwrites
+the shared `cv2` module, tracking warns once, disables preview, and continues
+writing requested outputs. Stop a live run with **Ctrl-C**.
+
+Check the imported build from the project root:
+
+```bash
+uv run --no-sync python -c "import cv2; print(cv2.__version__); print(cv2.getBuildInformation())"
+```
+
+`GUI: NONE` identifies a headless build. Restore this checkout's pinned GUI wheel:
+
+```bash
+uv pip install --python .venv/bin/python --no-deps --reinstall-package opencv-python 'opencv-python==4.11.0.86'
+```
+
+Restart tracking after the repair. Keep vLLM in a separate environment or
+container: it depends on `opencv-python-headless`, which shares files with
+`opencv-python`. Reinstalling that dependency in the BoxMOT environment can
+overwrite GUI support again. A desktop display is also required for `--show`.
+
 ## Python compatibility
 
 BoxMOT supports Python 3.10 through 3.13.

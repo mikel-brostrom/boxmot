@@ -1,11 +1,46 @@
 # Docker images
 
+[`compose.attributes.yaml`](compose.attributes.yaml) can run the complete CPU
+pipeline: a BoxMOT container for detection, tracking, and rendering, plus vLLM
+for attributes and PostgreSQL for the queue and results. Start a Linux webcam
+preview from the repository root:
+
+```bash
+./docker/webcam.sh
+```
+
+The launcher creates output directories, configures your user, model cache,
+camera, and display, then builds and starts all three containers. It asks for your
+sudo password only if Docker requires it. Settings can be overridden with
+environment variables, for example `VIDEO_DEVICE=/dev/video2 ./docker/webcam.sh`.
+See the
+[full Compose setup](../docs/integrations/docker.md#tracking-and-vllm-with-compose)
+for video files, settings, and persistent inputs, models, and outputs.
+
+For GPU inference, layer
+[`compose.attributes.gpu.yaml`](compose.attributes.gpu.yaml) over the base
+Compose file. It builds `cli-gpu`, runs YOLO26n and OSNet ReID on CUDA with
+BoT-SORT tracking, and starts a GPU vLLM server plus PostgreSQL. It requires
+Compose 2.24.4 or newer, a compatible NVIDIA driver, and NVIDIA Container
+Toolkit. See the [GPU video and webcam commands](../docs/integrations/docker.md#gpu-detection-reid-and-vlm-inference)
+for setup and GPU selection. The webcam launcher above continues to use the CPU.
+
+For a BoxMOT container using Ollama or vLLM CPU, see
+[Choose an attribute provider](../docs/integrations/docker.md#choose-an-attribute-provider).
+
+To run PostgreSQL and Ollama or vLLM while keeping BoxMOT on the host, use the
+[attribute server setup](../docs/config/attributes.md#docker-compose).
+Both attribute providers require PostgreSQL and a connection
+URL in `BOXMOT_ATTRIBUTES_DATABASE_URL`. Compose sets the URL for its BoxMOT
+container; host clients must [configure their URL](../docs/config/attributes.md#configure-postgresql).
+The `postgres-data` volume preserves attribute history when containers stop.
+
 BoxMOT uses one shared multi-stage Dockerfile for four independently built
 images. CI publishes CPU images; build GPU images locally with the targets below:
 
 | Target | BoxMOT v24 tag | Rolling tag | Contents |
 | --- | --- | --- | --- |
-| `cli-gpu` | Local build only | — | Full detector, ReID, CLI, and evaluation stack with CUDA 13.0 PyTorch |
+| `cli-gpu` | Local build only | — | Full detector, ReID, attribute client, CLI, and evaluation stack with CUDA 13.0 PyTorch |
 | `cli-cpu` | `boxmot/boxmot:24.0.0-cpu` | `boxmot/boxmot:latest-cpu` | The same full stack with CPU-only PyTorch |
 | `service-cpu` | `boxmot/boxmot-service:24.0.0` | `boxmot/boxmot-service:latest` | Non-root CPU geometry-only detection-to-track HTTP service |
 | `service-gpu` | Local build only | — | Non-root CUDA/ReID detection-to-track HTTP service |
@@ -58,11 +93,13 @@ rebuild the shared native libraries and the CLI wheel.
 
 The dependency preparation stage copies the canonical `pyproject.toml` and
 `uv.lock`, verifies their BoxMOT versions agree, and normalizes only the local
-project version in those temporary copies. CPU and CUDA dependency stages
-consume those copies with `uv sync --locked`; all dependency constraints,
-markers, sources, and artifact hashes are preserved. Version-only releases
-therefore reuse the same dependency inputs. Actual dependency changes still
-invalidate the corresponding layers.
+project version in those temporary copies. It validates those exact copies with
+`uv lock --check --offline`, rejecting stale locks before installation. CPU and
+CUDA dependency stages then consume the validated copies with `uv sync --frozen`.
+This avoids online metadata builds for unselected URL dependencies such as
+EdgeTAM. All dependency constraints, markers, sources, and artifact hashes are
+preserved. Version-only releases therefore reuse the same dependency inputs.
+Actual dependency changes still invalidate the corresponding layers.
 
 The CLI wheel is built separately from the original release metadata. Each CLI
 runtime first copies its dependency environment, then installs only that wheel

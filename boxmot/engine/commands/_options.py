@@ -209,7 +209,7 @@ def _core_option_decorators(defaults: Any, *, half_help: str) -> dict[str, Calla
             "--show",
             is_flag=True,
             default=defaults.show,
-            help="display tracking in a window",
+            help="display tracking in a window when OpenCV GUI support is available",
         ),
         "show_trajectories": click.option(
             "--show-trajectories",

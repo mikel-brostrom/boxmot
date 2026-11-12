@@ -1,0 +1,14 @@
+# Linux webcam and X11/Xwayland preview; combine with compose.attributes.yaml.
+services:
+  boxmot:
+    devices:
+      - "${VIDEO_DEVICE:-/dev/video0}:/dev/video0"
+    group_add:
+      - "${VIDEO_GID:-44}"
+    environment:
+      DISPLAY: "${DISPLAY:?Set DISPLAY from your desktop terminal}"
+      QT_QPA_PLATFORM: xcb
+      QT_XCB_NO_MITSHM: "1"
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+    command: [--source, "${BOXMOT_SOURCE:-0}", --show]

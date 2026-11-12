@@ -1,0 +1,148 @@
+# Start the database and one backend: docker compose -f docker/compose.attributes.yaml up -d --wait postgres vllm-cpu
+name: boxmot-attributes
+
+services:
+  boxmot:
+    profiles: [track]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: cli-cpu
+    image: boxmot/boxmot:compose-cpu
+    user: "${BOXMOT_UID:-1000}:${BOXMOT_GID:-1000}"
+    init: true
+    stop_signal: SIGINT
+    stop_grace_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      vllm-cpu:
+        condition: service_healthy
+    environment:
+      # Local development credentials; host clients use the published loopback port.
+      BOXMOT_ATTRIBUTES_DATABASE_URL: "postgresql://${BOXMOT_POSTGRES_USER:-boxmot}:${BOXMOT_POSTGRES_PASSWORD:-boxmot-local}@postgres:5432/${BOXMOT_POSTGRES_DB:-boxmot}"
+      # Host UIDs may have no passwd entry inside the image.
+      USER: boxmot
+      TORCHINDUCTOR_CACHE_DIR: /opt/boxmot/models/.cache/torchinductor
+      # Some model download clients use the home directory instead of XDG paths.
+      HOME: /opt/boxmot/models/.home
+      XDG_CACHE_HOME: /opt/boxmot/models/.cache
+      HF_HOME: /opt/boxmot/models/.cache/huggingface
+      # Ultralytics appends /Ultralytics and requires an existing parent.
+      YOLO_CONFIG_DIR: /opt/boxmot/models
+      MPLCONFIGDIR: /opt/boxmot/models/.cache/matplotlib
+    volumes:
+      - "${BOXMOT_INPUT_DIR:-../data}:/inputs:ro"
+      - ../models:/opt/boxmot/models
+      - ../runs:/opt/boxmot/runs
+    entrypoint:
+      - boxmot
+      - track
+      - --detector
+      - ${BOXMOT_DETECTOR:-yolo26n}
+      - --tracker
+      - ${BOXMOT_TRACKER:-bytetrack}
+      - --reid
+      - ${BOXMOT_REID:-osnet-x0-25-msmt17}
+      - --device
+      - cpu
+      - --attributes
+      - person-appearance-vllm-cpu
+      - --attributes-host
+      - http://vllm-cpu:8000
+      - --save
+      - --save-json
+      - --project
+      - /opt/boxmot/runs/${BOXMOT_RUN_NAME:-compose}
+    command: [--source, "${BOXMOT_SOURCE:-/inputs/video.mp4}"]
+
+  postgres:
+    profiles: [database, track]
+    image: postgres:17
+    environment:
+      # These defaults are for local development only.
+      POSTGRES_USER: "${BOXMOT_POSTGRES_USER:-boxmot}"
+      POSTGRES_PASSWORD: "${BOXMOT_POSTGRES_PASSWORD:-boxmot-local}"
+      POSTGRES_DB: "${BOXMOT_POSTGRES_DB:-boxmot}"
+    ports:
+      - "127.0.0.1:${BOXMOT_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -h 127.0.0.1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 5s
+      start_period: 10s
+      retries: 10
+
+  ollama:
+    profiles: [ollama]
+    image: ollama/ollama:latest
+    ports:
+      - "127.0.0.1:${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: [CMD, ollama, list]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 6
+
+  vllm-cpu:
+    profiles: [vllm-cpu, track]
+    image: ${VLLM_CPU_IMAGE:-vllm/vllm-openai-cpu:latest-x86_64}
+    platform: linux/amd64
+    shm_size: "2gb"
+    ports:
+      - "127.0.0.1:${VLLM_PORT:-8001}:8000"
+    environment:
+      # Leave CPU capacity for tracking and the desktop.
+      VLLM_CPU_OMP_THREADS_BIND: "${VLLM_CPU_OMP_THREADS_BIND:-auto}"
+      VLLM_CPU_NUM_OF_RESERVED_CPU: "${VLLM_CPU_NUM_OF_RESERVED_CPU:-2}"
+    volumes:
+      # With sudo, pass HF_CACHE_DIR explicitly to preserve the user's cache path.
+      - "${HF_CACHE_DIR:-${HOME}/.cache/huggingface}:/root/.cache/huggingface"
+    command:
+      - Qwen/Qwen3.5-0.8B
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --dtype
+      - bfloat16
+      - --enforce-eager
+      # One short attribute request needs a small cache, not a serving-sized pool.
+      - --kv-cache-memory-bytes
+      - "268435456"
+      - --max-model-len
+      - "2048"
+      - --max-num-batched-tokens
+      - "2048"
+      - --max-num-seqs
+      - "1"
+      # Webcam crops change each request; retaining them duplicates RAM across processes.
+      - --mm-processor-cache-gb
+      - "0"
+      # Bound image preprocessing and its startup probe (the model allows 16M pixels).
+      - --mm-processor-kwargs
+      - '{"images_kwargs":{"size":{"shortest_edge":65536,"longest_edge":262144}}}'
+      - --limit-mm-per-prompt
+      - '{"image":1,"video":0}'
+      - --reasoning-parser
+      - qwen3
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).close()"
+      interval: 10s
+      timeout: 5s
+      # Downloads and CPU warmup may take several minutes on the first start.
+      start_period: 30m
+      retries: 3
+
+volumes:
+  ollama-models:
+  postgres-data:

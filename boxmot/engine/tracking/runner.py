@@ -5,12 +5,16 @@ from __future__ import annotations
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from boxmot.engine.tracking.profiling import RuntimeProfiler, normalize_startup_timings
 from boxmot.engine.tracking.sinks import TrackSink, _StopTrackingRequested
 from boxmot.engine.tracking.sources import FrameSource
 from boxmot.pipelines import PipelineResult, TrackingPipeline
 from boxmot.structures import Frame
+
+if TYPE_CHECKING:
+    from boxmot.engine.tracking.attributes import AttributeRun
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +55,7 @@ class TrackingRunner:
         progress: Callable[[int, Frame, PipelineResult], None] | None = None,
         profiler: RuntimeProfiler | None = None,
         startup_timings_ms: Mapping[str, float] | None = None,
+        attribute_run: AttributeRun | None = None,
     ) -> None:
         self.source = source
         self.pipeline = pipeline
@@ -59,6 +64,7 @@ class TrackingRunner:
         self.profiler = profiler or RuntimeProfiler()
         self.startup_timings_ms = dict(startup_timings_ms or {})
         self.summary: RunSummary | None = None
+        self.attribute_run = attribute_run
 
     def run(self) -> Iterator[tuple[Frame, PipelineResult]]:
         """Yield results while guaranteeing source/sink cleanup."""
@@ -73,6 +79,7 @@ class TrackingRunner:
         active_sequence: str | None = None
         interrupted = False
         first_source_result = True
+        source_exhausted = False
         try:
             source_iterator = None
             while True:
@@ -82,6 +89,7 @@ class TrackingRunner:
                         source_iterator = iter(self.source)
                     frame = next(source_iterator)
                 except StopIteration:
+                    source_exhausted = True
                     break
                 except KeyboardInterrupt:
                     interrupted = True
@@ -115,6 +123,9 @@ class TrackingRunner:
                             result = self.pipeline.step(frame)
                         finally:
                             self.profiler.end_pipeline(frame.sample_id)
+
+                        if self.attribute_run is not None:
+                            self.attribute_run.poll()
 
                         for sink in self.sinks:
                             rendering_before = self.profiler.value(frame.sample_id, "rendering")
@@ -172,6 +183,11 @@ class TrackingRunner:
             interrupted = True
         finally:
             close_error: BaseException | None = None
+            if self.attribute_run is not None:
+                try:
+                    interrupted = self.attribute_run.finish(cancel=interrupted or not source_exhausted) or interrupted
+                except BaseException as exc:  # noqa: BLE001 - close sources and sinks after attribute failures
+                    close_error = exc
             for sink in reversed(self.sinks):
                 try:
                     sink.close()

@@ -344,7 +344,8 @@ def test_tracking_unions_requirements_with_outputs_and_returns_exact_result() ->
     result = pipeline.step(frame)
 
     assert isinstance(result, PipelineResult)
-    assert tuple(field.name for field in dataclasses.fields(result)) == ("detections", "tracks")
+    assert tuple(field.name for field in dataclasses.fields(result)) == ("detections", "tracks", "attributes")
+    assert not result.attributes
     assert events == [
         ("detect", ("one",)),
         ("segment", ("one",)),

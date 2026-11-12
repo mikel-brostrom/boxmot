@@ -172,6 +172,14 @@ def _track_saved_detections(ctx: click.Context, payload: dict[str, Any]) -> None
 )
 @click.option("--save-json", is_flag=True, default=False, help="Write canonical JSON Lines track output.")
 @click.option(
+    "--attributes", type=str, default=None, metavar="ID_OR_YAML",
+    help="Attribute profile; analyze tracks in the background and write attributes.jsonl.",
+)
+@click.option(
+    "--attributes-host", type=str, default=None, metavar="URL",
+    help="Override the attribute server URL; requires --attributes.",
+)
+@click.option(
     "--detections",
     type=click.Path(exists=True, file_okay=False, path_type=Path),
     default=None,
@@ -206,6 +214,8 @@ def track(
     segmentor: str | None,
     geometry: str,
     save_json: bool,
+    attributes: str | None,
+    attributes_host: str | None,
     detections: Path | None,
     images: Path | None,
     instances: Path | None,
@@ -230,6 +240,8 @@ def track(
         return
     if any(_is_option_explicit(ctx, name) for name in ("images", "instances", "split", "sequence_names")):
         raise click.UsageError("--images, --instances, --split, and --sequence require --detections.")
+    if attributes_host is not None and attributes is None:
+        raise click.UsageError("--attributes-host requires --attributes.")
 
     _validate_prompt_options(ctx, {**kwargs, "geometry": geometry})
     if kwargs.get("tracker") == "edgetam":
@@ -249,6 +261,8 @@ def track(
                 "segmentor": segmentor,
                 "geometry": geometry,
                 "save_json": save_json,
+                "attributes": attributes,
+                "attributes_host": attributes_host,
                 "classes": classes,
                 "source": source,
                 "workflow_mode": "track",

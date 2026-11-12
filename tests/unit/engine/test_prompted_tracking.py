@@ -129,6 +129,32 @@ class Window:
         self.closed = True
 
 
+def test_prompted_attributes_receive_visible_masks_and_sequence_resets(monkeypatch) -> None:
+    """Detector-free tracks remain eligible despite their absent detection indices."""
+    window, tracker, sink = Window(), Tracker(), Sink()
+    window.script = lambda _frame: window.controller.pending.update({1: ObjectPrompt(box=(2, 2, 8, 8))})
+    monkeypatch.setattr(prompted, "PromptWindow", lambda: window)
+    events = []
+
+    def update(frame, tracks):
+        assert tracks.detection_indices.tolist() == [-1]
+        assert bool(tracks.masks.values.any())
+        events.append(frame.sample_id)
+        return {}
+
+    attribute_run = SimpleNamespace(
+        enricher=SimpleNamespace(reset=lambda: events.append("reset"), update=update),
+        poll=lambda: events.append("poll"),
+    )
+    run = prompted.run_prompted_track(
+        SimpleNamespace(), tracker=tracker,
+        source=Source([_frame(0), _frame(0, sequence="second")]), sinks=(sink,),
+        attribute_run=attribute_run,
+    )
+    assert run.summary.frames == 2
+    assert events == ["reset", "video/0", "poll", "reset", "second/0", "poll"]
+
+
 def test_prompts_precede_updates_and_correct_existing_ids(monkeypatch: pytest.MonkeyPatch) -> None:
     window, tracker, sink = Window(), Tracker(), Sink()
     source = Source([_frame(0), _frame(1), _frame(2)])

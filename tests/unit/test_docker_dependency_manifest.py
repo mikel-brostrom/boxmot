@@ -11,6 +11,9 @@ from pathlib import Path
 
 import pytest
 
+from tests.unit.test_docker_cache_layers import PROFILES, _command, _instructions
+from tests.unit.test_docker_native_runtime import _stages
+
 tomllib = pytest.importorskip("tomllib", reason="Docker metadata preparation uses Python 3.11 or newer.")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -18,6 +21,12 @@ SCRIPT = REPO_ROOT / "docker" / "dependency_manifest.py"
 SPEC = importlib.util.spec_from_file_location("dependency_manifest", SCRIPT)
 dependency_manifest = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(dependency_manifest)
+DOCKER_PROFILES = (
+    ("--extra", "cpu", "--extra", "yolo", "--extra", "trackeval", "--extra", "attributes"),
+    ("--extra", "cu130", "--extra", "yolo", "--extra", "trackeval", "--extra", "attributes"),
+    ("--only-group", "service-runtime"),
+    ("--extra", "cu130", "--extra", "service", "--extra", "service-gpu"),
+)
 
 
 @pytest.fixture
@@ -184,15 +193,7 @@ def test_cli_accepts_metadata_from_its_working_directory(metadata: tuple[Path, P
     assert (tmp_path / "cli-output" / "pyproject.toml").read_bytes() == _normalize(metadata, tmp_path / "direct")[0]
 
 
-@pytest.mark.parametrize(
-    "profile",
-    (
-        ("--extra", "cpu", "--extra", "yolo", "--extra", "trackeval"),
-        ("--extra", "cu130", "--extra", "yolo", "--extra", "trackeval"),
-        ("--only-group", "service-runtime"),
-        ("--extra", "cu130", "--extra", "service", "--extra", "service-gpu"),
-    ),
-)
+@pytest.mark.parametrize("profile", DOCKER_PROFILES)
 def test_repository_dependency_exports_are_unchanged_offline(tmp_path: Path, profile: tuple[str, ...]) -> None:
     """Compare full locked dependency graphs, including hashes, for every image."""
     uv = shutil.which("uv")
@@ -233,8 +234,115 @@ def test_repository_dependency_exports_are_unchanged_offline(tmp_path: Path, pro
     assert not (output / ".venv").exists()
 
 
-def test_normalized_manifest_passes_uv_locked_sync_offline(tmp_path: Path) -> None:
-    """Check freshness with a real third-party dependency and no registry cache."""
+@pytest.mark.parametrize("profile", DOCKER_PROFILES)
+def test_repository_dependency_profiles_validate_and_plan_offline(tmp_path: Path, profile: tuple[str, ...]) -> None:
+    """Validate actual dependency metadata before planning each frozen image profile."""
+    uv = shutil.which("uv")
+    if uv is None:
+        pytest.skip("Docker lock validation requires the repository's pinned uv executable.")
+    output = tmp_path / "dependencies"
+    _normalize((REPO_ROOT / "pyproject.toml", REPO_ROOT / "uv.lock"), output)
+    original = tmp_path / "original"
+    original.mkdir()
+    for name in ("pyproject.toml", "uv.lock"):
+        (original / name).write_bytes((REPO_ROOT / name).read_bytes())
+
+    for directory in (original, output):
+        before = tuple((directory / name).read_bytes() for name in ("pyproject.toml", "uv.lock"))
+        environment = {
+            **os.environ,
+            "UV_OFFLINE": "1",
+            "UV_PYTHON": sys.executable,
+            "UV_PYTHON_DOWNLOADS": "never",
+            "UV_CACHE_DIR": str(directory / "uv-cache"),
+            "UV_PROJECT_ENVIRONMENT": str(directory / "unused-venv"),
+        }
+        commands = (
+            [uv, "lock", "--check", "--offline"],
+            [uv, "sync", "--frozen", "--dry-run", "--no-dev", "--no-install-package", "boxmot", *profile],
+        )
+        for command in commands:
+            result = subprocess.run(
+                command,
+                cwd=directory,
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            assert result.returncode == 0, result.stderr
+        assert tuple((directory / name).read_bytes() for name in ("pyproject.toml", "uv.lock")) == before
+        assert not (directory / "unused-venv").exists()
+        assert not (directory / ".venv").exists()
+
+
+@pytest.mark.parametrize("target", PROFILES)
+def test_docker_sync_does_not_fetch_unselected_url_dependencies(tmp_path: Path, target: str) -> None:
+    """An actual online sync must leave an unreachable optional backend untouched."""
+    uv = shutil.which("uv")
+    if uv is None:
+        pytest.skip("Docker lock validation requires the repository's pinned uv executable.")
+    url = "http://127.0.0.1:9/edgetam-1.0.tar.gz"
+    extras = sorted({extra for extras, _ in PROFILES.values() for extra in extras})
+    pyproject = tmp_path / "pyproject.toml"
+    lockfile = tmp_path / "uv.lock"
+    pyproject.write_text(
+        '[project]\nname = "boxmot"\nversion = "24.0.0"\nrequires-python = ">=3.11"\n'
+        '[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n'
+        '[project.optional-dependencies]\n'
+        + "".join(f'{extra} = []\n' for extra in extras)
+        + '[dependency-groups]\nservice-runtime = []\n'
+        + f'edgetam = ["edgetam @ {url}"]\n'
+        + '[tool.uv]\nrequired-version = "==0.12.4"\nno-build-isolation-package = ["edgetam"]\n',
+        encoding="utf-8",
+    )
+    lockfile.write_text(
+        'version = 1\nrevision = 3\nrequires-python = ">=3.11"\n'
+        '[[package]]\nname = "boxmot"\nversion = "24.0.0"\nsource = { editable = "." }\n'
+        '[package.dev-dependencies]\nedgetam = [{ name = "edgetam" }]\nservice-runtime = []\n'
+        '[package.metadata]\nrequires-dist = []\n'
+        + f'provides-extras = {extras!r}\n'
+        + '[package.metadata.requires-dev]\nservice-runtime = []\n'
+        + f'edgetam = [{{ name = "edgetam", url = "{url}" }}]\n'
+        + '[[package]]\nname = "edgetam"\nversion = "1.0"\n'
+        + f'source = {{ url = "{url}" }}\nsdist = {{ hash = "sha256:{"0" * 64}" }}\n'
+        + '[package.metadata]\nrequires-dist = []\n',
+        encoding="utf-8",
+    )
+    output = tmp_path / "dependencies"
+    expected = _normalize((pyproject, lockfile), output)
+    environment = {
+        **{key: value for key, value in os.environ.items() if key != "UV_OFFLINE"},
+        "UV_PYTHON": sys.executable,
+        "UV_PYTHON_DOWNLOADS": "never",
+        "UV_CACHE_DIR": str(tmp_path / "uv-cache"),
+        "UV_PROJECT_ENVIRONMENT": str(output / ".venv"),
+        "UV_HTTP_RETRIES": "0",
+        "UV_HTTP_TIMEOUT": "1",
+        "NO_PROXY": "127.0.0.1",
+    }
+    _, words = _command(_instructions(_stages(), f"{target}-dependencies"), "uv", "sync")
+    commands = (
+        [uv, "lock", "--check", "--offline"],
+        [uv, *words[words.index("uv") + 1 :]],
+    )
+    for command in commands:
+        result = subprocess.run(
+            command,
+            cwd=output,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+        )
+        assert result.returncode == 0, result.stderr
+    assert tuple((output / name).read_bytes() for name in ("pyproject.toml", "uv.lock")) == expected
+    assert (output / ".venv" / "pyvenv.cfg").is_file()
+
+
+def test_normalized_manifest_offline_check_rejects_stale_dependencies(tmp_path: Path) -> None:
+    """Offline validation must accept a matching lock and reject changed requirements."""
     uv = shutil.which("uv")
     if uv is None:
         pytest.skip("Docker lock validation requires the repository's pinned uv executable.")
@@ -251,7 +359,7 @@ def test_normalized_manifest_passes_uv_locked_sync_offline(tmp_path: Path) -> No
         '[project]\nname = "boxmot"\nversion = "24.0.0"\nrequires-python = ">=3.11"\n'
         'dependencies = ["example==24.0.0"]\n'
         '[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n'
-        '[tool.uv]\npreview = true\nrequired-version = "==0.12.4"\n'
+        '[tool.uv]\npreview-features = ["extra-build-dependencies"]\nrequired-version = "==0.12.4"\n'
         '[tool.uv.sources]\nexample = { path = "../example" }\n',
         encoding="utf-8",
     )
@@ -267,7 +375,7 @@ def test_normalized_manifest_passes_uv_locked_sync_offline(tmp_path: Path) -> No
     output = tmp_path / "dependencies"
     normalized = _normalize((original / "pyproject.toml", original / "uv.lock"), output)
     result = subprocess.run(
-        [uv, "sync", "--locked", "--dry-run", "--no-dev", "--no-install-package", "boxmot"],
+        [uv, "lock", "--check", "--offline"],
         cwd=output,
         env=environment,
         capture_output=True,
@@ -279,3 +387,22 @@ def test_normalized_manifest_passes_uv_locked_sync_offline(tmp_path: Path) -> No
     assert tuple((output / name).read_bytes() for name in ("pyproject.toml", "uv.lock")) == normalized
     assert not (tmp_path / "unused-venv").exists()
     assert not (output / ".venv").exists()
+
+    (output / "pyproject.toml").write_bytes(
+        normalized[0].replace(
+            b'dependencies = ["example==24.0.0"]',
+            b'dependencies = ["example==24.0.0", "missing-new-dependency==1.0.0"]',
+        )
+    )
+    stale = subprocess.run(
+        [uv, "lock", "--check", "--offline"],
+        cwd=output,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert stale.returncode != 0
+    assert "missing-new-dependency" in stale.stderr
+    assert (output / "uv.lock").read_bytes() == normalized[1]

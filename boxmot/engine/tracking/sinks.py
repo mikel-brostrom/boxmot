@@ -17,6 +17,7 @@ from typing_extensions import Self
 from boxmot.engine.tracking.profiling import timed_runtime_stage
 from boxmot.pipelines import PipelineResult
 from boxmot.structures import Boxes, CameraModel, Frame, OrientedBoxes, Tracks, Tracks3D
+from boxmot.utils import logger as LOGGER
 
 
 class _StopTrackingRequested(Exception):
@@ -63,12 +64,14 @@ class RenderingSink(_BaseSink):
         *,
         class_names: Mapping[int, str] | None = None,
         line_width: int = 2,
+        show_labels: bool = True,
     ) -> None:
         if not callable(consumer):
             raise TypeError("consumer must be callable")
         self.consumer = consumer
         self.class_names = class_names
         self.line_width = int(line_width)
+        self.show_labels = bool(show_labels)
 
     def write(self, frame: Frame, result: PipelineResult) -> None:
         self.write_rendered(
@@ -79,6 +82,7 @@ class RenderingSink(_BaseSink):
                 result,
                 class_names=self.class_names,
                 line_width=self.line_width,
+                show_labels=self.show_labels,
             ),
         )
 
@@ -93,8 +97,15 @@ class RenderingSink(_BaseSink):
         self.consumer(frame, result, image)
 
 
+def _missing_gui_support(error: cv2.error) -> bool:
+    """Recognize HighGUI stubs, which also use OpenCV's generic error code."""
+    return error.code == cv2.Error.StsNotImplemented or (
+        error.code == cv2.Error.StsError and "the function is not implemented" in str(error).lower()
+    )
+
+
 class DisplaySink(RenderingSink):
-    """Render tracking results in an OpenCV window."""
+    """Render in an OpenCV window, disabling preview if GUI support is missing."""
 
     def __init__(
         self,
@@ -102,25 +113,49 @@ class DisplaySink(RenderingSink):
         window_name: str = "BoxMOT",
         class_names: Mapping[int, str] | None = None,
         line_width: int = 2,
+        show_labels: bool = True,
     ) -> None:
         if not window_name:
             raise ValueError("window_name must not be empty")
         self.window_name = window_name
         self._opened = False
-        super().__init__(self._display, class_names=class_names, line_width=line_width)
+        self._disabled = False
+        super().__init__(self._display, class_names=class_names, line_width=line_width, show_labels=show_labels)
 
     def _display(self, frame: Frame, result: PipelineResult, image: np.ndarray) -> None:
+        """Show one frame, allowing other outputs to continue on headless builds."""
         del frame, result
-        cv2.imshow(self.window_name, image)
-        self._opened = True
-        key = cv2.waitKey(1) & 0xFF
+        if self._disabled:
+            return
+        try:
+            cv2.imshow(self.window_name, image)
+            self._opened = True
+            key = cv2.waitKey(1) & 0xFF
+        except cv2.error as exc:
+            if not _missing_gui_support(exc):
+                raise
+            self._disabled = True
+            self.close()
+            LOGGER.warning(
+                "OpenCV GUI support is unavailable; disabling preview. "
+                "Tracking and requested saved outputs will continue; press Ctrl-C to stop. "
+                "Restore the project's opencv-python GUI package and keep vLLM in a separate "
+                "environment to avoid its opencv-python-headless dependency overwriting cv2."
+            )
+            return
         if key in (ord("q"), 27):
             raise _StopTrackingRequested
 
     def close(self) -> None:
+        """Close an opened preview, including partially available GUI backends."""
         if self._opened:
-            cv2.destroyWindow(self.window_name)
-            self._opened = False
+            try:
+                cv2.destroyWindow(self.window_name)
+            except cv2.error as exc:
+                if not _missing_gui_support(exc):
+                    raise
+            finally:
+                self._opened = False
 
 
 class CompositeSink(_BaseSink):
@@ -159,6 +194,9 @@ def _json_tracks(result: PipelineResult) -> list[dict[str, object]]:
                 "detection_index": int(tracks.detection_indices[index]),
             }
         )
+        attribute = result.attributes.get(int(tracks.track_ids[index]))
+        if attribute is not None:
+            rows[-1]["attributes"] = attribute.to_dict()
     return rows
 
 
@@ -240,6 +278,7 @@ def render_result(
     *,
     class_names: Mapping[int, str] | None = None,
     line_width: int = 2,
+    show_labels: bool = True,
     spatial_tracks: Tracks3D | None = None,
     camera: CameraModel | None = None,
     guidance_masks: Mapping[int, np.ndarray] | None = None,
@@ -265,6 +304,7 @@ def render_result(
             result,
             class_names=class_names,
             line_width=line_width,
+            show_labels=show_labels,
             guidance_masks=guidance_masks,
         )
         if spatial_tracks is not None:
@@ -287,6 +327,7 @@ def _render_result(
     *,
     class_names: Mapping[int, str] | None = None,
     line_width: int = 2,
+    show_labels: bool = True,
     guidance_masks: Mapping[int, np.ndarray] | None = None,
 ) -> np.ndarray:
     """Render canonical tracks into a new OpenCV BGR frame."""
@@ -343,8 +384,12 @@ def _render_result(
             top_corner = corners[np.argmin(corners[:, 1])]
             label_anchors.append((int(top_corner[0]), int(top_corner[1])))
     # Draw badges last so another track's box cannot cross their text.
-    for index, anchor in enumerate(label_anchors):
-        _draw_label(image, tracks, index, anchor, class_names, line_width=line_width)
+    if show_labels:
+        for index, anchor in enumerate(label_anchors):
+            _draw_label(
+                image, tracks, index, anchor, class_names, line_width=line_width,
+                attribute=result.attributes.get(int(tracks.track_ids[index])),
+            )
     return image
 
 
@@ -385,6 +430,67 @@ def _label_text_mask(label: str, font_scale: float) -> np.ndarray:
     return ink
 
 
+def _attribute_label_parts(attribute: object | None) -> list[str]:
+    """Format only explicitly selected scalar dot paths from a completed result."""
+    if attribute is None or getattr(attribute, "status", None) != "completed":
+        return []
+    parts: list[str] = []
+    for path in getattr(attribute, "display_fields", ()):
+        value = getattr(attribute, "values", None)
+        for key in path.split("."):
+            if not isinstance(value, Mapping) or key not in value:
+                break
+            value = value[key]
+        else:
+            if value is None or isinstance(value, (str, int, float, bool)):
+                text = "unknown" if value is None else str(value)
+                text = " ".join(text.split())
+                parts.append(f"{path}: {text[:80]}")
+    return parts
+
+
+def _wrap_label_line(text: str, font_scale: float, max_width: int) -> list[str]:
+    """Wrap a field at spaces, splitting unusually long words only when needed."""
+    lines: list[str] = []
+    while text:
+        if cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1)[0][0] <= max_width:
+            lines.append(text)
+            break
+        low, high = 1, len(text)
+        while low < high:
+            middle = (low + high + 1) // 2
+            width = cv2.getTextSize(text[:middle], cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1)[0][0]
+            if width <= max_width:
+                low = middle
+            else:
+                high = middle - 1
+        split = text.rfind(" ", 0, low + 1)
+        if split <= 0:
+            split = low
+        lines.append(text[:split].rstrip())
+        text = text[split:].lstrip()
+    return lines
+
+
+def _label_block_mask(lines: Sequence[str], font_scale: float, max_width: int) -> np.ndarray:
+    """Keep each selected attribute on readable, wrapped lines below its identity."""
+    masks = [
+        _label_text_mask(wrapped, font_scale)
+        for line in lines
+        for wrapped in _wrap_label_line(line, font_scale, max_width)
+    ]
+    gap = max(2, round(4 * font_scale))
+    width = max(mask.shape[1] for mask in masks)
+    height = sum(mask.shape[0] for mask in masks) + gap * (len(masks) - 1)
+    block = np.zeros((height, width), dtype=np.uint8)
+    top = 0
+    for mask in masks:
+        line_height, line_width = mask.shape
+        block[top : top + line_height, :line_width] = mask
+        top += line_height + gap
+    return block
+
+
 def _draw_label(
     image: np.ndarray,
     tracks: Tracks,
@@ -393,12 +499,14 @@ def _draw_label(
     class_names: Mapping[int, str] | None,
     *,
     line_width: int,
+    attribute: object | None = None,
 ) -> None:
     """Align the badge to the outer stroke and its first ink just inside the border."""
 
     class_id = int(tracks.class_ids[index])
     class_label = str(class_id) if class_names is None else class_names.get(class_id, str(class_id))
     label = f"{class_label} #{int(tracks.track_ids[index])} {float(tracks.scores[index]):.2f}"
+    parts = _attribute_label_parts(attribute)
     font_scale = 0.5
     padding = 2
     # LINE_8 outlines extend beyond their coordinates; filled rectangles do not.
@@ -411,13 +519,21 @@ def _draw_label(
     if available_width <= 0 or available_height <= 0:
         return
 
-    text_mask = _label_text_mask(label, font_scale)
+    text_mask = (
+        _label_block_mask([label, *parts], font_scale, available_width)
+        if parts
+        else _label_text_mask(label, font_scale)
+    )
     text_height, text_width = text_mask.shape
     fit = min(1.0, available_width / text_width, available_height / text_height)
     if fit < 1.0:
         # Leave room for pixel rounding and the fixed text stroke after scaling.
         font_scale *= fit * 0.95
-        text_mask = _label_text_mask(label, font_scale)
+        text_mask = (
+            _label_block_mask([label, *parts], font_scale, available_width)
+            if parts
+            else _label_text_mask(label, font_scale)
+        )
         text_height, text_width = text_mask.shape
     badge_width = text_width + text_inset + padding
     badge_height = text_height + 2 * padding
@@ -458,6 +574,7 @@ class VideoSink(_BaseSink):
         fps: float,
         class_names: Mapping[int, str] | None = None,
         line_width: int = 2,
+        show_labels: bool = True,
     ) -> None:
         if fps <= 0:
             raise ValueError("fps must be positive")
@@ -466,6 +583,7 @@ class VideoSink(_BaseSink):
         self.fps = float(fps)
         self.class_names = class_names
         self.line_width = int(line_width)
+        self.show_labels = bool(show_labels)
         self._writer: cv2.VideoWriter | None = None
 
     def write(self, frame: Frame, result: PipelineResult) -> None:
@@ -477,6 +595,7 @@ class VideoSink(_BaseSink):
                 result,
                 class_names=self.class_names,
                 line_width=self.line_width,
+                show_labels=self.show_labels,
             ),
         )
 
@@ -518,6 +637,7 @@ class SharedRenderingSink(_BaseSink):
         *,
         class_names: Mapping[int, str] | None = None,
         line_width: int = 2,
+        show_labels: bool = True,
         guidance_mask_provider: Callable[[], Mapping[int, np.ndarray]] | None = None,
     ) -> None:
         self.sinks = tuple(sinks)
@@ -527,6 +647,7 @@ class SharedRenderingSink(_BaseSink):
             raise TypeError("guidance_mask_provider must be callable.")
         self.class_names = class_names
         self.line_width = int(line_width)
+        self.show_labels = bool(show_labels)
         self.guidance_mask_provider = guidance_mask_provider
 
     def write(self, frame: Frame, result: PipelineResult) -> None:
@@ -535,6 +656,7 @@ class SharedRenderingSink(_BaseSink):
             result,
             class_names=self.class_names,
             line_width=self.line_width,
+            show_labels=self.show_labels,
             guidance_masks=None if self.guidance_mask_provider is None else self.guidance_mask_provider(),
         )
         for sink in self.sinks:

@@ -455,6 +455,7 @@ def _build_output_table(run: Any) -> Table | None:
             ("Video", "video_path"),
             ("MOT text", "mot_path"),
             ("JSON Lines", "json_path"),
+            ("Attributes", "attributes_path"),
         )
         if getattr(run, attribute, None) is not None
     ]

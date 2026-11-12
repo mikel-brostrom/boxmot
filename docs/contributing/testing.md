@@ -28,6 +28,25 @@ uv run --no-sync pytest tests/unit/native
 
 ## CI smoke tests
 
+### Attribute database contracts
+
+Attribute session tests use a real PostgreSQL database. Install the `attributes`
+extra in addition to your selected CPU/CUDA profile and test dependencies, then
+start the database and set the test connection URL:
+
+```bash
+docker compose -f docker/compose.attributes.yaml up -d --wait postgres
+export BOXMOT_TEST_POSTGRES_URL='postgresql://boxmot:boxmot-local@127.0.0.1:5432/boxmot'
+uv run --no-sync python -m pytest tests/unit/attributes tests/unit/engine/test_attributes.py -q
+```
+
+Use a development database. Fixtures remove only the runs created by each test,
+so parallel pytest workers can share it. PostgreSQL-dependent tests skip when
+`BOXMOT_TEST_POSTGRES_URL` is unset; CI supplies a PostgreSQL service and sets
+the variable. Config, crop, and HTTP transport tests do not require a database.
+
+### Python API
+
 Run the same isolated Python API smoke test used by the `python_api` CI job:
 
 ```bash

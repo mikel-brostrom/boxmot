@@ -39,6 +39,7 @@ boxmot install --extra evolve --extra research
 | Hyperparameter tuning | `evolve` | [Tune](../modes/tune.md) |
 | Code-evolution research | `research` | [Research](../modes/research.md) |
 | HTTP tracker service | `service` | [Service deployment](../guides/deployment.md) |
+| Ollama or vLLM track descriptions | `attributes` | [Track Attributes](../config/attributes.md) |
 | MOTS mask evaluation | `mots` | [EagerMOT](../trackers/eagermot.md) |
 | Reference TrackEval comparison | `trackeval` | [Evaluation](../guides/evaluation.md) |
 | ONNX export and inference | `onnx` | [Export](../modes/export.md) |

@@ -10,6 +10,7 @@ import pytest
 import torch
 
 import boxmot.engine.tracking.sinks as sink_module
+from boxmot.attributes.models import AttributeResult
 from boxmot.engine.tracking.sinks import render_result
 from boxmot.pipelines import PipelineResult
 from boxmot.structures import Boxes, Detections, Frame, OrientedBoxes, Tracks
@@ -21,6 +22,7 @@ def _render(
     is_obb: bool = False,
     class_label: str = "heavy vehicle",
     line_width: int = 2,
+    attributes: dict[int, AttributeResult] | None = None,
 ) -> tuple[np.ndarray, Frame]:
     """Render visible identities against a blank frame without detector inference."""
     frame = Frame(torch.zeros((3, 180, 320), dtype=torch.uint8), "labels")
@@ -39,7 +41,7 @@ def _render(
     )
     image = render_result(
         frame,
-        PipelineResult(detections, tracks),
+        PipelineResult(detections, tracks, attributes or {}),
         class_names={0: class_label},
         line_width=line_width,
     )
@@ -307,3 +309,77 @@ def test_label_text_contrasts_with_light_and_dark_identity_colors(
         np.asarray(identity_color) * (1 - alpha) + np.asarray(text_color) * alpha
     ).astype(np.uint8)
     np.testing.assert_array_equal(glyph_pixels, expected_pixels)
+
+
+@pytest.mark.parametrize("is_obb", (False, True))
+def test_selected_attributes_remain_readable_on_separate_lines_at_image_edge(
+    monkeypatch: pytest.MonkeyPatch, is_obb: bool,
+) -> None:
+    """Keep all selected fields visible without shrinking them into one tiny line."""
+    calls = _record_drawing(monkeypatch)
+    values = {
+        "upper_body_clothing": "red shirt",
+        "leg_clothing": "blue jeans",
+        "footwear": "black shoes",
+        "headwear": "None",
+        "carried_items": "green bag",
+        "pose": "Standing",
+        "pose_confidence": 0.9,
+    }
+    attribute = AttributeResult(
+        run_id="fixture", sequence_id=None, generation=0, track_id=1, class_id=0,
+        model="fixture", samples=(), status="completed", values=values,
+        display_fields=tuple(key for key in values if key != "pose_confidence"),
+    )
+    rows = [[310.0, 10.0, 20.0, 20.0, 0.0]] if is_obb else [[300.0, 0.0, 319.0, 100.0]]
+
+    image, frame = _render(rows, is_obb=is_obb, class_label="person", attributes={1: attribute})
+
+    badge = next(call for call in calls if call["kind"] == "badge")
+    text_calls = [call for call in calls if call["kind"] == "text"]
+    expected_lines = ["person #1 0.90", *(f"{key}: {values[key]}" for key in attribute.display_fields)]
+    assert [call["content"] for call in text_calls] == expected_lines
+    assert all(call["font_scale"] == 0.5 for call in text_calls)
+    assert 0 <= badge["start"][0] < badge["end"][0] < image.shape[1]
+    assert badge["start"][1] == 0 < badge["end"][1] < image.shape[0]
+    _bounds, ink, _pixels = _visible_ink(image, badge)
+    occupied = np.any(ink, axis=1)
+    starts = np.flatnonzero(occupied & ~np.r_[False, occupied[:-1]])
+    ends = np.flatnonzero(occupied & ~np.r_[occupied[1:], False])
+    assert len(starts) == len(ends) == len(expected_lines)
+    for line, start, end in zip(expected_lines, starts, ends):
+        reference = _reference_ink(line, 0.5) > 0
+        np.testing.assert_array_equal(ink[start : end + 1, :reference.shape[1]], reference)
+        assert not np.any(ink[start : end + 1, reference.shape[1]:])
+    assert not bool(frame.image.any())
+
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        "dark red cotton shirt with long sleeves",
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQR",
+    ),
+)
+def test_long_attribute_values_wrap_without_clipping_or_shrinking(
+    monkeypatch: pytest.MonkeyPatch, value: str,
+) -> None:
+    """Preserve a complete selected value even when a field needs several lines."""
+    calls = _record_drawing(monkeypatch)
+    attribute = AttributeResult(
+        run_id="fixture", sequence_id=None, generation=0, track_id=1, class_id=0,
+        model="fixture", samples=(), status="completed", values={"clothing": value},
+        display_fields=("clothing",),
+    )
+
+    image, _frame = _render([[300.0, 0.0, 319.0, 100.0]], attributes={1: attribute})
+
+    badge = next(call for call in calls if call["kind"] == "badge")
+    text_calls = [call for call in calls if call["kind"] == "text"]
+    attribute_lines = [call["content"] for call in text_calls[1:]]
+    assert len(attribute_lines) > 1
+    assert "".join(attribute_lines).replace(" ", "") == f"clothing: {value}".replace(" ", "")
+    assert all(call["font_scale"] == 0.5 for call in text_calls)
+    bounds, _ink, _pixels = _visible_ink(image, badge)
+    assert badge["start"][0] < bounds[0] < bounds[2] <= badge["end"][0] - 2
+    assert badge["start"][1] + 2 <= bounds[1] < bounds[3] <= badge["end"][1] - 2
