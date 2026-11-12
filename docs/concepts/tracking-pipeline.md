@@ -35,7 +35,8 @@ Frame
   -> optional AppearanceEncoder.encode(...)
   -> Tracker.update(detections, frame?)
        -> optional private ReID extraction in a ReID-enabled tracker adapter
-  -> PipelineResult(detections, tracks)
+  -> optional track-attribute sampling and completed-result snapshot
+  -> PipelineResult(detections, tracks, attributes)
 ```
 
 `TrackingPipeline.step(frame)` uses this path. Enrichment is driven by the
@@ -54,7 +55,8 @@ model-free C++ tracker library.
 Frame + Detections
   -> same enrichment and validation
   -> Tracker.update(detections, frame?)
-  -> PipelineResult(detections, tracks)
+  -> optional track-attribute sampling and completed-result snapshot
+  -> PipelineResult(detections, tracks, attributes)
 ```
 
 `TrackingPipeline.step_detections(frame, detections)` serves HTTP requests and
@@ -64,6 +66,12 @@ Output enrichments and tracker inputs are separate. A pipeline can preserve
 masks or embeddings in `PipelineResult.detections` for rendering or export
 while stripping channels the configured tracker does not consume. A direct
 `tracker.update()` call instead rejects unsupported enrichments.
+
+Optional [track attributes](../config/attributes.md) use the original frame and
+current tracks after tracking. `boxmot.attributes` owns crop sampling, Ollama/vLLM
+requests, and its disk-backed queue; the pipeline exposes detached snapshots
+without changing `Tracks`. Engine workflows own completion, output journaling,
+and shutdown. Embedded callers manage the enricher's context and event API.
 
 ## Sensor fusion path
 
@@ -80,6 +88,10 @@ and return `ValidationResult` and `TuneResult`, respectively.
 A pipeline instance tracks exactly one sequence. If frame indices are supplied,
 they must increase. Interleaving another sequence is rejected until `reset()`;
 reset also clears tracker state.
+
+With attributes enabled, reset starts a new attribute generation. Late results
+from an earlier generation remain completion events and cannot populate the new
+sequence's snapshot, even when the tracker reuses the same numeric IDs.
 
 Timing, progress, retries, error handling, cleanup, persistence, and display
 are engine metadata and never fields of `PipelineResult`.

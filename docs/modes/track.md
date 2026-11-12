@@ -100,9 +100,35 @@ Webcam indices and URL sources enable preview automatically unless `--show`,
 select a saving option such as `--save-txt`. Press **q** or **Esc** in the live
 preview, or **Ctrl-C** in the terminal, to end tracking and close the outputs.
 
+If OpenCV reports missing GUI support, preview is disabled with a warning and
+tracking continues writing requested outputs. See the
+[OpenCV preview fix](../guides/troubleshooting.md#opencv-preview-reports-the-function-is-not-implemented)
+to restore the window.
+
 `--show-trajectories` and `--show-kf-preds` are currently accepted but do not
 affect the live renderer. Saved/displayed results include boxes, labels, and
 available mask overlays.
+
+## Describe track attributes
+
+Add background Ollama or vLLM analysis with a built-in profile or your own YAML:
+
+```bash
+boxmot track --source video.mp4 --attributes person-appearance --save --save-json
+```
+
+The example profile describes visible clothing, footwear, and pose. For vLLM,
+use `--attributes person-appearance-vllm`. Install the `attributes` extra and
+prepare your model server before running; see
+[Track Attributes](../config/attributes.md) for setup and custom schemas.
+This also works with prompted EdgeTAM tracks.
+
+Every enabled run writes `attributes.jsonl` with completed analyses and explicit
+failure/cancellation events. `--save-json` includes the latest available values
+in frame snapshots; `--save` and `--show` display selected fields on wrapped lines
+below each visible track label. Attributes appear after an analysis completes.
+At EOF, the run drains pending analysis, including tracks that have
+already left the frame. Results arriving later do not rewrite saved video.
 
 ## Saved TrackR-CNN detections
 
@@ -416,10 +442,12 @@ calls.
 
 ## Working with results
 
-`PipelineResult` contains exactly `detections` and `tracks`. Geometry lives in
+`PipelineResult` contains `detections`, `tracks`, and an `attributes` snapshot
+keyed by track ID, empty when attribute extraction is disabled. Geometry lives in
 `result.tracks.geometry.values`; IDs, scores, classes, and detection indices are
 separate aligned tensors. Timing is runner metadata keyed by sample ID, not a
-result field.
+result field. See [attribute results](../config/attributes.md#python) for
+observation provenance and consuming completed events.
 
 ## Shutdown report
 

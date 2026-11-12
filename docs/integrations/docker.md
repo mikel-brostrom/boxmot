@@ -4,6 +4,142 @@ Use the CLI images to run tracking and batch workflows in a container. For
 stateful HTTP tracking from external detections, use the separate
 [service deployment guide](../guides/deployment.md).
 
+## Tracking and vLLM with Compose
+
+The repository's
+[`docker/compose.attributes.yaml`](https://github.com/mikel-brostrom/boxmot/blob/master/docker/compose.attributes.yaml)
+runs the detector, tracker, and attribute client in a BoxMOT container alongside
+a vLLM server. Both use the CPU; the default models are YOLO26n and
+`Qwen/Qwen3.5-0.8B`, with ByteTrack for tracking. Python dependencies are installed
+inside the images, so the host only needs Docker and
+[Docker Compose](https://docs.docker.com/compose/install/).
+
+Run the following commands from a repository checkout. Stop any manually started
+server occupying port `8001` first. The webcam launcher handles Docker access;
+omit `sudo` from the manual commands if your Docker setup does not require it.
+
+### Process a video
+
+Create host directories and copy your input video into `data/video.mp4`:
+
+```bash
+mkdir -p data models runs
+cp /path/to/video.mp4 data/video.mp4
+
+sudo env BOXMOT_UID="$(id -u)" BOXMOT_GID="$(id -g)" \
+  HF_CACHE_DIR="$HOME/.cache/huggingface" \
+  docker compose -f docker/compose.attributes.yaml up --build \
+  --abort-on-container-exit --exit-code-from boxmot boxmot
+```
+
+Compose builds the BoxMOT CPU image and waits for vLLM's health check before
+starting tracking. The first build, model downloads, and server initialization
+can take several minutes. `HF_CACHE_DIR` reuses your existing Hugging Face
+downloads, including when Docker runs through `sudo`. The health check confirms
+server availability; it does not warm up image inference.
+
+The default input is `/inputs/video.mp4` inside the container. Host `data/` is
+mounted read-only at `/inputs`; `models/` retains detector/ReID downloads and
+`runs/compose/exp/` receives the annotated video, `tracks.jsonl`, and
+`attributes.jsonl`. Matching your host UID/GID keeps these outputs writable by
+your user. When processing finishes, Compose stops both containers. Press
+`Ctrl+C` to stop earlier.
+
+Model caches persist under `models/.cache/`, and Ultralytics settings under
+`models/Ultralytics/`. Compose supplies a runtime username and an explicit
+PyTorch cache path so your host UID does not need an `/etc/passwd` entry
+inside the image.
+
+### Show a Linux webcam preview
+
+Run this from your Linux desktop terminal so `DISPLAY` is set:
+
+```bash
+./docker/webcam.sh
+```
+
+The launcher creates `data/`, `models/`, and `runs/`, uses your host UID/GID and
+Hugging Face cache, and detects the camera's device group. It builds and starts
+both containers using
+[`docker/compose.webcam.yaml`](https://github.com/mikel-brostrom/boxmot/blob/master/docker/compose.webcam.yaml)
+for camera and X11/Xwayland display access. Run the launcher as your normal user;
+it asks for your sudo password only if Docker requires it.
+
+By default, it maps `/dev/video0` and adds `--source 0 --show`. The container
+runs as your host user and shares the X11 socket. If the display rejects that
+user, allow it from your desktop terminal
+with `xhost +si:localuser:$(id -un)` and rerun the command. Press `q` or `Esc` in
+the preview, or `Ctrl+C` in the terminal, to stop the job. Completed attributes and saved outputs remain on
+the host. The CPU profile sends the first eligible crop immediately, with its
+longest side limited to 256 pixels and no storyboard padding. Attribute labels
+appear after the first model response; latency depends on the CPU and available RAM.
+
+### Settings and logs
+
+Set environment variables before the launcher to adjust a run:
+
+```bash
+VIDEO_DEVICE=/dev/video2 BOXMOT_RUN_NAME=webcam-test ./docker/webcam.sh
+```
+
+For the manual video-file command, pass these variables after `sudo env`.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `BOXMOT_RUN_NAME` | `compose` | Results go to `runs/<name>/exp/`; choose a new name for each run to preserve earlier outputs. |
+| `BOXMOT_INPUT_DIR` | `../data` | Host input directory, relative to the Compose file; use an absolute path for another location. |
+| `BOXMOT_SOURCE` | `/inputs/video.mp4`, or `0` with the webcam override | Source path or camera index inside the container. |
+| `BOXMOT_DETECTOR` | `yolo26n` | Detector profile, or path to existing weights inside the container. |
+| `BOXMOT_TRACKER` | `bytetrack` | Tracker name. |
+| `BOXMOT_REID` | `osnet-x0-25-msmt17` | ReID profile for trackers that use it. |
+| `VIDEO_DEVICE` | `/dev/video0` | Host webcam mapped to `/dev/video0`; the launcher detects its device group. |
+| `HF_CACHE_DIR` | `$HOME/.cache/huggingface` with the launcher | Host Hugging Face model cache. |
+
+The default detector and ReID profiles download into the writable `models/`
+mount. To reuse an existing `models/yolov8n.pt`, pass
+`BOXMOT_DETECTOR=models/yolov8n.pt`. For other downloads, use a built-in model
+profile or a custom YAML with its checkpoint path under `models/` and a download
+URI.
+
+The container connects to `http://vllm-cpu:8000` through
+`--attributes-host`, overriding the packaged profile's host URL. This connection
+uses Compose networking and does not depend on the published host port.
+
+Inspect startup or inference logs from another terminal:
+
+```bash
+sudo env HF_CACHE_DIR="$HOME/.cache/huggingface" \
+  docker compose -f docker/compose.attributes.yaml logs --tail 100 -f boxmot vllm-cpu
+```
+
+For server-only Compose commands, Ollama, cache settings, and cleanup, see
+[Track attributes](../config/attributes.md#docker-compose).
+
+### CPU resource use
+
+The vLLM service uses a 256 MiB KV cache, a 2,048-token context and prefill batch,
+and one active request. Image preprocessing is capped at 262,144 pixels,
+including its startup probe; the model's default permits 16,777,216 pixels.
+Its multimodal processor cache is disabled because successive track crops
+are distinct images. Automatic OpenMP thread binding
+reserves two CPU cores for tracking and other work. These settings reduce
+resource contention; model weights and runtime buffers still need additional RAM.
+
+Keep available host RAM for both containers and other applications. Sustained
+swapping or heavy disk page-ins can make a first response take minutes. Check
+host memory and container usage while the request is running:
+
+```bash
+free -h
+vmstat 1 5
+sudo docker stats --no-stream
+```
+
+In `free`, inspect the `available` column. In `vmstat`, sustained nonzero `si`
+or `so` indicates active swapping; allocated swap alone does not show current
+pressure. Stop unnecessary memory-heavy processes or reduce their memory use
+before retrying. Raising the request timeout does not make inference faster.
+
 ## Run the CPU CLI
 
 Mount your working directory so input videos and saved outputs remain on the
@@ -23,8 +159,8 @@ boxmot --help
 boxmot track --source video.mp4 --detector yolov8n --tracker bytetrack --device cpu --save
 ```
 
-The CLI images include the `yolo` and `trackeval` extras, native ReID, and the
-C++ backends for BotSort, ByteTrack, OcSort, OccluBoost, and SFSORT. Select
+The CLI images include the `yolo`, `trackeval`, and `attributes` extras, native
+ReID, and the C++ backends for BotSort, ByteTrack, OcSort, OccluBoost, and SFSORT. Select
 `--tracker-backend cpp` without installing a compiler or CMake. Export, tuning,
 and other optional workflows need their [additional extras](../getting-started/installation.md#mode-specific-extras).
 

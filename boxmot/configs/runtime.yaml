@@ -34,6 +34,8 @@ runtime:
   per_class: false
   target_id: null
 track:
+  attributes: null
+  attributes_host: null
   source: '0'
   geometry: auto
   benchmark: ''

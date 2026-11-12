@@ -11,8 +11,8 @@ from tests.unit.test_docker_native_runtime import _stages
 
 Stages = dict[str, tuple[str, list[str]]]
 PROFILES = {
-    "cli-cpu": ({"cpu", "yolo", "trackeval"}, set()),
-    "cli-gpu": ({"cu130", "yolo", "trackeval"}, set()),
+    "cli-cpu": ({"cpu", "yolo", "trackeval", "attributes"}, set()),
+    "cli-gpu": ({"cu130", "yolo", "trackeval", "attributes"}, set()),
     "service-cpu": (set(), {"service-runtime"}),
     "service-gpu": ({"cu130", "service", "service-gpu"}, set()),
 }
@@ -79,6 +79,20 @@ def test_native_compilation_depends_only_on_native_source() -> None:
     assert {origin for origin, _, _ in copies if origin is not None} == {"uv"}
 
 
+def test_normalized_metadata_is_checked_before_frozen_installation() -> None:
+    """Exact dependency inputs must pass an offline freshness check before copying."""
+    instructions = _instructions(_stages(), "dependency-manifests")
+    normalize_index, normalize_words = _command(instructions, "python", "/docker/dependency_manifest.py")
+    check_index, check_words = _command(instructions, "uv", "lock")
+
+    assert normalize_index == check_index
+    uv_position = check_words.index("uv")
+    assert check_words[uv_position - 1] == "&&"
+    assert {"--check", "--offline"} <= set(check_words[uv_position:])
+    assert _values(normalize_words[:uv_position], "--output") == {"/opt/boxmot-dependencies"}
+    assert _values(check_words[uv_position:], "--directory") == {"/opt/boxmot-dependencies"}
+
+
 @pytest.mark.parametrize("target", PROFILES)
 def test_dependency_stages_consume_only_normalized_metadata(target: str) -> None:
     """Only normalized files cross into dependency builders; no raw metadata layers do."""
@@ -89,7 +103,8 @@ def test_dependency_stages_consume_only_normalized_metadata(target: str) -> None
     copies = [copy for copy in _copies(instructions) if copy[0] != "uv"]
     assert copies == [("dependency-manifests", ("/opt/boxmot-dependencies/",), "./")]
     _, words = _command(instructions, "uv", "sync")
-    assert {"--locked", "--no-dev"} <= set(words)
+    assert {"--frozen", "--no-dev"} <= set(words)
+    assert "--locked" not in words
     assert _values(words, "--no-install-package") == {"boxmot"}
     extras, groups = PROFILES[target]
     assert _values(words, "--extra") == extras

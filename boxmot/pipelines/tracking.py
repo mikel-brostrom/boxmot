@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from copy import deepcopy
 from dataclasses import dataclass, field, replace
+from types import MappingProxyType
+from typing import TYPE_CHECKING
 
 from boxmot.detectors.protocols import Detector
 from boxmot.pipelines.perception import (
@@ -16,6 +20,9 @@ from boxmot.segmentors.protocols import Segmentor
 from boxmot.structures import Detections, Frame, Tracks
 from boxmot.trackers.common.protocols import Tracker, TrackerRequirements
 
+if TYPE_CHECKING:
+    from boxmot.attributes import AttributeEnricher, AttributeResult
+
 
 @dataclass(frozen=True, slots=True)
 class PipelineResult:
@@ -23,6 +30,11 @@ class PipelineResult:
 
     detections: Detections
     tracks: Tracks
+    attributes: Mapping[int, AttributeResult] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Detach completed attributes from the session's mutable cache."""
+        object.__setattr__(self, "attributes", MappingProxyType(deepcopy(dict(self.attributes))))
 
 
 def _validated_requirements(tracker: Tracker) -> TrackerRequirements:
@@ -52,6 +64,7 @@ class TrackingPipeline:
     segmentor: Segmentor | None = None
     reid: AppearanceEncoder | None = None
     outputs: PipelineOutputs = PipelineOutputs()
+    attributes: AttributeEnricher | None = None
     _perception: PerceptionPipeline = field(init=False, repr=False)
     _requirements: TrackerRequirements = field(init=False, repr=False)
     _perception_requirements: TrackerRequirements = field(init=False, repr=False)
@@ -168,7 +181,8 @@ class TrackingPipeline:
         self._sequence_is_set = True
         if frame.frame_index is not None:
             self._last_frame_index = frame.frame_index
-        return PipelineResult(detections=detections, tracks=tracks)
+        attributes = {} if self.attributes is None else self.attributes.update(frame, tracks)
+        return PipelineResult(detections=detections, tracks=tracks, attributes=attributes)
 
     def step_detections(self, frame: Frame, detections: Detections) -> PipelineResult:
         """Bind caller detections to the frame and advance tracking after enrichment."""
@@ -214,6 +228,8 @@ class TrackingPipeline:
     def reset(self) -> None:
         """Reset tracker and sequence-order state for a new stream."""
         self.tracker.reset()
+        if self.attributes is not None:
+            self.attributes.reset()
         self._sequence_id = None
         self._sequence_is_set = False
         self._last_frame_index = None

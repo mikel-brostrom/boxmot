@@ -13,6 +13,7 @@ remains a runtime choice.
 - `detectors/` describes detector models and named checkpoints.
 - `reid/` describes reusable runtime ReID models.
 - `segmentors/` describes detection-aligned mask generators.
+- `attributes/` describes Ollama/vLLM models, prompts, and schemas for track attributes.
 - `trackers/<tracker>.yaml` contains tracker runtime defaults and tuning search spaces.
 - `trackers/presets/` contains reusable tracker overrides.
 - `runtime.yaml` contains shared tracking-workflow defaults.
@@ -51,4 +52,5 @@ supplied; research always requires an existing build.
 - [Detectors](detectors.md)
 - [ReID Profiles](reid.md)
 - [Masks and segmentors](../tasks/masks.md)
+- [Track Attributes](attributes.md)
 - [Tracker YAMLs](trackers.md)

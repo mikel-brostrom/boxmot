@@ -1,5 +1,5 @@
 version = 1
-revision = 4
+revision = 3
 requires-python = ">=3.10, <3.14"
 resolution-markers = [
     "python_full_version >= '3.13' and sys_platform == 'darwin'",
@@ -399,6 +399,11 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+attributes = [
+    { name = "httpx" },
+    { name = "jsonschema" },
+    { name = "referencing" },
+]
 coreml = [
     { name = "coremltools" },
     { name = "psutil" },
@@ -516,6 +521,113 @@ test = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-xdist" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "ai-edge-litert", marker = "extra == 'edgetam-export'", specifier = ">=2.1.2" },
+    { name = "ai-edge-litert", marker = "extra == 'tflite'", specifier = ">=2.1.0" },
+    { name = "bayesian-optimization", marker = "extra == 'evolve'", specifier = "==2.0.4" },
+    { name = "click", specifier = ">=8.1.8" },
+    { name = "coremltools", marker = "extra == 'coreml'", specifier = "==9.0" },
+    { name = "fastapi", marker = "extra == 'service'", specifier = ">=0.135.1,<1.0.0" },
+    { name = "filelock", marker = "extra == 'service-gpu'", specifier = ">=3.13.1,<4.0.0" },
+    { name = "filterpy", specifier = ">=1.4.5,<2.0.0" },
+    { name = "gdown", specifier = ">=5.1.0,<6.0.0" },
+    { name = "gepa", extras = ["full"], marker = "extra == 'research'", specifier = ">=0.1.1" },
+    { name = "httpx", marker = "extra == 'attributes'", specifier = ">=0.27.0,<1.0.0" },
+    { name = "huggingface-hub", specifier = ">=1.7.1" },
+    { name = "hyperopt", marker = "extra == 'evolve'", specifier = ">=0.2.7" },
+    { name = "jsonschema", marker = "extra == 'attributes'", specifier = ">=4.23.0,<5.0.0" },
+    { name = "lapcpp", specifier = ">=1.0.0,<2.0.0" },
+    { name = "litert-torch", marker = "extra == 'tflite'", specifier = "==0.9.1" },
+    { name = "loguru", marker = "extra == 'yolo'", specifier = ">=0.7.2,<1.0.0" },
+    { name = "matplotlib", marker = "extra == 'evolve'", specifier = ">=3.8.0,<4.0.0" },
+    { name = "numpy", specifier = ">=2.2.0" },
+    { name = "onnx", marker = "extra == 'edgetam-export'", specifier = ">=1.20.1" },
+    { name = "onnx", marker = "extra == 'onnx'", specifier = "==1.20.1" },
+    { name = "onnxruntime", marker = "extra == 'onnx'", specifier = "==1.24.3" },
+    { name = "onnxscript", marker = "extra == 'onnx'", specifier = ">=0.1.0" },
+    { name = "onnxslim", marker = "extra == 'onnx'", specifier = ">=0.1.67" },
+    { name = "opencv-python", specifier = "==4.11.0.86" },
+    { name = "openvino", marker = "extra == 'openvino'", specifier = ">=2025.2.0" },
+    { name = "optuna", marker = "extra == 'evolve'", specifier = "==3.5.0" },
+    { name = "packaging", marker = "extra == 'service-gpu'", specifier = ">=23.0,<27.0.0" },
+    { name = "pandas", specifier = ">=2.0.0,<3.0.0" },
+    { name = "platformdirs", specifier = ">=4.3.0,<5.0.0" },
+    { name = "plotly", marker = "extra == 'evolve'", specifier = "==5.19.0" },
+    { name = "psutil", marker = "extra == 'coreml'", specifier = ">=5.9.5,<8.0.0" },
+    { name = "pyarrow", specifier = ">=18.0.0,<24.0.0" },
+    { name = "pycocotools", marker = "extra == 'mots'", specifier = ">=2.0.7,<3.0.0" },
+    { name = "pydantic", marker = "extra == 'evolve'", specifier = ">=2.5.0,<2.12.0" },
+    { name = "pydantic", marker = "extra == 'service'", specifier = ">=2.5.0,<2.12.0" },
+    { name = "ray", extras = ["tune"], marker = "extra == 'evolve'", specifier = "==2.52.1" },
+    { name = "referencing", marker = "extra == 'attributes'", specifier = ">=0.35.0,<1.0.0" },
+    { name = "rich", specifier = ">=15.0.0" },
+    { name = "scikit-learn", specifier = ">=1.3.0,<2.0.0" },
+    { name = "scipy", marker = "extra == 'evolve'", specifier = ">=1.11.0,<2.0.0" },
+    { name = "seaborn", marker = "extra == 'evolve'", specifier = ">=0.13.0,<1.0.0" },
+    { name = "threadpoolctl", specifier = ">=3.6.0,<4.0.0" },
+    { name = "timm", specifier = ">=1.0.15,<2.0.0" },
+    { name = "torch", specifier = ">=2.2.1,<3.0.0" },
+    { name = "torch", marker = "extra == 'cpu'", specifier = ">=2.2.1,<3.0.0", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "boxmot", extra = "cpu" } },
+    { name = "torch", marker = "extra == 'cu130'", specifier = ">=2.2.1,<3.0.0", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "boxmot", extra = "cu130" } },
+    { name = "torchvision", specifier = ">=0.17.1,<1.0.0" },
+    { name = "torchvision", marker = "extra == 'cpu'", specifier = ">=0.17.1,<1.0.0", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "boxmot", extra = "cpu" } },
+    { name = "torchvision", marker = "extra == 'cu130'", specifier = ">=0.17.1,<1.0.0", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "boxmot", extra = "cu130" } },
+    { name = "tqdm", specifier = ">=4.67.1,<5.0.0" },
+    { name = "trackeval", marker = "extra == 'trackeval'", specifier = "==1.3.0" },
+    { name = "transformers", marker = "extra == 'rtdetr'", specifier = ">=5.0.0" },
+    { name = "typing-extensions", specifier = ">=4.12.2,<5.0.0" },
+    { name = "ultralytics", marker = "extra == 'yolo'", specifier = ">=8.4.58" },
+    { name = "uvicorn", marker = "extra == 'service'", specifier = ">=0.44.0,<1.0.0" },
+    { name = "yolox", marker = "extra == 'yolo'", specifier = "==0.3.0" },
+]
+provides-extras = ["cpu", "cu130", "trackeval", "mots", "attributes", "service", "service-gpu", "yolo", "evolve", "research", "onnx", "coreml", "openvino", "tflite", "edgetam-export", "rtdetr"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "ipykernel", specifier = ">=6.29.5,<7.0.0" },
+    { name = "pre-commit", specifier = ">=4.0.1" },
+]
+docs = [
+    { name = "mkdocs", specifier = ">=1.6.1,<2.0.0" },
+    { name = "mkdocs-autorefs", specifier = ">=1.4.4,<2.0.0" },
+    { name = "mkdocs-click", specifier = ">=0.9.0,<1.0.0" },
+    { name = "mkdocs-gen-files", specifier = ">=0.6.0,<0.6.1" },
+    { name = "mkdocs-include-markdown-plugin", specifier = ">=7.1.6,<8.0.0" },
+    { name = "mkdocs-literate-nav", specifier = ">=0.6.2,<0.6.3" },
+    { name = "mkdocs-material", specifier = ">=9.7.7,<10.0.0" },
+    { name = "mkdocs-section-index", specifier = ">=0.3.10,<0.3.11" },
+    { name = "mkdocstrings", specifier = ">=1.0.3,<2.0.0" },
+    { name = "mkdocstrings-python", specifier = ">=2.0.3,<3.0.0" },
+    { name = "ruff", specifier = ">=0.12.0,<1.0.0" },
+]
+edgetam = [
+    { name = "edgetam", url = "https://github.com/facebookresearch/EdgeTAM/archive/7711e012a30a2402c4eaab637bdb00a521302c91.tar.gz" },
+    { name = "setuptools", specifier = ">=61.0" },
+]
+mask-guidance = [
+    { name = "edgetam", url = "https://github.com/facebookresearch/EdgeTAM/archive/7711e012a30a2402c4eaab637bdb00a521302c91.tar.gz" },
+    { name = "setuptools", specifier = ">=61.0" },
+]
+service-runtime = [
+    { name = "fastapi", specifier = ">=0.135.1,<1.0.0" },
+    { name = "lapcpp", specifier = ">=1.0.0,<2.0.0" },
+    { name = "numpy", specifier = ">=2.2.0" },
+    { name = "opencv-python-headless", specifier = "==4.11.0.86" },
+    { name = "pydantic", specifier = ">=2.5.0,<2.12.0" },
+    { name = "pyyaml", specifier = ">=6.0.0,<7.0.0" },
+    { name = "rich", specifier = ">=15.0.0" },
+    { name = "scipy", specifier = ">=1.11.0,<2.0.0" },
+    { name = "torch", specifier = ">=2.2.1,<3.0.0", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "boxmot", group = "service-runtime" } },
+    { name = "torchvision", specifier = ">=0.17.1,<1.0.0", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "boxmot", group = "service-runtime" } },
+    { name = "uvicorn", specifier = ">=0.44.0,<1.0.0" },
+]
+test = [
+    { name = "pytest", specifier = ">=8.0.2,<10.0.0" },
+    { name = "pytest-cov", specifier = ">=6.0.0,<7.0.0" },
+    { name = "pytest-xdist", specifier = ">=3.8.0,<4.0.0" },
 ]
 
 [[package]]
@@ -1343,6 +1455,44 @@ dependencies = [
     { name = "tqdm" },
 ]
 sdist = { hash = "sha256:9449e738d35a41d978989874532aee0b79d2ba14400d9ca0a8de3abeddc0d22e" }
+
+[package.metadata]
+requires-dist = [
+    { name = "black", marker = "extra == 'dev'", specifier = "==24.2.0" },
+    { name = "coremltools", marker = "extra == 'coreml'", specifier = ">=8.0.0" },
+    { name = "eva-decord", marker = "extra == 'gradio'", specifier = "==0.6.1" },
+    { name = "eva-decord", marker = "extra == 'notebooks'", specifier = ">=0.6.1" },
+    { name = "fvcore", marker = "extra == 'dev'", specifier = ">=0.1.5.post20221221" },
+    { name = "gradio", marker = "extra == 'gradio'", specifier = "==4.44.0" },
+    { name = "gradio-client", marker = "extra == 'gradio'", specifier = "==1.3.0" },
+    { name = "gradio-image-prompter", marker = "extra == 'gradio'", specifier = "==0.1.0" },
+    { name = "hydra-core", specifier = ">=1.3.2" },
+    { name = "iopath", specifier = ">=0.1.10" },
+    { name = "jupyter", marker = "extra == 'notebooks'", specifier = ">=1.0.0" },
+    { name = "matplotlib", marker = "extra == 'notebooks'", specifier = ">=3.9.1" },
+    { name = "moviepy", marker = "extra == 'gradio'", specifier = "==1.0.3" },
+    { name = "numpy", specifier = ">=1.24.4" },
+    { name = "opencv-python", marker = "extra == 'dev'", specifier = ">=4.7.0" },
+    { name = "opencv-python", marker = "extra == 'gradio'", specifier = "==4.10.0.84" },
+    { name = "opencv-python", marker = "extra == 'notebooks'", specifier = ">=4.7.0" },
+    { name = "pandas", marker = "extra == 'dev'", specifier = ">=2.2.2" },
+    { name = "pillow", specifier = ">=9.4.0" },
+    { name = "pillow", marker = "extra == 'coreml'", specifier = ">=9.4.0" },
+    { name = "pycocotools", marker = "extra == 'dev'", specifier = ">=2.0.8" },
+    { name = "pydantic", marker = "extra == 'gradio'", specifier = "==2.10.6" },
+    { name = "scikit-image", marker = "extra == 'dev'", specifier = ">=0.24.0" },
+    { name = "submitit", marker = "extra == 'dev'", specifier = ">=1.5.1" },
+    { name = "tensorboard", marker = "extra == 'dev'", specifier = ">=2.17.0" },
+    { name = "tensordict", marker = "extra == 'dev'", specifier = ">=0.5.0" },
+    { name = "timm", marker = "extra == 'coreml'", specifier = "==1.0.15" },
+    { name = "timm", marker = "extra == 'gradio'", specifier = "==1.0.15" },
+    { name = "torch", specifier = ">=2.3.1" },
+    { name = "torchvision", specifier = ">=0.18.1" },
+    { name = "tqdm", specifier = ">=4.66.1" },
+    { name = "ufmt", marker = "extra == 'dev'", specifier = "==2.0.0b2" },
+    { name = "usort", marker = "extra == 'dev'", specifier = "==1.0.2" },
+]
+provides-extras = ["notebooks", "dev", "gradio", "coreml"]
 
 [[package]]
 name = "exceptiongroup"

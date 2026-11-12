@@ -1,11 +1,30 @@
 # Docker images
 
+[`compose.attributes.yaml`](compose.attributes.yaml) can run the complete CPU
+pipeline: a BoxMOT container for detection, tracking, and rendering, plus vLLM
+for attributes. Start a Linux webcam preview from the repository root:
+
+```bash
+./docker/webcam.sh
+```
+
+The launcher creates output directories, configures your user, model cache,
+camera, and display, then builds and starts both containers. It asks for your
+sudo password only if Docker requires it. Settings can be overridden with
+environment variables, for example `VIDEO_DEVICE=/dev/video2 ./docker/webcam.sh`.
+See the
+[full Compose setup](../docs/integrations/docker.md#tracking-and-vllm-with-compose)
+for video files, settings, and persistent inputs, models, and outputs.
+
+To run only Ollama or vLLM and keep BoxMOT on the host, use the
+[attribute server setup](../docs/config/attributes.md#docker-compose).
+
 BoxMOT uses one shared multi-stage Dockerfile for four independently built
 images. CI publishes CPU images; build GPU images locally with the targets below:
 
 | Target | BoxMOT v24 tag | Rolling tag | Contents |
 | --- | --- | --- | --- |
-| `cli-gpu` | Local build only | — | Full detector, ReID, CLI, and evaluation stack with CUDA 13.0 PyTorch |
+| `cli-gpu` | Local build only | — | Full detector, ReID, attribute client, CLI, and evaluation stack with CUDA 13.0 PyTorch |
 | `cli-cpu` | `boxmot/boxmot:24.0.0-cpu` | `boxmot/boxmot:latest-cpu` | The same full stack with CPU-only PyTorch |
 | `service-cpu` | `boxmot/boxmot-service:24.0.0` | `boxmot/boxmot-service:latest` | Non-root CPU geometry-only detection-to-track HTTP service |
 | `service-gpu` | Local build only | — | Non-root CUDA/ReID detection-to-track HTTP service |
@@ -58,11 +77,13 @@ rebuild the shared native libraries and the CLI wheel.
 
 The dependency preparation stage copies the canonical `pyproject.toml` and
 `uv.lock`, verifies their BoxMOT versions agree, and normalizes only the local
-project version in those temporary copies. CPU and CUDA dependency stages
-consume those copies with `uv sync --locked`; all dependency constraints,
-markers, sources, and artifact hashes are preserved. Version-only releases
-therefore reuse the same dependency inputs. Actual dependency changes still
-invalidate the corresponding layers.
+project version in those temporary copies. It validates those exact copies with
+`uv lock --check --offline`, rejecting stale locks before installation. CPU and
+CUDA dependency stages then consume the validated copies with `uv sync --frozen`.
+This avoids online metadata builds for unselected URL dependencies such as
+EdgeTAM. All dependency constraints, markers, sources, and artifact hashes are
+preserved. Version-only releases therefore reuse the same dependency inputs.
+Actual dependency changes still invalidate the corresponding layers.
 
 The CLI wheel is built separately from the original release metadata. Each CLI
 runtime first copies its dependency environment, then installs only that wheel

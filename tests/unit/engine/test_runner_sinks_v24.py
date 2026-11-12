@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from io import StringIO
 from types import SimpleNamespace
 
@@ -246,6 +247,127 @@ def test_default_save_and_show_render_once_and_share_the_same_image(
     assert runner.summary is not None
     assert runner.summary.frames == 1
     assert runner.summary.interrupted is True
+
+
+@pytest.mark.parametrize("failing_operation", ["imshow", "waitKey"])
+@pytest.mark.parametrize("error_code", [sink_module.cv2.Error.StsNotImplemented, sink_module.cv2.Error.StsError])
+def test_headless_preview_warns_once_and_keeps_saving_video_and_json(
+    monkeypatch,
+    tmp_path,
+    failing_operation: str,
+    error_code: int,
+) -> None:
+    """Missing HighGUI support must not terminate an otherwise valid run."""
+    calls: list[str] = []
+    warnings: list[str] = []
+    written: list[np.ndarray] = []
+    released: list[bool] = []
+
+    def unavailable() -> None:
+        error = sink_module.cv2.error(
+            "The function is not implemented. Rebuild the library with Windows, GTK+ 2.x or Cocoa support."
+        )
+        error.code = error_code
+        raise error
+
+    def show(_name: str, _image: np.ndarray) -> None:
+        calls.append("imshow")
+        if failing_operation == "imshow":
+            unavailable()
+
+    def wait_key(_delay: int) -> int:
+        calls.append("waitKey")
+        unavailable()
+        return -1
+
+    def destroy(_name: str) -> None:
+        calls.append("destroyWindow")
+        unavailable()
+
+    class Writer:
+        def __init__(self, *_args) -> None:
+            pass
+
+        def isOpened(self) -> bool:
+            return True
+
+        def write(self, image: np.ndarray) -> None:
+            written.append(image)
+
+        def release(self) -> None:
+            released.append(True)
+
+    monkeypatch.setattr(sink_module.cv2, "VideoWriter", Writer)
+    monkeypatch.setattr(sink_module.cv2, "VideoWriter_fourcc", lambda *_codec: 0)
+    monkeypatch.setattr(sink_module.cv2, "imshow", show)
+    monkeypatch.setattr(sink_module.cv2, "waitKey", wait_key)
+    monkeypatch.setattr(sink_module.cv2, "destroyWindow", destroy)
+    monkeypatch.setattr(sink_module.LOGGER, "warning", lambda message: warnings.append(message))
+    configured_sinks, video_path, _mot_path, json_path = workflow._default_sinks(
+        SimpleNamespace(
+            project=tmp_path,
+            name="headless-preview",
+            save=True,
+            show=True,
+            save_txt=False,
+            save_json=True,
+            fps=30.0,
+            line_width=2,
+        )
+    )
+    source = _Source([_frame(f"a{index}", "a", index) for index in range(3)])
+    runner = TrackingRunner(source, _Pipeline(), sinks=configured_sinks)  # type: ignore[arg-type]
+
+    output = list(runner.run())
+
+    assert [frame.sample_id for frame, _result in output] == ["a0", "a1", "a2"]
+    assert calls == (
+        ["imshow"] if failing_operation == "imshow" else ["imshow", "waitKey", "destroyWindow"]
+    )
+    assert len(warnings) == 1
+    assert video_path == tmp_path / "headless-preview" / "tracks.mp4"
+    assert len(written) == 3
+    assert all(image.shape == (8, 10, 3) for image in written)
+    assert released == [True]
+    assert json_path is not None
+    rows = [json.loads(line) for line in json_path.read_text(encoding="utf-8").splitlines()]
+    assert [row["sample_id"] for row in rows] == ["a0", "a1", "a2"]
+    assert all(row["tracks"][0]["track_id"] == 3 for row in rows)
+    assert source.closed
+    assert runner.summary is not None
+    assert runner.summary.frames == 3
+    assert runner.summary.interrupted is False
+
+
+@pytest.mark.parametrize("failing_operation", ["imshow", "waitKey", "destroyWindow"])
+@pytest.mark.parametrize("error_code", [sink_module.cv2.Error.StsBadArg, sink_module.cv2.Error.StsError])
+def test_display_sink_preserves_unexpected_opencv_errors(
+    monkeypatch,
+    failing_operation: str,
+    error_code: int,
+) -> None:
+    """Bad inputs and other OpenCV failures are not missing-GUI fallbacks."""
+    error = sink_module.cv2.error("Unexpected OpenCV failure")
+    error.code = error_code
+    warnings: list[str] = []
+
+    def fail(*_args) -> None:
+        raise error
+
+    monkeypatch.setattr(sink_module.cv2, "imshow", lambda *_args: None)
+    monkeypatch.setattr(sink_module.cv2, "waitKey", lambda _delay: -1)
+    monkeypatch.setattr(sink_module.cv2, "destroyWindow", lambda _name: None)
+    monkeypatch.setattr(sink_module.cv2, failing_operation, fail)
+    monkeypatch.setattr(sink_module.LOGGER, "warning", lambda message: warnings.append(message))
+    sink = DisplaySink()
+    frame = _frame("a0", "a", 0)
+
+    with pytest.raises(sink_module.cv2.error) as caught:
+        sink.write(frame, _result(frame))
+        sink.close()
+
+    assert caught.value is error
+    assert warnings == []
 
 
 def test_text_sinks_serialize_only_at_the_engine_boundary() -> None:

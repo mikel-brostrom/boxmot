@@ -18,6 +18,7 @@ from boxmot.pipelines import PipelineResult
 from boxmot.structures import Boxes, Detections, Frame
 
 if TYPE_CHECKING:
+    from boxmot.engine.tracking.attributes import AttributeRun
     from boxmot.engine.tracking.workflow import TrackRun
     from boxmot.engine.ui.workflow.pipeline import PipelineTracker
 
@@ -68,6 +69,7 @@ def run_prompted_track(
     source: FrameSource | None = None,
     sinks: tuple[TrackSink, ...] | None = None,
     ui_pipeline: PipelineTracker | None = None,
+    attribute_run: AttributeRun | None = None,
 ) -> TrackRun:
     """Prompt each sequence, propagate masks, and share rendered output with sinks."""
     from boxmot.engine.tracking.workflow import TrackRun, _default_sinks
@@ -129,6 +131,8 @@ def run_prompted_track(
                 sequence = frame.sequence_id or "prompted-source"
                 if sequence != active_sequence or frame.image_size != active_size:
                     tracker.reset()
+                    if attribute_run is not None:
+                        attribute_run.enricher.reset()
                     window.controller.reset(live=bool(frame.source_uri and frame.source_uri.startswith("camera:")))
                     active_sequence, active_size = sequence, frame.image_size
                     sequence_count += 1
@@ -151,8 +155,14 @@ def run_prompted_track(
                 detections = _empty_detections(frame)
                 tracks = tracker.update(detections, frame=frame)
                 window.controller.commit()
-                result = PipelineResult(detections, tracks)
-                image = render_result(frame, result, line_width=int(getattr(args, "line_width", 2) or 2))
+                attributes = {} if attribute_run is None else attribute_run.enricher.update(frame, tracks)
+                result = PipelineResult(detections, tracks, attributes)
+                if attribute_run is not None:
+                    attribute_run.poll()
+                image = render_result(
+                    frame, result, line_width=int(getattr(args, "line_width", 2) or 2),
+                    show_labels=bool(getattr(args, "show_labels", True)),
+                )
                 for sink in sinks:
                     write_rendered = getattr(sink, "write_rendered", None)
                     if callable(write_rendered):
@@ -166,7 +176,10 @@ def run_prompted_track(
                 )
                 timings.append(FrameTiming(frame.sample_id, (time.perf_counter() - frame_started) * 1000))
                 if ui_pipeline is not None:
-                    ui_pipeline.update(f"Processed {frame_count} frame(s) • {frame.sample_id}")
+                    detail = f"Processed {frame_count} frame(s) • {frame.sample_id}"
+                    if attribute_run is not None:
+                        detail += f"\n{attribute_run.status_summary}"
+                    ui_pipeline.update(detail)
                 window.show_result(image)
                 if window.controller.quit:
                     interrupted = True

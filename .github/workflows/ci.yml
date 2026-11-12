@@ -735,6 +735,7 @@ jobs:
             --extra yolo \
             --extra evolve \
             --extra service \
+            --extra attributes \
             --extra mots \
             --group test
       - name: EdgeTAM prompt tracking contracts (headless)

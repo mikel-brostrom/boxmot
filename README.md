@@ -367,6 +367,64 @@ the dataset declares a `poses` modality. If poses are unavailable, omit
 coordinates. A NumPy camera projection can also be passed with a frame that
 provides its image dimensions; use `CameraModel` when no frame is supplied.
 
+## Track Attributes with Ollama, vLLM, and Infistar
+
+<table>
+  <thead>
+    <tr>
+      <th>Provider</th>
+      <th>Description</th>
+      <th>Pros</th>
+      <th>Cons</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td align="center">
+        <a href="https://ollama.com">
+          <picture>
+            <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/ollama/ollama/main/docs/images/logo-dark.png">
+            <img src="https://raw.githubusercontent.com/ollama/ollama/main/docs/images/logo.png" alt="Ollama" height="48">
+          </picture>
+        </a>
+      </td>
+      <td>Easily run vision models locally, with straightforward installation, model downloads, and API access.</td>
+      <td>Simple setup; images stay on your machine when using local models.</td>
+      <td>Large models need substantial RAM/VRAM and disk space; speed depends on your hardware.</td>
+    </tr>
+    <tr>
+      <td align="center">
+        <a href="https://vllm.ai">
+          <picture>
+            <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/vllm-project/media-kit/main/vLLM-Full-Dark-Mode-Logo.svg">
+            <img src="https://raw.githubusercontent.com/vllm-project/media-kit/main/vLLM-Full-Logo.svg" alt="vLLM" height="48">
+          </picture>
+        </a>
+      </td>
+      <td>Serve vision-language models on your own infrastructure, with more configuration options for handling many requests efficiently.</td>
+      <td>Efficient batching for concurrent requests; control over models and infrastructure.</td>
+      <td>More setup, tuning, and maintenance; you provide the hardware to run the models.</td>
+    </tr>
+    <tr>
+      <td align="center">
+        <a href="https://infistar.ai">
+          <img src="https://infistar.ai/logo.png" alt="Infistar" height="48">
+        </a>
+      </td>
+      <td>Connect to compatible hosted vision models through Infistar's OpenAI-compatible API.</td>
+      <td>Managed API access without hosting model weights or GPU servers.</td>
+      <td>API usage costs; requires internet access and sends track crops to an external service.</td>
+    </tr>
+  </tbody>
+</table>
+
+Add clothing, footwear, and pose descriptions to person tracks with
+**Ollama**, **vLLM**, or **Infistar**. Display attributes alongside track IDs
+and export structured JSON results.
+
+See the [Track Attributes guide](docs/config/attributes.md) for setup,
+configuration, and examples.
+
 ## License
 
 BoxMOT is licensed under the [GNU Affero General Public License v3 (AGPL-3.0)](LICENSE).

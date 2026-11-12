@@ -31,7 +31,11 @@ FROM build-base AS dependency-manifests
 
 COPY docker/dependency_manifest.py /docker/dependency_manifest.py
 COPY pyproject.toml uv.lock ./
-RUN python /docker/dependency_manifest.py --output /opt/boxmot-dependencies
+# Check the exact normalized inputs offline before dependency stages install
+# them with --frozen. Online --locked refreshes even unselected URL packages
+# such as EdgeTAM, whose metadata backend needs an installed build environment.
+RUN python /docker/dependency_manifest.py --output /opt/boxmot-dependencies \
+    && uv lock --check --offline --directory /opt/boxmot-dependencies
 
 
 FROM build-base AS cli-build-base
@@ -85,11 +89,12 @@ COPY --from=dependency-manifests /opt/boxmot-dependencies/ ./
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync \
-        --locked \
+        --frozen \
         --no-dev \
         --no-install-package boxmot \
         --extra yolo \
         --extra trackeval \
+        --extra attributes \
         --extra cu130
 
 
@@ -99,11 +104,12 @@ COPY --from=dependency-manifests /opt/boxmot-dependencies/ ./
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync \
-        --locked \
+        --frozen \
         --no-dev \
         --no-install-package boxmot \
         --extra yolo \
         --extra trackeval \
+        --extra attributes \
         --extra cpu
 
 
@@ -113,7 +119,7 @@ COPY --from=dependency-manifests /opt/boxmot-dependencies/ ./
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync \
-        --locked \
+        --frozen \
         --no-dev \
         --no-install-package boxmot \
         --only-group service-runtime
@@ -127,7 +133,7 @@ COPY --from=dependency-manifests /opt/boxmot-dependencies/ ./
 # cu130 activates the locked CUDA PyTorch source. BoxMOT runs from copied source.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync \
-        --locked \
+        --frozen \
         --no-dev \
         --no-install-package boxmot \
         --extra service \

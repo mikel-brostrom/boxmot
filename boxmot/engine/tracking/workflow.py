@@ -51,6 +51,7 @@ class TrackRun:
     video_path: Path | None = None
     mot_path: Path | None = None
     json_path: Path | None = None
+    attributes_path: Path | None = None
 
 
 def _classes(value: object) -> tuple[int, ...] | None:
@@ -247,6 +248,7 @@ def _default_sinks(
     needs_directory = any(bool(getattr(args, name, False)) for name in ("save", "save_txt", "save_json"))
     output = _output_directory(args) if needs_directory else None
     line_width = int(getattr(args, "line_width", 2) or 2)
+    show_labels = bool(getattr(args, "show_labels", True))
     if bool(getattr(args, "save", False)):
         assert output is not None
         video_path = output / "tracks.mp4"
@@ -254,20 +256,25 @@ def _default_sinks(
             video_path,
             fps=float(getattr(args, "fps", None) or 30.0),
             line_width=line_width,
+            show_labels=show_labels,
         )
     if bool(getattr(args, "show", False)):
-        display_sink = DisplaySink(line_width=line_width)
+        display_sink = DisplaySink(line_width=line_width, show_labels=show_labels)
     if video_sink is not None and display_sink is not None:
         sinks.append(
             SharedRenderingSink(
                 (video_sink, display_sink),
                 line_width=line_width,
+                show_labels=show_labels,
                 guidance_mask_provider=guidance_mask_provider,
             )
         )
     elif video_sink is not None:
         sinks.append(
-            SharedRenderingSink((video_sink,), line_width=line_width, guidance_mask_provider=guidance_mask_provider)
+            SharedRenderingSink(
+                (video_sink,), line_width=line_width, show_labels=show_labels,
+                guidance_mask_provider=guidance_mask_provider,
+            )
             if guidance_mask_provider is not None
             else video_sink
         )
@@ -283,7 +290,10 @@ def _default_sinks(
         sinks.append(JsonLinesSink(json_path))
     if display_sink is not None and video_sink is None:
         sinks.append(
-            SharedRenderingSink((display_sink,), line_width=line_width, guidance_mask_provider=guidance_mask_provider)
+            SharedRenderingSink(
+                (display_sink,), line_width=line_width, show_labels=show_labels,
+                guidance_mask_provider=guidance_mask_provider,
+            )
             if guidance_mask_provider is not None
             else display_sink
         )
@@ -302,9 +312,11 @@ def run_track(
     source: FrameSource | str | Path | int | None = None,
     sinks: tuple[TrackSink, ...] | None = None,
     ui_pipeline: PipelineTracker | None = None,
+    attributes: Any | None = None,
+    attributes_host: str | None = None,
     **options: Any,
 ) -> TrackRun:
-    """Track using keyword options or prepared args, with optional component instances."""
+    """Track with optional components and a server override for attribute configs."""
 
     if isinstance(detector, (str, Path)):
         options["detector"] = detector
@@ -319,18 +331,69 @@ def run_track(
         options["source"] = source
         source = None
     args = resolve_mode_args("track", args, options)
+    reference = attributes if attributes is not None else getattr(args, "attributes", None)
+    host = attributes_host if attributes_host is not None else getattr(args, "attributes_host", None)
+    if host is not None:
+        if reference is None:
+            raise ValueError("attributes_host requires an attribute profile or config via attributes.")
+        if not isinstance(reference, Mapping) and callable(getattr(reference, "update", None)):
+            raise ValueError("attributes_host cannot override a caller-owned attribute enricher.")
+        from boxmot.attributes.config import resolve_attribute_config
+
+        reference = replace(resolve_attribute_config(reference), host=host)
+    perception_explicit = any(options.get(name) is not None for name in ("detector", "segmentor", "reid"))
+    if reference is None:
+        return _run_track(
+            args, detector=detector, segmentor=segmentor, encoder=encoder,
+            tracker=tracker, source=source, sinks=sinks, ui_pipeline=ui_pipeline,
+            perception_explicit=perception_explicit,
+        )
+    from boxmot.engine.tracking.attributes import AttributeRun
+
+    with AttributeRun(
+        reference,
+        _output_directory(args),
+        progress=ui_pipeline.update if ui_pipeline is not None else None,
+    ) as attribute_run:
+        result = _run_track(
+            args, detector=detector, segmentor=segmentor, encoder=encoder,
+            tracker=tracker, source=source, sinks=sinks, ui_pipeline=ui_pipeline,
+            attribute_run=attribute_run, perception_explicit=perception_explicit,
+        )
+        interrupted = attribute_run.finish(cancel=result.summary.interrupted)
+        return replace(
+            result, attributes_path=attribute_run.path,
+            summary=replace(result.summary, interrupted=result.summary.interrupted or interrupted),
+        )
+
+
+def _run_track(
+    args: Any,
+    *,
+    detector: Detector | None = None,
+    segmentor: Segmentor | None = None,
+    encoder: AppearanceEncoder | None = None,
+    tracker: Tracker | None = None,
+    source: FrameSource | None = None,
+    sinks: tuple[TrackSink, ...] | None = None,
+    ui_pipeline: PipelineTracker | None = None,
+    attribute_run: Any | None = None,
+    perception_explicit: bool = False,
+) -> TrackRun:
+    """Assemble tracking while the caller owns optional attribute resources."""
     from boxmot.trackers.edgetam.tracker import EdgeTAM
 
     if getattr(args, "tracker", None) == "edgetam" or isinstance(tracker, EdgeTAM):
         if edgetam_checkpoint(args) is not None:
             raise ValueError("EdgeTAM prompt tracking cannot be combined with detector-based mask guidance.")
-        if any(component is not None for component in (detector, segmentor, encoder)) or any(
-            options.get(name) is not None for name in ("detector", "segmentor", "reid")
-        ):
+        if any(component is not None for component in (detector, segmentor, encoder)) or perception_explicit:
             raise ValueError("EdgeTAM prompt tracking does not use detector, segmentor, or ReID components.")
         from boxmot.engine.tracking.prompted import run_prompted_track
 
-        return run_prompted_track(args, tracker=tracker, source=source, sinks=sinks, ui_pipeline=ui_pipeline)
+        return run_prompted_track(
+            args, tracker=tracker, source=source, sinks=sinks, ui_pipeline=ui_pipeline,
+            attribute_run=attribute_run,
+        )
     profiler = RuntimeProfiler()
     startup_timings_ms: dict[str, float] = {}
     requested_geometry = str(getattr(args, "geometry", "auto") or "auto")
@@ -465,13 +528,17 @@ def run_track(
             segmentor=segmentor,
             reid=encoder,
             outputs=PipelineOutputs(masks=segmentor_reference is not None),
+            attributes=None if attribute_run is None else attribute_run.enricher,
         )
     if ui_pipeline is not None:
         ui_pipeline.advance("Processing frames…")
 
     def _progress(frame_count: int, frame: Any, _result: Any) -> None:
         if ui_pipeline is not None:
-            ui_pipeline.update(f"Processed {frame_count} frame(s) • {frame.sample_id}")
+            detail = f"Processed {frame_count} frame(s) • {frame.sample_id}"
+            if attribute_run is not None:
+                detail += f"\n{attribute_run.status_summary}"
+            ui_pipeline.update(detail)
 
     runner = TrackingRunner(
         source,
@@ -480,6 +547,7 @@ def run_track(
         progress=_progress if ui_pipeline is not None else None,
         profiler=profiler,
         startup_timings_ms=startup_timings_ms,
+        attribute_run=attribute_run,
     )
     for _frame, _result in runner.run():
         pass
@@ -501,7 +569,11 @@ def main(args: Any) -> TrackRun:
         with suppress_boxmot_logs(True, level="WARNING"):
             result = run_track(args, ui_pipeline=pipeline)
         output_dir = next(
-            (path.parent for path in (result.video_path, result.mot_path, result.json_path) if path is not None),
+            (
+                path.parent
+                for path in (result.video_path, result.mot_path, result.json_path, result.attributes_path)
+                if path is not None
+            ),
             None,
         )
         pipeline.finish(reporter.result(result), exp_dir=output_dir)
