@@ -345,7 +345,8 @@ Every attribute run requires PostgreSQL for its queue and retained results;
 the Compose workflow starts the database automatically.
 
 See the [Track Attributes guide](docs/config/attributes.md) for setup,
-configuration, and examples.
+configuration, and examples. To run detection, ReID, and the VLM on NVIDIA GPUs,
+use the [GPU Compose setup](docs/integrations/docker.md#gpu-detection-reid-and-vlm-inference).
 
 ## License
 

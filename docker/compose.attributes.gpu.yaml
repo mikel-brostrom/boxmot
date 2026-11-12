@@ -1,0 +1,97 @@
+# NVIDIA inference override; combine with compose.attributes.yaml (Compose >=2.24.4).
+# docker compose -f docker/compose.attributes.yaml -f docker/compose.attributes.gpu.yaml up --build --abort-on-container-exit --exit-code-from boxmot boxmot
+services:
+  boxmot:
+    build:
+      target: cli-gpu
+    image: boxmot/boxmot:compose-gpu
+    depends_on: !override
+      postgres:
+        condition: service_healthy
+      vllm-gpu:
+        condition: service_healthy
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${BOXMOT_GPU_ID:-0}"]
+              capabilities: [gpu]
+    entrypoint:
+      - boxmot
+      - track
+      - --detector
+      - ${BOXMOT_DETECTOR:-yolo26n}
+      - --tracker
+      - ${BOXMOT_TRACKER:-botsort}
+      - --reid
+      - ${BOXMOT_REID:-osnet-x0-25-msmt17}
+      - --device
+      # The selected host GPU is the only GPU exposed inside this container.
+      - "0"
+      - --attributes
+      # Reuse the small-model preset; the server determines the inference device.
+      - person-appearance-vllm-cpu
+      - --attributes-host
+      - http://vllm-gpu:8000
+      - --save
+      - --save-json
+      - --project
+      - /opt/boxmot/runs/${BOXMOT_RUN_NAME:-compose-gpu}
+
+  # Keep --profile track from starting both model servers on the same host port.
+  vllm-cpu:
+    profiles: !override [vllm-cpu]
+
+  vllm-gpu:
+    profiles: [vllm-gpu, track]
+    image: ${VLLM_GPU_IMAGE:-vllm/vllm-openai:latest}
+    shm_size: "2gb"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${VLLM_GPU_ID:-0}"]
+              capabilities: [gpu]
+    ports:
+      - "127.0.0.1:${VLLM_PORT:-8001}:8000"
+    volumes:
+      - "${HF_CACHE_DIR:-${HOME}/.cache/huggingface}:/root/.cache/huggingface"
+    entrypoint: [vllm, serve]
+    command:
+      - Qwen/Qwen3.5-0.8B
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --dtype
+      - auto
+      - --enforce-eager
+      # Leave memory for detector/ReID models when both containers share a GPU.
+      - --gpu-memory-utilization
+      - "${VLLM_GPU_MEMORY_UTILIZATION:-0.5}"
+      - --max-model-len
+      - "2048"
+      - --max-num-batched-tokens
+      - "2048"
+      - --max-num-seqs
+      - "1"
+      - --mm-processor-cache-gb
+      - "0"
+      - --mm-processor-kwargs
+      - '{"images_kwargs":{"size":{"shortest_edge":65536,"longest_edge":262144}}}'
+      - --limit-mm-per-prompt
+      - '{"image":1,"video":0}'
+      - --reasoning-parser
+      - qwen3
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).close()"
+      interval: 10s
+      timeout: 5s
+      start_period: 30m
+      retries: 3

@@ -1,5 +1,5 @@
-# Matches the vllm-cpu service in docker/compose.attributes.yaml.
-# Select BoxMOT's tracking device separately.
+# Shared small-model preset for the vllm-cpu and vllm-gpu Compose services.
+# The server selects VLM hardware; select BoxMOT's tracking device separately.
 id: person-appearance-vllm-cpu
 backend: vllm
 model: Qwen/Qwen3.5-0.8B

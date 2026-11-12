@@ -16,6 +16,8 @@ a vLLM server and PostgreSQL. Detection and inference use the CPU; the default
 models are YOLO26n and `Qwen/Qwen3.5-0.8B`, with ByteTrack for tracking. Python dependencies are installed
 inside the images, so the host only needs Docker and
 [Docker Compose](https://docs.docker.com/compose/install/).
+For CUDA detection, ReID, and VLM inference, use the
+[GPU override](#gpu-detection-reid-and-vlm-inference).
 
 Run the following commands from a repository checkout. Stop any manually started
 server occupying port `8001` first. PostgreSQL uses loopback port `5432`; set
@@ -80,6 +82,76 @@ the host. The CPU profile sends the first eligible crop immediately, with its
 longest side limited to 640 pixels and no storyboard padding. Attribute labels
 appear after the first model response; latency depends on the CPU and available RAM.
 
+### GPU detection, ReID, and VLM inference
+
+Layer
+[`docker/compose.attributes.gpu.yaml`](https://github.com/mikel-brostrom/boxmot/blob/master/docker/compose.attributes.gpu.yaml)
+over the base file to build the BoxMOT `cli-gpu` image and start `vllm-gpu`
+alongside PostgreSQL. The defaults use YOLO26n detection and OSNet ReID on CUDA,
+BoT-SORT tracking, and `Qwen/Qwen3.5-0.8B` on vLLM. The CPU stack and
+`./docker/webcam.sh` remain CPU workflows.
+
+The host needs an NVIDIA driver compatible with the BoxMOT image's CUDA 13.0
+PyTorch build, the NVIDIA Container Toolkit, and
+[Docker Compose GPU support](https://docs.docker.com/compose/how-tos/gpu-support/).
+Use Compose 2.24.4 or newer: the overlay uses
+[`!override`](https://docs.docker.com/reference/compose-file/merge/#replace-value)
+to replace CPU dependencies and profiles. Stop an existing CPU stack before
+switching; the CPU and GPU model services publish the same host port.
+
+From the repository root, prepare a video and start the GPU stack:
+
+```bash
+mkdir -p data models runs "$HOME/.cache/huggingface"
+cp /path/to/video.mp4 data/video.mp4
+
+sudo env BOXMOT_UID="$(id -u)" BOXMOT_GID="$(id -g)" \
+  HF_CACHE_DIR="$HOME/.cache/huggingface" \
+  docker compose -f docker/compose.attributes.yaml \
+  -f docker/compose.attributes.gpu.yaml up --build \
+  --abort-on-container-exit --exit-code-from boxmot boxmot
+```
+
+The BoxMOT container connects to `http://vllm-gpu:8000` and reuses
+`person-appearance-vllm-cpu`. That profile selects the small model and crop
+settings; the server determines where VLM inference runs. Detection and ReID
+use `--device 0` inside the BoxMOT container. Inputs, caches, outputs, and
+PostgreSQL storage use the same mounts as the CPU workflow; GPU outputs default
+to `runs/compose-gpu/exp/`.
+
+Pass these variables after `sudo env` to customize GPU allocation:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `BOXMOT_GPU_ID` | `0` | Host GPU exposed to BoxMOT for detection and ReID. |
+| `VLLM_GPU_ID` | `0` | Host GPU exposed to the VLM server. |
+| `VLLM_GPU_MEMORY_UTILIZATION` | `0.5` | Fraction of GPU memory budgeted by vLLM. |
+| `VLLM_GPU_IMAGE` | `vllm/vllm-openai:latest` | vLLM GPU server image. |
+
+Both containers share GPU 0 by default. The `0.5` setting is a vLLM memory
+budget, not GPU isolation; available VRAM must also fit detection, ReID, and
+other GPU workloads. With two GPUs, set `BOXMOT_GPU_ID=0 VLLM_GPU_ID=1`.
+Each container sees one GPU, so the BoxMOT client still uses `--device 0`.
+
+For a Linux webcam preview, add the webcam override last from your desktop
+terminal. This manual command uses GPU inference:
+
+```bash
+mkdir -p data models runs "$HOME/.cache/huggingface"
+video_device="${VIDEO_DEVICE:-/dev/video0}"
+
+sudo env BOXMOT_UID="$(id -u)" BOXMOT_GID="$(id -g)" \
+  HF_CACHE_DIR="$HOME/.cache/huggingface" DISPLAY="$DISPLAY" \
+  VIDEO_DEVICE="$video_device" VIDEO_GID="$(stat -c '%g' "$video_device")" \
+  docker compose -f docker/compose.attributes.yaml \
+  -f docker/compose.attributes.gpu.yaml -f docker/compose.webcam.yaml \
+  up --build --abort-on-container-exit --exit-code-from boxmot boxmot
+```
+
+The same X11 access and preview controls described
+[above](#show-a-linux-webcam-preview) apply. Use both the base and GPU Compose
+files for subsequent `logs` or `down` commands.
+
 ### Settings and logs
 
 Set environment variables before the launcher to adjust a run:
@@ -92,11 +164,11 @@ For the manual video-file command, pass these variables after `sudo env`.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `BOXMOT_RUN_NAME` | `compose` | Results go to `runs/<name>/exp/`; choose a new name for each run to preserve earlier outputs. |
+| `BOXMOT_RUN_NAME` | `compose` (`compose-gpu` with the GPU override) | Results go to `runs/<name>/exp/`; choose a new name for each run to preserve earlier outputs. |
 | `BOXMOT_INPUT_DIR` | `../data` | Host input directory, relative to the Compose file; use an absolute path for another location. |
 | `BOXMOT_SOURCE` | `/inputs/video.mp4`, or `0` with the webcam override | Source path or camera index inside the container. |
 | `BOXMOT_DETECTOR` | `yolo26n` | Detector profile, or path to existing weights inside the container. |
-| `BOXMOT_TRACKER` | `bytetrack` | Tracker name. |
+| `BOXMOT_TRACKER` | `bytetrack` (`botsort` with the GPU override) | Tracker name. |
 | `BOXMOT_REID` | `osnet-x0-25-msmt17` | ReID profile for trackers that use it. |
 | `VIDEO_DEVICE` | `/dev/video0` | Host webcam mapped to `/dev/video0`; the launcher detects its device group. |
 | `HF_CACHE_DIR` | `$HOME/.cache/huggingface` with the launcher | Host Hugging Face model cache. |

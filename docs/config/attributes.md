@@ -183,7 +183,8 @@ access and `--show` when using these server-only commands. To run BoxMOT in a
 container with Ollama or vLLM CPU, follow
 [Choose an attribute provider](../integrations/docker.md#choose-an-attribute-provider).
 The [full Docker Compose workflow](../integrations/docker.md#tracking-and-vllm-with-compose)
-also covers a Linux webcam preview with vLLM.
+also covers a Linux webcam preview with vLLM. For GPU detection, ReID, and VLM
+inference, add the [GPU Compose override](../integrations/docker.md#gpu-detection-reid-and-vlm-inference).
 Start PostgreSQL and one model backend by their service names. The commands
 below use the local development database defaults from
 [Configure PostgreSQL](#configure-postgresql).

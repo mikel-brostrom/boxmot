@@ -17,6 +17,14 @@ See the
 [full Compose setup](../docs/integrations/docker.md#tracking-and-vllm-with-compose)
 for video files, settings, and persistent inputs, models, and outputs.
 
+For GPU inference, layer
+[`compose.attributes.gpu.yaml`](compose.attributes.gpu.yaml) over the base
+Compose file. It builds `cli-gpu`, runs YOLO26n and OSNet ReID on CUDA with
+BoT-SORT tracking, and starts a GPU vLLM server plus PostgreSQL. It requires
+Compose 2.24.4 or newer, a compatible NVIDIA driver, and NVIDIA Container
+Toolkit. See the [GPU video and webcam commands](../docs/integrations/docker.md#gpu-detection-reid-and-vlm-inference)
+for setup and GPU selection. The webcam launcher above continues to use the CPU.
+
 For a BoxMOT container using Ollama or vLLM CPU, see
 [Choose an attribute provider](../docs/integrations/docker.md#choose-an-attribute-provider).
 
