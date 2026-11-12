@@ -32,8 +32,7 @@ FROM build-base AS dependency-manifests
 COPY docker/dependency_manifest.py /docker/dependency_manifest.py
 COPY pyproject.toml uv.lock ./
 # Check the exact normalized inputs offline before dependency stages install
-# them with --frozen. Online --locked refreshes even unselected URL packages
-# such as EdgeTAM, whose metadata backend needs an installed build environment.
+# them with --frozen, without refreshing unselected URL dependencies.
 RUN python /docker/dependency_manifest.py --output /opt/boxmot-dependencies \
     && uv lock --check --offline --directory /opt/boxmot-dependencies
 
