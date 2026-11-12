@@ -4,7 +4,7 @@ Use the CLI images to run tracking and batch workflows in a container. For
 stateful HTTP tracking from external detections, use the separate
 [service deployment guide](../guides/deployment.md).
 
-For video tracking with Ollama, vLLM CPU, OpenAI, Anthropic, or Infistar attributes, see
+For video tracking with Ollama, vLLM CPU, OpenAI, or Anthropic attributes, see
 [Choose an attribute provider](#choose-an-attribute-provider).
 
 ## Tracking and vLLM with Compose
@@ -165,9 +165,8 @@ before retrying. Raising the request timeout does not make inference faster.
 ## Choose an attribute provider
 
 `docker/compose.attributes.yaml` provides PostgreSQL plus local Ollama and vLLM
-CPU servers. Every attribute run needs PostgreSQL. OpenAI, Anthropic, and
-Infistar are hosted model APIs, so those options run only BoxMOT and PostgreSQL
-locally.
+CPU servers. Every attribute run needs PostgreSQL. OpenAI and Anthropic are
+hosted model APIs, so those options run only BoxMOT and PostgreSQL locally.
 The commands below run detection and tracking on the CPU and process a video
 file. For the existing vLLM webcam workflow, use the
 [Linux webcam launcher](#show-a-linux-webcam-preview).
@@ -178,17 +177,10 @@ file. For the existing vLLM webcam workflow, use the
 | [vLLM](https://vllm.ai) CPU (x86-64) | `person-appearance-vllm-cpu` | `http://vllm-cpu:8000` |
 | [OpenAI](https://developers.openai.com/) | `person-appearance-openai` | `https://api.openai.com/v1` |
 | [Anthropic](https://platform.claude.com/) | `person-appearance-anthropic` | `https://api.anthropic.com/v1` |
-| [Infistar](https://www.infistar.cc/register?aff=VSCF47E6&ref_source=link) | `person-appearance-infistar` | `https://infistar.ai/v1` |
 
 ### Prepare the image and input
 
 Run these examples from the repository root as your Docker-enabled user.
-For Infistar, first replace `REPLACE_WITH_YOUR_VISION_MODEL_ID` in
-`boxmot/configs/attributes/person-appearance-infistar.yaml` with an exact model
-ID available to your API key. Follow the
-[Infistar setup](../config/attributes.md#run-with-infistar) to select a model
-supporting image inputs and JSON output. Profiles are packaged into the
-image, so rebuild it after changing the model ID.
 
 ```bash
 export COMPOSE_FILE=docker/compose.attributes.yaml
@@ -278,25 +270,6 @@ sends track crops to Anthropic and keeps the queue and results in local PostgreS
 See [Anthropic setup](../config/attributes.md#run-with-anthropic) for model and schema
 configuration. No local model server is needed.
 
-### Infistar
-
-With the configured model ID included in the image, start PostgreSQL, then export
-the key and pass it to the BoxMOT container:
-
-```bash
-export INFISTAR_API_KEY='YOUR_INFISTAR_API_KEY'
-docker compose up -d --wait postgres
-
-docker compose run --rm --no-deps \
-  -e INFISTAR_API_KEY --entrypoint boxmot boxmot track \
-  --source /inputs/video.mp4 --detector yolo26n --tracker bytetrack --device cpu \
-  --attributes person-appearance-infistar \
-  --save --save-json --project /opt/boxmot/runs/infistar
-```
-
-The client sends track crops to Infistar's HTTPS endpoint and uses the local
-PostgreSQL database for its queue and results. No local model server is needed.
-
 ### Results and shutdown
 
 These commands override the Compose service's entrypoint to select the
@@ -306,9 +279,9 @@ PostgreSQL and any selected local model service explicitly. See the
 [Compose run reference](https://docs.docker.com/reference/cli/docker/compose/run/).
 
 Annotated video, `tracks.jsonl`, and `attributes.jsonl` are saved in an `exp/`
-run directory under `runs/ollama/`, `runs/vllm/`, `runs/openai/`,
-`runs/anthropic/`, or `runs/infistar/`. Choose a different `--name` or `--project`
-to preserve outputs from repeated runs.
+run directory under `runs/ollama/`, `runs/vllm/`, `runs/openai/`, or
+`runs/anthropic/`. Choose a different `--name` or `--project` to preserve outputs
+from repeated runs.
 The BoxMOT container is removed when
 the command finishes; any server started with `up -d` stays running.
 

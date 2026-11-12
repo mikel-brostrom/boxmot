@@ -111,7 +111,7 @@ available mask overlays.
 
 ## Describe track attributes
 
-Add background Ollama, vLLM, OpenAI, Anthropic, or Infistar analysis with a
+Add background Ollama, vLLM, OpenAI, or Anthropic analysis with a
 built-in profile or your own YAML:
 
 ```bash
@@ -121,9 +121,7 @@ boxmot track --source video.mp4 --attributes person-appearance-ollama --save --s
 The example profile describes visible clothing, footwear, and pose. For vLLM,
 use `--attributes person-appearance-vllm`. For OpenAI, set `OPENAI_API_KEY` and use
 `--attributes person-appearance-openai`. For Anthropic, set `ANTHROPIC_API_KEY`
-and use `--attributes person-appearance-anthropic`. For Infistar, configure the model ID
-in `person-appearance-infistar.yaml`, set `INFISTAR_API_KEY`, and use
-`--attributes person-appearance-infistar`. Install the `attributes` extra and
+and use `--attributes person-appearance-anthropic`. Install the `attributes` extra and
 prepare your selected model service and PostgreSQL database before running.
 Set `BOXMOT_ATTRIBUTES_DATABASE_URL` in the tracking environment; see
 [Track Attributes](../config/attributes.md) for setup and custom schemas.

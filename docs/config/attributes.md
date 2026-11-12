@@ -1,12 +1,11 @@
 # Track Attributes
 
 Use [Ollama](https://ollama.com), [vLLM](https://vllm.ai),
-[OpenAI](https://developers.openai.com/), [Anthropic](https://platform.claude.com/),
-or [Infistar](https://www.infistar.cc/register?aff=VSCF47E6&ref_source=link) to describe visible
-properties of each track while BoxMOT continues tracking. The optional attribute
-enricher sends one crop or combines chronological crops of one track into a
-storyboard, then validates the model's answer against your JSON Schema. Track
-identities and observation metadata remain application-owned.
+[OpenAI](https://developers.openai.com/), or [Anthropic](https://platform.claude.com/)
+to describe visible properties of each track while BoxMOT continues tracking.
+The optional attribute enricher sends one crop or combines chronological crops
+of one track into a storyboard, then validates the model's answer against your
+JSON Schema. Track identities and observation metadata remain application-owned.
 Every attribute run requires PostgreSQL for its queue, latest values, and result
 history, including runs that use a hosted model service.
 
@@ -21,11 +20,9 @@ Choose a model service and pass its matching profile to `--attributes`:
 | [vLLM on x86-64 CPU (Docker)](#vllm-on-x86-64-cpu) | `person-appearance-vllm-cpu` | `Qwen/Qwen3.5-0.8B` | `http://127.0.0.1:8001` |
 | [OpenAI hosted API](#run-with-openai) | `person-appearance-openai` | `gpt-6-luna` | `https://api.openai.com/v1` |
 | [Anthropic hosted API](#run-with-anthropic) | `person-appearance-anthropic` | `claude-haiku-5-5` | `https://api.anthropic.com/v1` |
-| [Infistar hosted API](#run-with-infistar) | `person-appearance-infistar` | Your selected vision model ID | `https://infistar.ai/v1` |
 
-All six profiles are included in `boxmot/configs/attributes/`. OpenAI and Anthropic
-read `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`, respectively. For Infistar, set the
-template's model ID and `INFISTAR_API_KEY` as shown in its setup section.
+All five profiles are included in `boxmot/configs/attributes/`. OpenAI and Anthropic
+read `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`, respectively.
 Attribute profiles select the model service; use `--device` separately to select
 the device for detection and tracking.
 
@@ -56,10 +53,6 @@ uv run --no-sync python -m boxmot.engine.cli track \
 # Anthropic (after setting ANTHROPIC_API_KEY)
 uv run --no-sync python -m boxmot.engine.cli track \
   --source 0 --attributes person-appearance-anthropic --show --save --save-json
-
-# Infistar (after setting the template's model ID and the API key)
-uv run --no-sync python -m boxmot.engine.cli track \
-  --source 0 --attributes person-appearance-infistar --show --save --save-json
 ```
 
 `--source 0` selects your webcam; replace `0` with a video path to process a
@@ -247,80 +240,6 @@ output, and invalid responses produce failure events and retain the track's last
 valid attributes. See [Customize a profile](#customize-a-profile) for authentication,
 output formats, and schema restrictions.
 
-## Run with Infistar
-
-[Infistar's API](https://doc.infistar.ai/en/api-overview) accepts OpenAI-compatible
-Chat Completions requests at `https://infistar.ai/v1/chat/completions`.
-BoxMOT connects through its `vllm` client; Infistar runs the model service, so
-you do not need a local vLLM installation. The
-[PostgreSQL database](#configure-postgresql) is still required.
-
-[Register with Infistar](https://www.infistar.cc/register?aff=VSCF47E6&ref_source=link),
-create an API key in **Console → Token Management**, and set it in
-the shell that will run BoxMOT. List the models available to that key:
-
-```bash
-export INFISTAR_API_KEY='YOUR_INFISTAR_API_KEY'
-curl --fail --silent --show-error https://infistar.ai/v1/models \
-  -H "Authorization: Bearer $INFISTAR_API_KEY"
-```
-
-Choose an exact `data[].id` from the response. Check that the model supports
-Chat Completions, image inputs, and JSON mode in
-[Infistar's model catalog](https://infistar.ai/pricing).
-[Listing a model](https://doc.infistar.ai/en/api-reference/models) confirms access,
-but does not guarantee those capabilities. BoxMOT sends a JPEG crop or storyboard as a
-base64 `image_url` and sets `temperature: 0`, so the selected route must accept
-that image format and sampling setting.
-
-In a source checkout, open
-`boxmot/configs/attributes/person-appearance-infistar.yaml` and replace
-`REPLACE_WITH_YOUR_VISION_MODEL_ID` in its `model` field with the exact model ID.
-The packaged template already includes these connection settings and describes
-the same appearance fields as the other provider profiles:
-
-```yaml
-backend: vllm
-host: https://infistar.ai/v1
-model: REPLACE_WITH_YOUR_VISION_MODEL_ID
-api_key_env: INFISTAR_API_KEY
-response_format: json_object
-think: null
-```
-
-`response_format: json_object` selects the
-[JSON mode documented by Infistar](https://doc.infistar.ai/en/integration-guides/advanced-features).
-BoxMOT includes the schema in the prompt and validates the returned JSON locally.
-`think: null` omits vLLM's model-specific `chat_template_kwargs` option.
-The API key stays in the named environment variable; do not put it in the YAML.
-The client sends an explicit JSON instruction in the system message and uses
-`image_url` content for the JPEG, as described in Infistar's
-[vision and JSON guidance](https://doc.infistar.ai/en/integration-guides/advanced-features).
-
-For rate limits and temporary server failures, BoxMOT honors a valid
-`Retry-After` header before retrying the affected batch. Infistar documents
-this behavior in its
-[rate-limit guidance](https://doc.infistar.ai/troubleshooting/rate-limits-concurrency).
-
-After setting the model ID and exporting the API key, try a short video from
-the repository root before a longer run:
-
-```bash
-uv run --no-sync python -m boxmot.engine.cli track \
-  --source video.mp4 --attributes person-appearance-infistar --save --save-json
-```
-
-This sends track crops to Infistar. Inspect `attributes.jsonl` in the run
-directory for completed results or request errors. The profile analyzes COCO
-person tracks and collects up to five crops per request. See
-[Sampling and completion](#sampling-and-completion) for when analysis starts.
-
-For a package installation or a separate custom configuration, copy the full
-`person-appearance-infistar.yaml` template, remove its `id`, set its `model`,
-and pass the copy's path to `--attributes`. YAML model names are literal strings;
-`api_key_env` is the field that reads an environment variable. The model
-placeholder must be replaced before the profile can run.
-
 ## Docker Compose
 
 The repository includes
@@ -329,7 +248,7 @@ for PostgreSQL and CPU model servers. Install
 [Docker Compose](https://docs.docker.com/compose/install/), then run the commands
 below from the repository root. Keep BoxMOT in your host environment for webcam
 access and `--show` when using these server-only commands. To run BoxMOT in a
-container with Ollama, vLLM CPU, OpenAI, Anthropic, or Infistar, follow
+container with Ollama, vLLM CPU, OpenAI, or Anthropic, follow
 [Choose an attribute provider](../integrations/docker.md#choose-an-attribute-provider).
 The [full Docker Compose workflow](../integrations/docker.md#tracking-and-vllm-with-compose)
 also covers a Linux webcam preview with vLLM.

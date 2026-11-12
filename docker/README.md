@@ -17,7 +17,7 @@ See the
 [full Compose setup](../docs/integrations/docker.md#tracking-and-vllm-with-compose)
 for video files, settings, and persistent inputs, models, and outputs.
 
-For a BoxMOT container using Ollama, vLLM CPU, OpenAI, Anthropic, or Infistar, see
+For a BoxMOT container using Ollama, vLLM CPU, OpenAI, or Anthropic, see
 [Choose an attribute provider](../docs/integrations/docker.md#choose-an-attribute-provider).
 
 To run PostgreSQL and Ollama or vLLM while keeping BoxMOT on the host, use the

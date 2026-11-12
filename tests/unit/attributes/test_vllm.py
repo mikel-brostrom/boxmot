@@ -133,9 +133,9 @@ def test_api_base_and_bearer_auth(monkeypatch, host, expected):
     assert "private-test-token" not in requests[0].content.decode()
 
 
-def test_infistar_json_object_request_with_bearer_auth(monkeypatch):
+def test_json_object_request_with_bearer_auth(monkeypatch):
     """Hosted JSON mode uses vision messages without vLLM-only request options."""
-    monkeypatch.setenv("INFISTAR_API_KEY", "private-test-token")
+    monkeypatch.setenv("ATTRIBUTE_TEST_TOKEN", "private-test-token")
     requests = []
 
     def handler(request):
@@ -144,15 +144,15 @@ def test_infistar_json_object_request_with_bearer_auth(monkeypatch):
 
     _transport(monkeypatch, handler)
     config = _config(
-        host="https://infistar.ai/v1",
+        host="https://vision.example/v1",
         model="test-vision-model",
-        api_key_env="INFISTAR_API_KEY",
+        api_key_env="ATTRIBUTE_TEST_TOKEN",
         response_format="json_object",
         think=None,
     )
     assert _extract(VLLMBackend(config)) == {"color": "red"}
     request = requests[0]
-    assert str(request.url) == "https://infistar.ai/v1/chat/completions"
+    assert str(request.url) == "https://vision.example/v1/chat/completions"
     assert request.headers["Authorization"] == "Bearer private-test-token"
     assert "private-test-token" not in request.content.decode()
     payload = json.loads(request.content)
