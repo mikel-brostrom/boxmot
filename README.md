@@ -52,27 +52,28 @@ tuning, research, and ReID workflows.
 
 ## Installation
 
-BoxMOT supports Python `3.10` through `3.13`.
+Requires Python `3.10`–`3.13`.
+
+Install from PyPI:
 
 ```bash
 pip install boxmot "ultralytics>=8.4.58"
 boxmot --help
 ```
 
-This installs BoxMOT and the Ultralytics detector backend used below. For
-tracking existing detections through the Python API, `pip install boxmot` is
-enough. See [Installation](docs/getting-started/installation.md) for optional
-workflows and [PyTorch and source setup](docs/getting-started/pytorch.md) for
-CPU/CUDA profiles and YOLOX.
-
-For CUDA materialization, measure and apply detector/ReID batch sizes with:
+Or, from a source checkout, run in the repository root:
 
 ```bash
-boxmot materialize --experiment mot17/ablation-yolox-lmbn.yaml --device cuda:0 --auto-batch
+pip install "uv==0.12.4"
+uv sync --extra cpu --extra yolo
+uv run --no-sync python -m boxmot.engine.cli --help
 ```
 
-See [automatic GPU batch sizing](docs/modes/materialize.md#automatic-gpu-batch-sizing)
-for supported backends, memory limits, and sizing one stage at a time.
+Replace `--extra cpu` with `--extra cu130` for CUDA 13.0.
+
+See [installation options](docs/getting-started/installation.md),
+[source and CPU/CUDA setup](docs/getting-started/pytorch.md), and
+[GPU batch sizing](docs/modes/materialize.md#automatic-gpu-batch-sizing).
 
 ## Benchmark Results
 
@@ -247,54 +248,18 @@ Related guides:
 
 ## Minimal Usage
 
-The [mode guides](https://mikel-brostrom.github.io/boxmot/modes/) provide
-toggleable **CLI** and **Python** examples for tracking, materialization,
-evaluation, tuning, research, ReID training, and export. Python workflow
-functions accept settings directly as keyword arguments.
-
-Select a command, detector, ReID model, tracker, and other settings interactively:
+Choose a workflow and settings with the [terminal UI](docs/modes/ui.md):
 
 ```bash
 boxmot ui
 ```
 
-The [terminal UI](docs/modes/ui.md) previews the command before you run it and
-enables an interactive dashboard for workflows that report live progress.
-
-To track objects you select yourself, choose `track` and tracker `edgetam` in
-the launcher. Its video window accepts bounding boxes or foreground/background
-points, then propagates object masks and IDs. See the
-[EdgeTAM setup and controls](docs/trackers/edgetam.md).
-
-To evaluate EdgeTAM by prompting each pedestrian at its first fully visible,
-in-frame ground-truth box, use
-`boxmot eval --dataset mot17-mini --tracker edgetam --prompt-source first-visible`.
-See the [prompted evaluation protocol](docs/trackers/edgetam.md#evaluate-first-visible-people)
-for visibility requirements, object capacity, and scoring.
-
-CLI:
+Track a webcam from the CLI:
 
 ```bash
 boxmot track --detector yolo26n --reid lmbn_n_duke --tracker occluboost \
   --source 0 --save --show
 ```
-
-Evaluate a tracker:
-
-```bash
-boxmot eval \
-  --dataset mot17 \
-  --split ablation \
-  --detector yolox-x-mot17 \
-  --reid lmbn-n-duke \
-  --tracker botsort
-```
-
-Python trackers except SFSORT, plus native ByteTrack, BotSort, OcSort, and
-OccluBoost, support opt-in capture timing with `--variable-dt` or
-`KalmanConfig(variable_dt=True)`. The Python API requires a timestamp on every
-update. SFSORT uses fixed steps on both backends. See
-[elapsed-time tracking](https://mikel-brostrom.github.io/boxmot/python/#elapsed-time).
 
 Python with axis-aligned boxes (AABB):
 
@@ -304,13 +269,14 @@ import numpy as np
 from boxmot import OccluBoost
 
 tracker = OccluBoost()
+# x1, y1, x2, y2, confidence, class_id
 dets = np.array([[100, 200, 300, 400, 0.9, 0]])
 frame = np.zeros((480, 640, 3), dtype=np.uint8)  # BGR image
 tracks = tracker.update(dets, frame)
 print(tracks[:, 4].astype(int))  # track IDs
 ```
 
-Python with oriented boxes (OBB):
+Python with [oriented boxes (OBB)](docs/tasks/obb.md):
 
 ```python
 import numpy as np
@@ -325,47 +291,10 @@ tracks = tracker.update(dets, frame)
 print(tracks[:, 5].astype(int))  # track IDs
 ```
 
-2D/3D sensor fusion with ego-motion compensation using [EagerMot](docs/trackers/eagermot.md):
-
-```python
-import numpy as np
-import torch
-
-from boxmot import EagerMot
-from boxmot.structures import CameraModel
-
-tracker = EagerMot()
-projection = torch.tensor([  # synthetic camera projection
-    [100, 0, 100, 0],
-    [0, 100, 50, 0],
-    [0, 0, 1, 0],
-], dtype=torch.float32)
-camera_to_world = torch.eye(4, dtype=torch.float32)
-camera_to_world[0, 3] = 1.0  # synthetic pose: camera at world x = 1 meter
-camera = CameraModel(
-    projection=projection,
-    image_size=(100, 200),  # height, width
-    camera_to_world=camera_to_world,
-)
-dets = np.array([[78, 39, 122, 62, 0.95, 0]])
-# 3D in camera coordinates: x, y, z, yaw, length, width, height, confidence, class_id
-dets_3d = np.array([[0, 1, 10, 0, 4, 2, 2, 0.9, 0]])
-
-tracks_2d, tracks_3d = tracker.update(
-    dets,
-    detections_3d=dets_3d,
-    camera=camera,
-)
-print(tracks_2d[:, 4].astype(int))  # image track IDs
-print(tracks_3d[:, 7].astype(int))  # 3D track IDs
-```
-
-Replace the synthetic pose with the current frame's absolute 4×4 camera-to-world
-transform on every update. KITTI evaluation loads these from `poses.npy` when
-the dataset declares a `poses` modality. If poses are unavailable, omit
-`CameraModel.camera_to_world` throughout the sequence to track in camera
-coordinates. A NumPy camera projection can also be passed with a frame that
-provides its image dimensions; use `CameraModel` when no frame is supplied.
+See the [mode guides](docs/modes/index.md) for more CLI and Python workflows.
+Advanced examples: [capture timing](docs/python/index.md#elapsed-time),
+[prompted tracking with EdgeTAM](docs/trackers/edgetam.md), and
+[2D/3D fusion with EagerMot](docs/trackers/eagermot.md).
 
 ## Track Attributes with Ollama, vLLM, and Infistar
 
@@ -411,8 +340,8 @@ provides its image dimensions; use `CameraModel` when no frame is supplied.
           <img src="https://infistar.ai/logo.png" alt="Infistar" height="48">
         </a>
       </td>
-      <td>Connect to compatible hosted vision models through Infistar's OpenAI-compatible API.</td>
-      <td>Managed API access without hosting model weights or GPU servers.</td>
+      <td>Infistar provides one API key for Claude, GPT, Gemini, Grok, DeepSeek and other vision models, with official upstream models and pricing up to 99% below official rates.</td>
+      <td>No large models or GPU servers to host yourself; managed API access with optimized networking.</td>
       <td>API usage costs; requires internet access and sends track crops to an external service.</td>
     </tr>
   </tbody>
