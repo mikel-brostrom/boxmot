@@ -25,7 +25,7 @@
 
   ---
 
-  [Docs](docs/index.md) • [Installation](docs/getting-started/installation.md) • [Modes](docs/modes/index.md) • [API Reference](docs/python/index.md) • [Trackers](docs/trackers/index.md) • [Datasets](docs/datasets/index.md) • [Contributing](CONTRIBUTING.md)
+  [Docs](docs/index.md) • [Installation](docs/getting-started/installation.md) • [Docker Compose](#docker-compose) • [Modes](docs/modes/index.md) • [API Reference](docs/python/index.md) • [Trackers](docs/trackers/index.md) • [Datasets](docs/datasets/index.md) • [Contributing](CONTRIBUTING.md)
 
   <img width="640"
        src="https://github.com/mikel-brostrom/boxmot/releases/download/v12.0.0/output_640.gif"
@@ -74,6 +74,22 @@ Replace `--extra cpu` with `--extra cu130` for CUDA 13.0.
 See [installation options](docs/getting-started/installation.md),
 [source and CPU/CUDA setup](docs/getting-started/pytorch.md), and
 [GPU batch sizing](docs/modes/materialize.md#automatic-gpu-batch-sizing).
+
+## Docker Compose
+
+Run detection, tracking, VLM attributes, and PostgreSQL together from a repository
+checkout. Python dependencies are installed inside the containers.
+
+| Execution | Compose files | Setup and commands |
+| --- | --- | --- |
+| CPU | [Base](docker/compose.attributes.yaml) | [CPU video workflow](docs/integrations/docker.md#process-a-video) |
+| NVIDIA GPU | [Base](docker/compose.attributes.yaml) + [GPU override](docker/compose.attributes.gpu.yaml) | [GPU detection, ReID, and VLM](docs/integrations/docker.md#gpu-detection-reid-and-vlm-inference) |
+
+The GPU override replaces the base file's CPU inference settings while reusing
+its PostgreSQL service and storage. For a Linux webcam preview, add the
+[webcam override](docker/compose.webcam.yaml); see the
+[CPU launcher](docs/integrations/docker.md#show-a-linux-webcam-preview) or the
+[GPU webcam command](docs/integrations/docker.md#gpu-detection-reid-and-vlm-inference).
 
 ## Benchmark Results
 
