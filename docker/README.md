@@ -16,6 +16,9 @@ See the
 [full Compose setup](../docs/integrations/docker.md#tracking-and-vllm-with-compose)
 for video files, settings, and persistent inputs, models, and outputs.
 
+For a BoxMOT container using Ollama, vLLM CPU, or Infistar, see
+[Choose an attribute provider](../docs/integrations/docker.md#choose-an-attribute-provider).
+
 To run only Ollama or vLLM and keep BoxMOT on the host, use the
 [attribute server setup](../docs/config/attributes.md#docker-compose).
 

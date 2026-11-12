@@ -111,15 +111,18 @@ available mask overlays.
 
 ## Describe track attributes
 
-Add background Ollama or vLLM analysis with a built-in profile or your own YAML:
+Add background Ollama, vLLM, or Infistar analysis with a built-in profile or your
+own YAML:
 
 ```bash
-boxmot track --source video.mp4 --attributes person-appearance --save --save-json
+boxmot track --source video.mp4 --attributes person-appearance-ollama --save --save-json
 ```
 
 The example profile describes visible clothing, footwear, and pose. For vLLM,
-use `--attributes person-appearance-vllm`. Install the `attributes` extra and
-prepare your model server before running; see
+use `--attributes person-appearance-vllm`. For Infistar, configure the model ID
+in `person-appearance-infistar.yaml`, set `INFISTAR_API_KEY`, and use
+`--attributes person-appearance-infistar`. Install the `attributes` extra and
+prepare your selected model service before running; see
 [Track Attributes](../config/attributes.md) for setup and custom schemas.
 This also works with prompted EdgeTAM tracks.
 

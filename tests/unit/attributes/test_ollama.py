@@ -7,11 +7,11 @@ import cv2
 import numpy as np
 import pytest
 
-import boxmot.attributes.http as attribute_http
+import boxmot.attributes.backends.http as attribute_http
+from boxmot.attributes.backends.ollama import OllamaBackend
 from boxmot.attributes.config import AttributeConfig
 from boxmot.attributes.errors import AttributeAnalysisError, TransientAttributeError
 from boxmot.attributes.models import AttributeSample
-from boxmot.attributes.ollama import OllamaBackend
 from boxmot.utils.config import ConfigurationError
 
 httpx = pytest.importorskip("httpx")

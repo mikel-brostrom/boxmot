@@ -6,6 +6,52 @@ enricher sends one crop or combines chronological crops of one track into a
 storyboard, then validates the model's answer against your JSON Schema. Track
 identities and observation metadata remain application-owned.
 
+## Attribute extraction options
+
+Choose a model service and pass its matching profile to `--attributes`:
+
+| Option and setup | `--attributes` value | Model in the example | Server URL |
+| --- | --- | --- | --- |
+| [Ollama](#run-with-ollama) | `person-appearance-ollama` | `qwen3.5:9b` | `http://localhost:11434` |
+| [vLLM on GPU](#run-with-vllm) | `person-appearance-vllm` | `Qwen/Qwen3.5-9B` | `http://localhost:8000` |
+| [vLLM on x86-64 CPU (Docker)](#vllm-on-x86-64-cpu) | `person-appearance-vllm-cpu` | `Qwen/Qwen3.5-0.8B` | `http://127.0.0.1:8001` |
+| [Infistar hosted API](#run-with-infistar) | `person-appearance-infistar` | Your selected vision model ID | `https://infistar.ai/v1` |
+
+All four profiles are included in `boxmot/configs/attributes/`. For Infistar,
+set the template's model ID and `INFISTAR_API_KEY` as shown in its setup section.
+Attribute profiles select the model service; use `--device` separately to select
+the device for detection and tracking.
+
+### Quick commands from a source checkout
+
+First [install the client dependencies](#install-the-client-dependencies) and
+complete the setup linked in the table. Keep the selected server running, then
+run one of these commands from the repository root:
+
+```bash
+# Ollama
+uv run --no-sync python -m boxmot.engine.cli track \
+  --source 0 --attributes person-appearance-ollama --show --save --save-json
+
+# vLLM on GPU
+uv run --no-sync python -m boxmot.engine.cli track \
+  --source 0 --attributes person-appearance-vllm --show --save --save-json
+
+# vLLM on CPU
+uv run --no-sync python -m boxmot.engine.cli track \
+  --source 0 --attributes person-appearance-vllm-cpu --show --save --save-json
+
+# Infistar (after setting the template's model ID and the API key)
+uv run --no-sync python -m boxmot.engine.cli track \
+  --source 0 --attributes person-appearance-infistar --show --save --save-json
+```
+
+`--source 0` selects your webcam; replace `0` with a video path to process a
+file. `--show` displays the preview, `--save` saves the annotated video, and
+`--save-json` adds track records with available attributes to `tracks.jsonl`.
+Every attribute-enabled run also writes `attributes.jsonl` in its run directory;
+see [Outputs](#outputs) for details about when results become available.
+
 ## Install the client dependencies
 
 Install the optional Python dependencies in your BoxMOT environment:
@@ -39,10 +85,10 @@ Install [Ollama](https://docs.ollama.com/quickstart) separately, start its serve
 
 ```bash
 ollama pull qwen3.5:9b
-boxmot track --source video.mp4 --attributes person-appearance --save --save-json
+boxmot track --source video.mp4 --attributes person-appearance-ollama --save --save-json
 ```
 
-The built-in `person-appearance` profile describes visible upper-body and leg
+The built-in `person-appearance-ollama` profile describes visible upper-body and leg
 clothing, footwear, headwear, carried items, and pose, with unknown values and
 confidence for each field. It uses
 [`qwen3.5:9b`](https://ollama.com/library/qwen3.5:9b) at
@@ -79,14 +125,14 @@ boxmot track --source video.mp4 --attributes person-appearance-vllm --save --sav
 
 The `person-appearance-vllm` profile uses `Qwen/Qwen3.5-9B` at
 `http://localhost:8000`, with the same appearance schema and person-class filter
-as `person-appearance`. The model name must match the model served by vLLM;
+as `person-appearance-ollama`. The model name must match the model served by vLLM;
 use a custom profile if you configure a different served model name.
 
 Both backends work with [prompted EdgeTAM](../trackers/edgetam.md):
 
 ```bash
 boxmot track --tracker edgetam --source video.mp4 \
-  --attributes person-appearance --save --save-json
+  --attributes person-appearance-ollama --save --save-json
 ```
 
 ## Run with Infistar
@@ -113,8 +159,11 @@ but does not guarantee those capabilities. BoxMOT sends a JPEG crop or storyboar
 base64 `image_url` and sets `temperature: 0`, so the selected route must accept
 that image format and sampling setting.
 
-Save this as `infistar-attributes.yaml`, replacing
-`REPLACE_WITH_YOUR_VISION_MODEL_ID` with the exact model ID:
+In a source checkout, open
+`boxmot/configs/attributes/person-appearance-infistar.yaml` and replace
+`REPLACE_WITH_YOUR_VISION_MODEL_ID` in its `model` field with the exact model ID.
+The packaged template already includes these connection settings and the same
+appearance schema as the other provider profiles:
 
 ```yaml
 backend: vllm
@@ -123,22 +172,6 @@ model: REPLACE_WITH_YOUR_VISION_MODEL_ID
 api_key_env: INFISTAR_API_KEY
 response_format: json_object
 think: null
-class_ids: [0]
-sample_every: 30
-batch_size: 1
-display_fields: [clothing, footwear, pose]
-prompt: >-
-  Describe only visible clothing, footwear, and pose of the tracked person.
-  Include clothing and footwear colors. Use Unknown for hidden or unclear
-  details. Return only the schema fields.
-schema:
-  type: object
-  additionalProperties: false
-  required: [clothing, footwear, pose]
-  properties:
-    clothing: {type: string}
-    footwear: {type: string}
-    pose: {type: string}
 ```
 
 `response_format: json_object` selects the
@@ -146,23 +179,33 @@ schema:
 BoxMOT includes the schema in the prompt and validates the returned JSON locally.
 `think: null` omits vLLM's model-specific `chat_template_kwargs` option.
 The API key stays in the named environment variable; do not put it in the YAML.
+The client sends an explicit JSON instruction in the system message and uses
+`image_url` content for the JPEG, as described in Infistar's
+[vision and JSON guidance](https://doc.infistar.ai/en/integration-guides/advanced-features).
 
-Try a short video with the selected vision model before a longer run:
+For rate limits and temporary server failures, BoxMOT honors a valid
+`Retry-After` header before retrying the affected batch. Infistar documents
+this behavior in its
+[rate-limit guidance](https://doc.infistar.ai/troubleshooting/rate-limits-concurrency).
+
+After setting the model ID and exporting the API key, try a short video from
+the repository root before a longer run:
 
 ```bash
-boxmot track --source video.mp4 --attributes infistar-attributes.yaml --save --save-json
+uv run --no-sync python -m boxmot.engine.cli track \
+  --source video.mp4 --attributes person-appearance-infistar --save --save-json
 ```
 
 This sends track crops to Infistar. Inspect `attributes.jsonl` in the run
-directory for completed results or request errors. The example analyzes COCO
-person tracks and sends its first crop immediately; increase `batch_size` to
-collect more crops before each request.
+directory for completed results or request errors. The profile analyzes COCO
+person tracks and collects up to five crops per request. See
+[Sampling and completion](#sampling-and-completion) for when analysis starts.
 
-To retain the full appearance schema from `person-appearance-vllm`, copy
-`boxmot/configs/attributes/person-appearance-vllm.yaml` from a source checkout
-to a custom YAML, remove its `id`, and apply the six connection/output settings
-at the start of the example above. YAML model names are literal strings;
-`api_key_env` is the field that reads an environment variable.
+For a package installation or a separate custom configuration, copy the full
+`person-appearance-infistar.yaml` template, remove its `id`, set its `model`,
+and pass the copy's path to `--attributes`. YAML model names are literal strings;
+`api_key_env` is the field that reads an environment variable. The model
+placeholder must be replaced before the profile can run.
 
 ## Docker Compose
 
@@ -171,9 +214,11 @@ The repository includes
 for CPU servers. Install
 [Docker Compose](https://docs.docker.com/compose/install/), then run the commands
 below from the repository root. Keep BoxMOT in your host environment for webcam
-access and `--show` when using these server-only commands. To run the detector,
-tracker, and vLLM together in containers, including a Linux webcam preview, use
-the [full Docker Compose workflow](../integrations/docker.md#tracking-and-vllm-with-compose).
+access and `--show` when using these server-only commands. To run BoxMOT in a
+container with Ollama, vLLM CPU, or Infistar, follow
+[Choose an attribute provider](../integrations/docker.md#choose-an-attribute-provider).
+The [full Docker Compose workflow](../integrations/docker.md#tracking-and-vllm-with-compose)
+also covers a Linux webcam preview with vLLM.
 Select one backend by its service name; the other services do not start.
 
 ### vLLM on x86-64 CPU
@@ -189,7 +234,7 @@ boxmot track --source 0 --attributes person-appearance-vllm-cpu \
 
 This serves `Qwen/Qwen3.5-0.8B` at `http://127.0.0.1:8001`. The matching
 `person-appearance-vllm-cpu` profile sends the first eligible crop immediately,
-limits its longest side to 256 pixels, and allows 600 seconds for a response.
+limits its longest side to 640 pixels, and allows 600 seconds for a response.
 Single crops are sent without padding or upscaling into a storyboard. Attributes
 appear after the first analysis completes; the health check does not run image
 inference or guarantee that its first-request initialization has finished.
@@ -216,7 +261,7 @@ running BoxMOT:
 ```bash
 docker compose -f docker/compose.attributes.yaml up -d --wait ollama
 docker compose -f docker/compose.attributes.yaml exec ollama ollama pull qwen3.5:9b
-boxmot track --source 0 --attributes person-appearance --show --save --save-json
+boxmot track --source 0 --attributes person-appearance-ollama --show --save --save-json
 ```
 
 Ollama stores models in the persistent `ollama-models` named volume. Its health
@@ -367,7 +412,9 @@ or upscaling. Multiple crops are composed into a labeled chronological storyboar
 At normal EOF, tracking stops accepting frames and drains outstanding analysis,
 showing the remaining backlog. This can take longer than video processing;
 there is no overall drain deadline. Transient request failures receive two
-retries by default, with bounded delays that allow other tracks to progress.
+retries by default, with exponential backoff capped at 30 seconds. A valid
+`Retry-After` header on HTTP 429 or server errors can extend the delay; other
+tracks can continue while the affected batch waits.
 Invalid responses produce failure events and leave previous valid attributes
 available. Each eligible track receives an analysis attempt or an explicit
 failure/cancellation outcome, not necessarily a successful description.
@@ -404,7 +451,7 @@ completed counts include refreshes of previously analyzed tracks.
 
 ## Python
 
-For an engine-owned run, pass `attributes="person-appearance"`,
+For an engine-owned run, pass `attributes="person-appearance-ollama"`,
 `attributes="person-appearance-vllm"`, or your YAML path to
 `boxmot.engine.tracking.workflow.run_track`. It also accepts an enricher
 instance and owns that instance's completion and shutdown. When supplying a
@@ -419,7 +466,7 @@ from boxmot.attributes import create_attribute_enricher
 from boxmot.pipelines import TrackingPipeline
 
 # detector and tracker are configured components; frames yields canonical Frame values.
-with create_attribute_enricher("person-appearance") as attributes:
+with create_attribute_enricher("person-appearance-ollama") as attributes:
     pipeline = TrackingPipeline(
         detector=detector, tracker=tracker, attributes=attributes,
     )

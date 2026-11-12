@@ -3,18 +3,19 @@
 import asyncio
 import base64
 import json
+from datetime import datetime, timezone, tzinfo
 
 import cv2
 import numpy as np
 import pytest
 import torch
 
-import boxmot.attributes.http as attribute_http
+import boxmot.attributes.backends.http as attribute_http
+from boxmot.attributes.backends.vllm import VLLMBackend
 from boxmot.attributes.config import AttributeConfig
 from boxmot.attributes.errors import AttributeAnalysisError, TransientAttributeError
 from boxmot.attributes.models import AttributeSample
 from boxmot.attributes.session import AttributeEnricher
-from boxmot.attributes.vllm import VLLMBackend
 from boxmot.structures import Boxes, Frame, Tracks
 
 httpx = pytest.importorskip("httpx")
@@ -207,6 +208,49 @@ def test_http_status_classification(monkeypatch, status):
     with pytest.raises(AttributeAnalysisError, match=str(status)) as error:
         _extract(VLLMBackend(_config()))
     assert isinstance(error.value, TransientAttributeError) is (status == 429 or status >= 500)
+
+
+@pytest.mark.parametrize("status", [429, 500, 503])
+@pytest.mark.parametrize("retry_after", ["0", "10", "2.5"])
+def test_transient_http_errors_preserve_retry_after(monkeypatch, status: int, retry_after: str) -> None:
+    """Provider retry delays survive HTTP error classification for scheduling."""
+    _transport(monkeypatch, lambda request: httpx.Response(status, headers={"Retry-After": retry_after}))
+    with pytest.raises(TransientAttributeError) as error:
+        _extract(VLLMBackend(_config()))
+    assert error.value.retry_after_s == float(retry_after)
+    assert str(error.value) == f"vLLM returned HTTP {status}."
+
+
+@pytest.mark.parametrize("retry_after", [None, "", "invalid-header", "-1", "nan", "inf", "1e999"])
+def test_invalid_retry_after_leaves_default_backoff(monkeypatch, retry_after: str | None) -> None:
+    """Missing or invalid delays never replace the session's own retry policy."""
+    headers = {} if retry_after is None else {"Retry-After": retry_after}
+    _transport(monkeypatch, lambda request: httpx.Response(429, headers=headers))
+    with pytest.raises(TransientAttributeError) as error:
+        _extract(VLLMBackend(_config()))
+    assert error.value.retry_after_s is None
+    assert str(error.value) == "vLLM returned HTTP 429."
+
+
+@pytest.mark.parametrize(
+    ("retry_after", "expected"),
+    [("Wed, 01 Jan 2025 00:00:10 GMT", 10.0), ("Tue, 31 Dec 2024 23:59:59 GMT", 0.0)],
+)
+def test_retry_after_http_date(monkeypatch, retry_after: str, expected: float) -> None:
+    """Absolute HTTP dates become nonnegative delays relative to the current UTC time."""
+    class FixedDatetime(datetime):
+        """Freeze the HTTP backend's clock for date header checks."""
+
+        @classmethod
+        def now(cls, tz: tzinfo | None = None) -> datetime:
+            """Return the test instant without consulting the wall clock."""
+            return datetime(2025, 1, 1, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(attribute_http, "datetime", FixedDatetime)
+    _transport(monkeypatch, lambda request: httpx.Response(503, headers={"Retry-After": retry_after}))
+    with pytest.raises(TransientAttributeError) as error:
+        _extract(VLLMBackend(_config()))
+    assert error.value.retry_after_s == expected
 
 
 @pytest.mark.parametrize("backend", ["ollama", "vllm"])

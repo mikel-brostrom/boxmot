@@ -22,8 +22,8 @@ from boxmot.structures import Frame, Tracks
 _BACKENDS = LazyComponentRegistry(
     "attribute",
     {
-        "ollama": "boxmot.attributes.ollama:OllamaBackend",
-        "vllm": "boxmot.attributes.vllm:VLLMBackend",
+        "ollama": "boxmot.attributes.backends.ollama:OllamaBackend",
+        "vllm": "boxmot.attributes.backends.vllm:VLLMBackend",
     },
 )
 
@@ -146,7 +146,10 @@ class AttributeEnricher:
                     if self._stop.is_set():
                         break
                     if job.attempts <= self.config.retries:
-                        self._spool.retry(job, delay=min(2 ** (job.attempts - 1), 30))
+                        delay: float = min(2 ** (job.attempts - 1), 30)
+                        if isinstance(exc, TransientAttributeError) and exc.retry_after_s is not None:
+                            delay = max(delay, exc.retry_after_s)
+                        self._spool.retry(job, delay=delay)
                     else:
                         self._spool.complete(job, error=str(exc) or "Attribute request timed out.")
                 except Exception as exc:

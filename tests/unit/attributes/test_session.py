@@ -13,6 +13,7 @@ import torch
 
 from boxmot.attributes import AttributeConfig, AttributeEnricher
 from boxmot.attributes.errors import AttributeAnalysisError, TransientAttributeError
+from boxmot.attributes.spool import AttributeSpool
 from boxmot.structures import Boxes, Frame, Tracks
 
 
@@ -191,12 +192,29 @@ def test_late_completion_cannot_populate_new_generation_before_new_result(tmp_pa
         session.close()
 
 
-def test_transient_retry_yields_to_other_tracks_and_preserves_previous_values(tmp_path):
+@pytest.mark.parametrize(
+    ("retry_after_s", "expected_delay"), [(None, 1), (0, 1), (0.25, 1), (10, 10), (60, 60)]
+)
+def test_transient_retry_yields_to_other_tracks_and_preserves_previous_values(
+    tmp_path, monkeypatch, retry_after_s: float | None, expected_delay: float
+) -> None:
+    """Respect provider cooldowns while retaining the queue's per-track fairness."""
+    delays = []
+    original_retry = AttributeSpool.retry
+
+    def record_retry(spool: AttributeSpool, job, delay: float) -> None:
+        """Capture the deadline passed to the real spool without a wall-clock wait."""
+        delays.append(delay)
+        # Record the worker's requested delay without making the test sleep.
+        original_retry(spool, job, delay=0)
+
+    monkeypatch.setattr(AttributeSpool, "retry", record_retry)
+
     class Backend(_Backend):
         async def extract(self, track_id, samples, images):
             result = await super().extract(track_id, samples, images)
             if track_id == 1 and len([call for call in self.calls if call[0] == 1]) == 1:
-                raise TransientAttributeError("temporarily unavailable")
+                raise TransientAttributeError("temporarily unavailable", retry_after_s=retry_after_s)
             return result
 
     backend = Backend()
@@ -204,6 +222,7 @@ def test_transient_retry_yields_to_other_tracks_and_preserves_previous_values(tm
         frame = _frame(0)
         session.update(frame, _tracks(frame, (1, 2)))
         events = list(session.finish())
+        assert delays == [expected_delay]
         assert [call[0] for call in backend.calls] == [1, 2, 1]
         assert [event.track_id for event in events] == [2, 1]
         assert all(event.status == "completed" for event in events)

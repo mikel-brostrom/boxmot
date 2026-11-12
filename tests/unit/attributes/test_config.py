@@ -13,7 +13,7 @@ def _config(**overrides):
 
 
 def test_resolves_builtin_profile_and_detaches_custom_schema(tmp_path):
-    config = resolve_attribute_config("person-appearance")
+    config = resolve_attribute_config("person-appearance-ollama")
     assert config.model == "qwen3.5:9b"
     assert config.class_ids == (0,)
     assert config.batch_size == 5
@@ -95,7 +95,7 @@ def test_backend_specific_defaults_and_vllm_profile():
     assert _config(backend="vllm", host="https://vision.example/v1").host == "https://vision.example/v1"
     assert _config(api_key_env="ATTRIBUTE_API_KEY").api_key_env == "ATTRIBUTE_API_KEY"
     config = resolve_attribute_config("person-appearance-vllm")
-    ollama = resolve_attribute_config("person-appearance")
+    ollama = resolve_attribute_config("person-appearance-ollama")
     assert config.backend == "vllm"
     assert config.model == "Qwen/Qwen3.5-9B"
     assert config.host == "http://localhost:8000"

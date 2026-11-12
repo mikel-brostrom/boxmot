@@ -5,9 +5,12 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import math
 import os
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from importlib import import_module
 from typing import Any
 
@@ -111,7 +114,10 @@ class HttpAttributeBackend(ABC):
             # URLs. Persist only their category in failure events.
             raise TransientAttributeError(f"{self.name} request failed ({type(exc).__name__}).") from None
         if response.status_code == 429 or response.status_code >= 500:
-            raise TransientAttributeError(f"{self.name} returned HTTP {response.status_code}.")
+            raise TransientAttributeError(
+                f"{self.name} returned HTTP {response.status_code}.",
+                retry_after_s=_retry_after_seconds(response.headers.get("Retry-After")),
+            )
         if not 200 <= response.status_code < 300:
             raise AttributeAnalysisError(f"{self.name} returned HTTP {response.status_code}.")
         try:
@@ -132,6 +138,23 @@ class HttpAttributeBackend(ABC):
     async def aclose(self) -> None:
         """Close the asynchronous HTTP transport."""
         await self._client.aclose()
+
+
+def _retry_after_seconds(value: str | None) -> float | None:
+    """Read a valid Retry-After delay or HTTP date without exposing raw headers."""
+    if value is None:
+        return None
+    try:
+        seconds = float(value)
+    except ValueError:
+        try:
+            deadline = parsedate_to_datetime(value)
+            if deadline.tzinfo is None:
+                deadline = deadline.replace(tzinfo=timezone.utc)
+            return max(0.0, (deadline - datetime.now(timezone.utc)).total_seconds())
+        except (TypeError, ValueError, OverflowError):
+            return None
+    return seconds if math.isfinite(seconds) and seconds >= 0 else None
 
 
 def _reject_nonfinite(value: str) -> None:

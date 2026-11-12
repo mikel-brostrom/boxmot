@@ -10,8 +10,8 @@ sample_every: 30
 batch_size: 1
 request_timeout_s: 600
 retries: 2
-# Bound the transmitted single crop; no padded storyboard is needed.
-max_crop_side: 256
+# Keep image detail in the single crop; no padded storyboard is needed.
+max_crop_side: 640
 jpeg_quality: 90
 think: false
 display_fields: [upper_body_clothing, leg_clothing, footwear, headwear, carried_items, pose]

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from boxmot.attributes.http import HttpAttributeBackend
+from boxmot.attributes.backends.http import HttpAttributeBackend
 
 
 class OllamaBackend(HttpAttributeBackend):

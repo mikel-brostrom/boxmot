@@ -4,6 +4,9 @@ Use the CLI images to run tracking and batch workflows in a container. For
 stateful HTTP tracking from external detections, use the separate
 [service deployment guide](../guides/deployment.md).
 
+For video tracking with Ollama, vLLM CPU, or hosted Infistar attributes, see
+[Choose an attribute provider](#choose-an-attribute-provider).
+
 ## Tracking and vLLM with Compose
 
 The repository's
@@ -71,7 +74,7 @@ user, allow it from your desktop terminal
 with `xhost +si:localuser:$(id -un)` and rerun the command. Press `q` or `Esc` in
 the preview, or `Ctrl+C` in the terminal, to stop the job. Completed attributes and saved outputs remain on
 the host. The CPU profile sends the first eligible crop immediately, with its
-longest side limited to 256 pixels and no storyboard padding. Attribute labels
+longest side limited to 640 pixels and no storyboard padding. Attribute labels
 appear after the first model response; latency depends on the CPU and available RAM.
 
 ### Settings and logs
@@ -139,6 +142,118 @@ In `free`, inspect the `available` column. In `vmstat`, sustained nonzero `si`
 or `so` indicates active swapping; allocated swap alone does not show current
 pressure. Stop unnecessary memory-heavy processes or reduce their memory use
 before retrying. Raising the request timeout does not make inference faster.
+
+## Choose an attribute provider
+
+`docker/compose.attributes.yaml` provides local Ollama and vLLM CPU servers.
+Infistar is a hosted API, so only the BoxMOT client runs locally for that option.
+The commands below run detection and tracking on the CPU and process a video
+file. For the existing vLLM webcam workflow, use the
+[Linux webcam launcher](#show-a-linux-webcam-preview).
+
+| Provider | Attribute profile | Endpoint used inside the BoxMOT container |
+| --- | --- | --- |
+| Ollama | `person-appearance-ollama` | `http://ollama:11434` |
+| vLLM CPU (x86-64) | `person-appearance-vllm-cpu` | `http://vllm-cpu:8000` |
+| Infistar | `person-appearance-infistar` | `https://infistar.ai/v1` |
+
+### Prepare the image and input
+
+Run these examples from the repository root as your Docker-enabled user.
+For Infistar, first replace `REPLACE_WITH_YOUR_VISION_MODEL_ID` in
+`boxmot/configs/attributes/person-appearance-infistar.yaml` with an exact model
+ID available to your API key. Follow the
+[Infistar setup](../config/attributes.md#run-with-infistar) to select a model
+supporting image inputs and JSON output. Profiles are packaged into the
+image, so rebuild it after changing the model ID.
+
+```bash
+export COMPOSE_FILE=docker/compose.attributes.yaml
+export BOXMOT_UID="$(id -u)" BOXMOT_GID="$(id -g)"
+export HF_CACHE_DIR="$HOME/.cache/huggingface"
+
+mkdir -p data models runs "$HF_CACHE_DIR"
+cp /path/to/video.mp4 data/video.mp4
+docker compose build boxmot
+```
+
+Keep these environment variables in the terminal used for the following
+commands. Host `data/` is mounted at `/inputs`, and `models/` and `runs/`
+preserve downloads and results. Choose one provider below.
+
+### Ollama
+
+Start the server and download the model used by its profile:
+
+```bash
+docker compose up -d --wait ollama
+docker compose exec ollama ollama pull qwen3.5:9b
+
+docker compose run --rm --no-deps --entrypoint boxmot boxmot track \
+  --source /inputs/video.mp4 --detector yolo26n --tracker bytetrack --device cpu \
+  --attributes person-appearance-ollama \
+  --attributes-host http://ollama:11434 \
+  --save --save-json --project /opt/boxmot/runs/ollama
+```
+
+### vLLM CPU
+
+Start the x86-64 CPU service and wait for model download and initialization:
+
+```bash
+docker compose up -d --wait --wait-timeout 1800 vllm-cpu
+
+docker compose run --rm --no-deps --entrypoint boxmot boxmot track \
+  --source /inputs/video.mp4 --detector yolo26n --tracker bytetrack --device cpu \
+  --attributes person-appearance-vllm-cpu \
+  --attributes-host http://vllm-cpu:8000 \
+  --save --save-json --project /opt/boxmot/runs/vllm
+```
+
+Inside Compose, the client uses service port `8000`; the published host port
+`8001` is for clients outside Docker.
+
+### Infistar
+
+With the configured model ID included in the image, export the key and pass it
+to the BoxMOT container:
+
+```bash
+export INFISTAR_API_KEY='YOUR_INFISTAR_API_KEY'
+
+docker compose run --rm --no-deps \
+  -e INFISTAR_API_KEY --entrypoint boxmot boxmot track \
+  --source /inputs/video.mp4 --detector yolo26n --tracker bytetrack --device cpu \
+  --attributes person-appearance-infistar \
+  --save --save-json --project /opt/boxmot/runs/infistar
+```
+
+The client sends track crops to Infistar's HTTPS endpoint. No local model
+server is needed for this option.
+
+### Results and shutdown
+
+These commands override the Compose service's entrypoint to select the
+provider, detector, and output directory explicitly. `--no-deps` prevents
+Compose from automatically starting the default vLLM dependency when running
+another provider. See the
+[Compose run reference](https://docs.docker.com/reference/cli/docker/compose/run/).
+
+Annotated video, `tracks.jsonl`, and `attributes.jsonl` are saved in an `exp/`
+run directory under `runs/ollama/`, `runs/vllm/`, or `runs/infistar/`. Choose a
+different `--name` or `--project` to preserve outputs from repeated runs.
+The BoxMOT container is removed when
+the command finishes; any server started with `up -d` stays running.
+
+Stop the servers and remove the Compose containers when finished:
+
+```bash
+docker compose --profile '*' down
+```
+
+Model downloads and output bind mounts are preserved, as is the Ollama model
+volume. See [server logs and settings](../config/attributes.md#logs-settings-and-shutdown)
+for startup troubleshooting.
 
 ## Run the CPU CLI
 

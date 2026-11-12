@@ -188,7 +188,7 @@ def test_prepared_attribute_host_reaches_vllm_request(tmp_path, monkeypatch) -> 
             "finish_reason": "stop", "message": {"content": '{"color":"red"}'},
         }]})
 
-    monkeypatch.setattr("boxmot.attributes.http.require_extra", lambda *args, **kwargs: None)
+    monkeypatch.setattr("boxmot.attributes.backends.http.require_extra", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         httpx, "AsyncClient", lambda **kwargs: client_type(transport=httpx.MockTransport(respond), **kwargs),
     )
