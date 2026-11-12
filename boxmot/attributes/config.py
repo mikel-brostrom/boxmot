@@ -59,27 +59,20 @@ class AttributeConfig:
     think: bool | None = False  # None leaves the provider's thinking setting unchanged.
     api_key_env: str | None = None
     database_url_env: str = "BOXMOT_ATTRIBUTES_DATABASE_URL"
-    response_format: str = "json_schema"
-    max_output_tokens: int = 2048  # OpenAI and Anthropic output budget.
+    response_format: str = "json_schema"  # vLLM only; Ollama always sends the schema.
 
     def __post_init__(self) -> None:
         """Validate portable settings and detach mutable authored schema data."""
-        if self.backend not in ("ollama", "vllm", "openai", "anthropic"):
-            raise ConfigurationError("Attribute backend must be 'ollama', 'vllm', 'openai', or 'anthropic'.")
+        if self.backend not in ("ollama", "vllm"):
+            raise ConfigurationError("Attribute backend must be 'ollama' or 'vllm'.")
         if self.response_format not in ("json_schema", "json_object"):
             raise ConfigurationError("Attribute response_format must be 'json_schema' or 'json_object'.")
-        if self.backend in ("ollama", "anthropic") and self.response_format != "json_schema":
-            raise ConfigurationError("Attribute response_format 'json_object' requires the 'vllm' or 'openai' backend.")
+        if self.backend == "ollama" and self.response_format != "json_schema":
+            raise ConfigurationError("Attribute response_format 'json_object' requires the 'vllm' backend.")
         if self.host is None:
-            hosts = {
-                "ollama": "http://localhost:11434",
-                "vllm": "http://localhost:8000",
-                "openai": "https://api.openai.com/v1",
-                "anthropic": "https://api.anthropic.com/v1",
-            }
-            object.__setattr__(self, "host", hosts[self.backend])
-        if self.api_key_env is None and self.backend in ("openai", "anthropic"):
-            object.__setattr__(self, "api_key_env", f"{self.backend.upper()}_API_KEY")
+            object.__setattr__(
+                self, "host", "http://localhost:11434" if self.backend == "ollama" else "http://localhost:8000"
+            )
         for name in ("model", "prompt", "host"):
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip():
@@ -97,7 +90,6 @@ class AttributeConfig:
             ("retries", 0, None),
             ("max_crop_side", 1, None),
             ("jpeg_quality", 1, 100),
-            ("max_output_tokens", 1, None),
         ):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
@@ -113,11 +105,6 @@ class AttributeConfig:
             raise ConfigurationError("Attribute request_timeout_s must be finite and positive.")
         if self.think is not None and not isinstance(self.think, bool):
             raise ConfigurationError("Attribute think must be a bool or null.")
-        if self.backend in ("openai", "anthropic") and self.think is True:
-            raise ConfigurationError(
-                "Attribute think: true is only supported by 'ollama' and 'vllm'; "
-                "use null to leave hosted model reasoning at its default."
-            )
         if self.api_key_env is not None and (
             not isinstance(self.api_key_env, str) or not self.api_key_env.isidentifier()
         ):

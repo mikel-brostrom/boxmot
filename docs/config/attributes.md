@@ -1,13 +1,12 @@
 # Track Attributes
 
-Use [Ollama](https://ollama.com), [vLLM](https://vllm.ai),
-[OpenAI](https://developers.openai.com/), or [Anthropic](https://platform.claude.com/)
-to describe visible properties of each track while BoxMOT continues tracking.
+Use [Ollama](https://ollama.com) or [vLLM](https://vllm.ai) to describe visible
+properties of each track while BoxMOT continues tracking.
 The optional attribute enricher sends one crop or combines chronological crops
 of one track into a storyboard, then validates the model's answer against your
 JSON Schema. Track identities and observation metadata remain application-owned.
 Every attribute run requires PostgreSQL for its queue, latest values, and result
-history, including runs that use a hosted model service.
+history.
 
 ## Attribute extraction options
 
@@ -18,11 +17,8 @@ Choose a model service and pass its matching profile to `--attributes`:
 | [Ollama](#run-with-ollama) | `person-appearance-ollama` | `qwen3.5:9b` | `http://localhost:11434` |
 | [vLLM on GPU](#run-with-vllm) | `person-appearance-vllm` | `Qwen/Qwen3.5-9B` | `http://localhost:8000` |
 | [vLLM on x86-64 CPU (Docker)](#vllm-on-x86-64-cpu) | `person-appearance-vllm-cpu` | `Qwen/Qwen3.5-0.8B` | `http://127.0.0.1:8001` |
-| [OpenAI hosted API](#run-with-openai) | `person-appearance-openai` | `gpt-6-luna` | `https://api.openai.com/v1` |
-| [Anthropic hosted API](#run-with-anthropic) | `person-appearance-anthropic` | `claude-haiku-5-5` | `https://api.anthropic.com/v1` |
 
-All five profiles are included in `boxmot/configs/attributes/`. OpenAI and Anthropic
-read `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`, respectively.
+All three profiles are included in `boxmot/configs/attributes/`.
 Attribute profiles select the model service; use `--device` separately to select
 the device for detection and tracking.
 
@@ -46,13 +42,6 @@ uv run --no-sync python -m boxmot.engine.cli track \
 uv run --no-sync python -m boxmot.engine.cli track \
   --source 0 --attributes person-appearance-vllm-cpu --show --save --save-json
 
-# OpenAI (after setting OPENAI_API_KEY)
-uv run --no-sync python -m boxmot.engine.cli track \
-  --source 0 --attributes person-appearance-openai --show --save --save-json
-
-# Anthropic (after setting ANTHROPIC_API_KEY)
-uv run --no-sync python -m boxmot.engine.cli track \
-  --source 0 --attributes person-appearance-anthropic --show --save --save-json
 ```
 
 `--source 0` selects your webcam; replace `0` with a video path to process a
@@ -80,9 +69,9 @@ uv sync --extra cpu --extra yolo --extra evolve --extra service --extra attribut
 Replace `--extra cpu` with `--extra cu130` for CUDA 13.0. Continue using
 `uv run --no-sync` for commands from the checkout to preserve that profile.
 
-All backends use the same `attributes` extra; no provider SDK is required.
-For local inference, run the model
-server separately; BoxMOT does not install a server or download its models automatically.
+Both backends use the same `attributes` extra; no provider SDK is required.
+Run the model server separately; BoxMOT does not install a server or download
+its models automatically.
 Keep vLLM in its own environment: its headless OpenCV dependency can overwrite
 BoxMOT's GUI build and disable `--show`. See the
 [OpenCV preview fix](../guides/troubleshooting.md#opencv-preview-reports-the-function-is-not-implemented)
@@ -183,63 +172,6 @@ boxmot track --tracker edgetam --source video.mp4 \
   --attributes person-appearance-ollama --save --save-json
 ```
 
-## Run with OpenAI
-
-Configure [PostgreSQL](#configure-postgresql), then export an OpenAI API key in
-the shell that runs BoxMOT:
-
-```bash
-export OPENAI_API_KEY='YOUR_OPENAI_API_KEY'
-boxmot track --source video.mp4 --attributes person-appearance-openai --save --save-json
-```
-
-The profile uses [`gpt-6-luna`](https://developers.openai.com/api/docs/models/gpt-6-luna)
-through the native Responses API at `https://api.openai.com/v1/responses`.
-BoxMOT sends a JPEG as an
-[`input_image`](https://developers.openai.com/api/docs/guides/images-vision)
-and requests the appearance schema through
-[`text.format` with `strict: true`](https://developers.openai.com/api/docs/guides/structured-outputs).
-The profile sets `max_output_tokens: 8192`; adjust it in a custom profile if
-your model or schema needs a different output budget.
-
-This sends track crops to OpenAI. It requires API access to the selected model
-and no local model server. To choose another model, copy
-`person-appearance-openai.yaml`, remove its `id`, set `model`, and pass the copy
-to `--attributes`. Select a model that supports image inputs and the configured
-output format.
-
-## Run with Anthropic
-
-Configure [PostgreSQL](#configure-postgresql), then export an Anthropic API key in
-the shell that runs BoxMOT:
-
-```bash
-export ANTHROPIC_API_KEY='YOUR_ANTHROPIC_API_KEY'
-boxmot track --source video.mp4 --attributes person-appearance-anthropic --save --save-json
-```
-
-The profile uses
-[`claude-haiku-5-5`](https://platform.claude.com/docs/en/models/haiku-5-5/overview)
-through the native Messages API at
-`https://api.anthropic.com/v1/messages`. BoxMOT sends a
-[base64 JPEG image block](https://platform.claude.com/docs/en/build-with-claude/vision)
-and the appearance schema through
-[`output_config.format`](https://platform.claude.com/docs/en/build-with-claude/structured-outputs).
-It authenticates with `x-api-key` and sends
-[`anthropic-version: 2026-10-21`](https://platform.claude.com/docs/en/api/versioning).
-The profile's `max_output_tokens: 4096` sets the Messages API's `max_tokens`.
-
-This sends track crops to Anthropic. It requires API access to the selected model
-and no local model server. To choose another model, copy
-`person-appearance-anthropic.yaml`, remove its `id`, set `model`, and pass the copy
-to `--attributes`. Use a model that supports vision and structured outputs.
-
-Both native backends validate completed JSON locally and share the same
-asynchronous queue, retries, and attribute display behavior. Refusals, truncated
-output, and invalid responses produce failure events and retain the track's last
-valid attributes. See [Customize a profile](#customize-a-profile) for authentication,
-output formats, and schema restrictions.
-
 ## Docker Compose
 
 The repository includes
@@ -248,12 +180,11 @@ for PostgreSQL and CPU model servers. Install
 [Docker Compose](https://docs.docker.com/compose/install/), then run the commands
 below from the repository root. Keep BoxMOT in your host environment for webcam
 access and `--show` when using these server-only commands. To run BoxMOT in a
-container with Ollama, vLLM CPU, OpenAI, or Anthropic, follow
+container with Ollama or vLLM CPU, follow
 [Choose an attribute provider](../integrations/docker.md#choose-an-attribute-provider).
 The [full Docker Compose workflow](../integrations/docker.md#tracking-and-vllm-with-compose)
 also covers a Linux webcam preview with vLLM.
-For local inference, start PostgreSQL and one model backend by their service
-names. Hosted providers need only PostgreSQL running locally. The commands
+Start PostgreSQL and one model backend by their service names. The commands
 below use the local development database defaults from
 [Configure PostgreSQL](#configure-postgresql).
 
@@ -381,8 +312,6 @@ boxmot track --source video.mp4 --attributes visible-color.yaml --save-json
 | --- | --- | --- | --- |
 | `ollama` (default) | `http://localhost:11434` | None | `json_schema` |
 | `vllm` | `http://localhost:8000` | None | `json_schema`, `json_object` |
-| `openai` | `https://api.openai.com/v1` | `OPENAI_API_KEY` | `json_schema`, `json_object` |
-| `anthropic` | `https://api.anthropic.com/v1` | `ANTHROPIC_API_KEY` | `json_schema` |
 
 Override only the connection URL without copying a profile with
 `--attributes-host URL`, for example:
@@ -393,7 +322,7 @@ boxmot track --source video.mp4 --attributes person-appearance-vllm-cpu \
 ```
 
 This requires `--attributes` and keeps the selected profile's model, schema,
-and sampling settings. For vLLM, OpenAI, and Anthropic, `host` can include a
+and sampling settings. For vLLM, `host` can include a
 trailing `/v1`. To use the custom schema above with vLLM, change its connection
 settings to:
 
@@ -403,44 +332,21 @@ model: Qwen/Qwen3.5-9B
 host: http://localhost:8000/v1
 ```
 
-`api_key_env` overrides the environment variable used for authentication; it
-contains the variable name, not the key. For example, set
-`api_key_env: VLLM_API_KEY` for a vLLM server requiring authentication. OpenAI
-and Anthropic use their default key variables even if the field is omitted.
-Anthropic sends the key in `x-api-key`; the other clients use bearer
-authentication. If the selected variable is missing or empty, initialization fails.
+`api_key_env` selects an optional environment variable for bearer
+authentication; it contains the variable name, not the key. For example, set
+`api_key_env: VLLM_API_KEY` for a vLLM server requiring authentication. If the
+selected variable is missing or empty, initialization fails.
 
 `think: false` disables thinking for Ollama and sets vLLM's
 `chat_template_kwargs.enable_thinking` to false. For vLLM this depends on the
 served model's chat template supporting that setting, as Qwen3.5 does.
 Set `think: null` to omit the backend's thinking option and leave the choice to
-the server. For OpenAI and Anthropic, `think: false` and `think: null` both omit
-thinking controls; `think: true` is rejected. A model may still reason using its
-provider defaults.
-
-`max_output_tokens` must be a positive integer and defaults to `2048`. Only the
-OpenAI and Anthropic clients use it; the packaged profiles set `8192` and `4096`,
-respectively. Increase the budget if your chosen model exhausts it before
-finishing its JSON response.
+the server.
 
 `response_format` defaults to `json_schema`, which sends the schema for
-server-side structured output. For vLLM and OpenAI models supporting JSON mode,
+server-side structured output. For vLLM models supporting JSON mode,
 `response_format: json_object` requests JSON in the prompt and validates the
-response against the schema locally. Ollama and Anthropic accept only
-`json_schema`.
-
-Hosted structured output APIs support subsets of JSON Schema. For OpenAI's
-strict mode, mark every object property as required and set
-`additionalProperties: false` on objects; a nullable type can represent an
-unknown value. Check the
-[OpenAI supported schemas](https://developers.openai.com/api/docs/guides/structured-outputs#supported-schemas)
-before adding other constraints. Anthropic also requires closed objects and
-does not support numeric bounds such as `minimum` and `maximum`; see its
-[schema limitations](https://platform.claude.com/docs/en/build-with-claude/structured-outputs#json-schema-limitations).
-The Anthropic appearance profile uses confidence values from 0 to 1 in steps
-of 0.1 to express that range as an enum. Start with the matching provider's
-profile when customizing a schema. BoxMOT sends your schema without removing
-unsupported constraints and also validates results locally.
+response against the schema locally. Ollama accepts only `json_schema`.
 
 Omit `class_ids` to analyze all classes. `display_fields` selects schema fields
 for video labels and supports dotted paths for nested values; an empty list
@@ -453,9 +359,8 @@ schema in `format`. vLLM requests use `/v1/chat/completions` with a base64
 [image URL](https://docs.vllm.ai/en/latest/features/multimodal_inputs/#online-serving)
 and the configured
 [`response_format`](https://docs.vllm.ai/en/latest/features/structured_outputs/).
-OpenAI uses `/v1/responses`, and Anthropic uses `/v1/messages`, as described in
-their setup sections. All backends send one JPEG image per request with streaming
-disabled: a single crop or a storyboard containing multiple crops.
+Both backends send one JPEG image per request with streaming disabled: a single
+crop or a storyboard containing multiple crops.
 
 ## Sampling and completion
 
