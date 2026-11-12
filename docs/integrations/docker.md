@@ -153,9 +153,9 @@ file. For the existing vLLM webcam workflow, use the
 
 | Provider | Attribute profile | Endpoint used inside the BoxMOT container |
 | --- | --- | --- |
-| Ollama | `person-appearance-ollama` | `http://ollama:11434` |
-| vLLM CPU (x86-64) | `person-appearance-vllm-cpu` | `http://vllm-cpu:8000` |
-| Infistar | `person-appearance-infistar` | `https://infistar.ai/v1` |
+| [Ollama](https://ollama.com) | `person-appearance-ollama` | `http://ollama:11434` |
+| [vLLM](https://vllm.ai) CPU (x86-64) | `person-appearance-vllm-cpu` | `http://vllm-cpu:8000` |
+| [Infistar](https://www.infistar.cc/register?aff=VSCF47E6&ref_source=link) | `person-appearance-infistar` | `https://infistar.ai/v1` |
 
 ### Prepare the image and input
 

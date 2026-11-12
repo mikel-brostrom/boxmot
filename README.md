@@ -336,11 +336,11 @@ Advanced examples: [capture timing](docs/python/index.md#elapsed-time),
     </tr>
     <tr>
       <td align="center">
-        <a href="https://infistar.ai">
+        <a href="https://www.infistar.cc/register?aff=VSCF47E6&amp;ref_source=link">
           <img src="https://infistar.ai/logo.png" alt="Infistar" height="48">
         </a>
       </td>
-      <td>Infistar provides one API key for Claude, GPT, Gemini, Grok, DeepSeek and other vision models, with official upstream models and pricing up to 99% below official rates.</td>
+      <td><a href="https://www.infistar.cc/register?aff=VSCF47E6&amp;ref_source=link">Infistar</a> provides one API key for Claude, GPT, Gemini, Grok, DeepSeek and other vision models, with official upstream models and pricing up to 99% below official rates.</td>
       <td>No large models or GPU servers to host yourself; managed API access with optimized networking.</td>
       <td>API usage costs; requires internet access and sends track crops to an external service.</td>
     </tr>
@@ -348,7 +348,8 @@ Advanced examples: [capture timing](docs/python/index.md#elapsed-time),
 </table>
 
 Add clothing, footwear, and pose descriptions to person tracks with
-**Ollama**, **vLLM**, or **Infistar**. Display attributes alongside track IDs
+**[Ollama](https://ollama.com)**, **[vLLM](https://vllm.ai)**, or
+**[Infistar](https://www.infistar.cc/register?aff=VSCF47E6&ref_source=link)**. Display attributes alongside track IDs
 and export structured JSON results.
 
 See the [Track Attributes guide](docs/config/attributes.md) for setup,

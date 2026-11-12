@@ -1,6 +1,7 @@
 # Track Attributes
 
-Use Ollama, vLLM, or a compatible hosted API such as Infistar to describe visible
+Use [Ollama](https://ollama.com), [vLLM](https://vllm.ai), or a compatible hosted API
+such as [Infistar](https://www.infistar.cc/register?aff=VSCF47E6&ref_source=link) to describe visible
 properties of each track while BoxMOT continues tracking. The optional attribute
 enricher sends one crop or combines chronological crops of one track into a
 storyboard, then validates the model's answer against your JSON Schema. Track
@@ -142,7 +143,8 @@ Chat Completions requests at `https://infistar.ai/v1/chat/completions`.
 BoxMOT connects through its `vllm` client; Infistar runs the model service, so
 you do not need a local vLLM installation.
 
-Create an API key in Infistar's **Console → Token Management** and set it in
+[Register with Infistar](https://www.infistar.cc/register?aff=VSCF47E6&ref_source=link),
+create an API key in **Console → Token Management**, and set it in
 the shell that will run BoxMOT. List the models available to that key:
 
 ```bash
