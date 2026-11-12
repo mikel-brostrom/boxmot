@@ -23,6 +23,8 @@ _BACKENDS = LazyComponentRegistry(
     {
         "ollama": "boxmot.attributes.backends.ollama:OllamaBackend",
         "vllm": "boxmot.attributes.backends.vllm:VLLMBackend",
+        "openai": "boxmot.attributes.backends.openai:OpenAIBackend",
+        "anthropic": "boxmot.attributes.backends.anthropic:AnthropicBackend",
     },
 )
 

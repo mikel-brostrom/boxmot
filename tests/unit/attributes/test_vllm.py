@@ -253,13 +253,26 @@ def test_retry_after_http_date(monkeypatch, retry_after: str, expected: float) -
     assert error.value.retry_after_s == expected
 
 
-@pytest.mark.parametrize("backend", ["ollama", "vllm"])
+@pytest.mark.parametrize("backend", ["ollama", "vllm", "openai", "anthropic"])
 def test_config_selects_backend_and_session_keeps_application_identity(monkeypatch, attribute_database, backend):
+    """Every registered provider returns the same application-owned result contract."""
     requests = []
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
 
     def handler(request):
         requests.append(request)
-        envelope = _response() if backend == "vllm" else {"response": '{"color":"red"}'}
+        envelopes = {
+            "ollama": {"response": '{"color":"red"}'},
+            "vllm": _response(),
+            "openai": {"status": "completed", "output": [{
+                "type": "message", "role": "assistant", "status": "completed",
+                "content": [{"type": "output_text", "text": '{"color":"red"}'}],
+            }]},
+            "anthropic": {"type": "message", "role": "assistant", "stop_reason": "end_turn",
+                          "content": [{"type": "text", "text": '{"color":"red"}'}]},
+        }
+        envelope = envelopes[backend]
         return httpx.Response(200, json=envelope)
 
     _transport(monkeypatch, handler)
@@ -278,12 +291,20 @@ def test_config_selects_backend_and_session_keeps_application_identity(monkeypat
         assert result.run_id == session.run_id and result.generation == 0
         assert result.samples[0].sample_id == "clip/30" and result.samples[0].frame_index == 30
     assert len(requests) == 1
-    assert requests[0].url.path == ("/v1/chat/completions" if backend == "vllm" else "/api/generate")
+    paths = {"ollama": "/api/generate", "vllm": "/v1/chat/completions",
+             "openai": "/v1/responses", "anthropic": "/v1/messages"}
+    assert requests[0].url.path == paths[backend]
     payload = json.loads(requests[0].content)
     if backend == "vllm":
         image_url = payload["messages"][0]["content"][1]["image_url"]["url"]
         encoded = image_url.split(",", 1)[1]
-    else:
+    elif backend == "ollama":
         encoded = payload["images"][0]
+    elif backend == "openai":
+        content = payload["input"][0]["content"]
+        encoded = next(block["image_url"] for block in content if block["type"] == "input_image").split(",", 1)[1]
+    else:
+        content = payload["messages"][0]["content"]
+        encoded = next(block["source"]["data"] for block in content if block["type"] == "image")
     image = cv2.imdecode(np.frombuffer(base64.b64decode(encoded), np.uint8), cv2.IMREAD_COLOR)
     assert image.shape == (8, 8, 3)  # No padded storyboard enlarges the first bounded crop.

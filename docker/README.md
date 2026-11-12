@@ -17,12 +17,12 @@ See the
 [full Compose setup](../docs/integrations/docker.md#tracking-and-vllm-with-compose)
 for video files, settings, and persistent inputs, models, and outputs.
 
-For a BoxMOT container using Ollama, vLLM CPU, or Infistar, see
+For a BoxMOT container using Ollama, vLLM CPU, OpenAI, Anthropic, or Infistar, see
 [Choose an attribute provider](../docs/integrations/docker.md#choose-an-attribute-provider).
 
 To run PostgreSQL and Ollama or vLLM while keeping BoxMOT on the host, use the
 [attribute server setup](../docs/config/attributes.md#docker-compose).
-All attribute providers, including Infistar, require PostgreSQL and a connection
+All attribute providers, including hosted APIs, require PostgreSQL and a connection
 URL in `BOXMOT_ATTRIBUTES_DATABASE_URL`. Compose sets the URL for its BoxMOT
 container; host clients must [configure their URL](../docs/config/attributes.md#configure-postgresql).
 The `postgres-data` volume preserves attribute history when containers stop.

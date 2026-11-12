@@ -39,6 +39,9 @@ def test_resolves_builtin_profile_and_detaches_custom_schema(tmp_path):
     "values",
     [
         {"backend": "other"},
+        {"backend": "anthropic", "response_format": "json_object"},
+        {"backend": "openai", "think": True},
+        {"backend": "anthropic", "think": True},
         {"model": " "},
         {"prompt": ""},
         {"host": "localhost:11434"},
@@ -50,6 +53,9 @@ def test_resolves_builtin_profile_and_detaches_custom_schema(tmp_path):
         {"request_timeout_s": float("inf")},
         {"request_timeout_s": 0},
         {"max_crop_side": 0},
+        {"max_output_tokens": 0},
+        {"max_output_tokens": True},
+        {"max_output_tokens": 1.5},
         {"jpeg_quality": 101},
         {"class_ids": [True]},
         {"class_ids": [-1]},
@@ -133,3 +139,35 @@ def test_reference_named_properties_and_examples_are_not_schema_references():
         "examples": [{"$ref": "https://example.org"}],
     }
     assert _config(schema=schema).schema == schema
+
+
+@pytest.mark.parametrize(
+    ("backend", "host", "api_key_env"),
+    [
+        ("openai", "https://api.openai.com/v1", "OPENAI_API_KEY"),
+        ("anthropic", "https://api.anthropic.com/v1", "ANTHROPIC_API_KEY"),
+    ],
+)
+def test_native_hosted_defaults_and_profiles(backend, host, api_key_env):
+    """Native providers require their standard key variable without extra YAML."""
+    config = _config(backend=backend)
+    assert config.host == host
+    assert config.api_key_env == api_key_env
+    assert config.max_output_tokens == 2048
+    custom = _config(backend=backend, api_key_env="MY_PROVIDER_KEY", max_output_tokens=4096)
+    assert custom.api_key_env == "MY_PROVIDER_KEY"
+    assert custom.max_output_tokens == 4096
+    profile = resolve_attribute_config(f"person-appearance-{backend}")
+    assert profile.backend == backend and profile.host == host
+    assert profile.api_key_env == api_key_env
+    assert profile.think is None and profile.response_format == "json_schema"
+    assert profile.max_crop_side == 640
+    assert profile.class_ids == (0,)
+    assert profile.display_fields == resolve_attribute_config("person-appearance-ollama").display_fields
+    assert set(profile.schema["required"]) == set(profile.schema["properties"])
+    assert profile.schema["additionalProperties"] is False
+
+
+def test_openai_accepts_json_object_mode():
+    """OpenAI's Responses API can also request JSON mode for custom profiles."""
+    assert _config(backend="openai", response_format="json_object").response_format == "json_object"

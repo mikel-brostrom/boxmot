@@ -4,7 +4,7 @@ Use the CLI images to run tracking and batch workflows in a container. For
 stateful HTTP tracking from external detections, use the separate
 [service deployment guide](../guides/deployment.md).
 
-For video tracking with Ollama, vLLM CPU, or hosted Infistar attributes, see
+For video tracking with Ollama, vLLM CPU, OpenAI, Anthropic, or Infistar attributes, see
 [Choose an attribute provider](#choose-an-attribute-provider).
 
 ## Tracking and vLLM with Compose
@@ -165,8 +165,9 @@ before retrying. Raising the request timeout does not make inference faster.
 ## Choose an attribute provider
 
 `docker/compose.attributes.yaml` provides PostgreSQL plus local Ollama and vLLM
-CPU servers. Every attribute run needs PostgreSQL. Infistar is a hosted model
-API, so that option runs only BoxMOT and PostgreSQL locally.
+CPU servers. Every attribute run needs PostgreSQL. OpenAI, Anthropic, and
+Infistar are hosted model APIs, so those options run only BoxMOT and PostgreSQL
+locally.
 The commands below run detection and tracking on the CPU and process a video
 file. For the existing vLLM webcam workflow, use the
 [Linux webcam launcher](#show-a-linux-webcam-preview).
@@ -175,6 +176,8 @@ file. For the existing vLLM webcam workflow, use the
 | --- | --- | --- |
 | [Ollama](https://ollama.com) | `person-appearance-ollama` | `http://ollama:11434` |
 | [vLLM](https://vllm.ai) CPU (x86-64) | `person-appearance-vllm-cpu` | `http://vllm-cpu:8000` |
+| [OpenAI](https://developers.openai.com/) | `person-appearance-openai` | `https://api.openai.com/v1` |
+| [Anthropic](https://platform.claude.com/) | `person-appearance-anthropic` | `https://api.anthropic.com/v1` |
 | [Infistar](https://www.infistar.cc/register?aff=VSCF47E6&ref_source=link) | `person-appearance-infistar` | `https://infistar.ai/v1` |
 
 ### Prepare the image and input
@@ -235,6 +238,46 @@ docker compose run --rm --no-deps --entrypoint boxmot boxmot track \
 Inside Compose, the client uses service port `8000`; the published host port
 `8001` is for clients outside Docker.
 
+### OpenAI
+
+Start PostgreSQL, export your OpenAI API key, and pass it to the BoxMOT container:
+
+```bash
+export OPENAI_API_KEY='YOUR_OPENAI_API_KEY'
+docker compose up -d --wait postgres
+
+docker compose run --rm --no-deps \
+  -e OPENAI_API_KEY --entrypoint boxmot boxmot track \
+  --source /inputs/video.mp4 --detector yolo26n --tracker bytetrack --device cpu \
+  --attributes person-appearance-openai \
+  --save --save-json --project /opt/boxmot/runs/openai
+```
+
+The profile uses `gpt-6-luna` through the native OpenAI Responses API. It sends
+track crops to OpenAI and keeps the queue and results in local PostgreSQL.
+See [OpenAI setup](../config/attributes.md#run-with-openai) for model and schema
+configuration. No local model server is needed.
+
+### Anthropic
+
+Start PostgreSQL, export your Anthropic API key, and pass it to the BoxMOT container:
+
+```bash
+export ANTHROPIC_API_KEY='YOUR_ANTHROPIC_API_KEY'
+docker compose up -d --wait postgres
+
+docker compose run --rm --no-deps \
+  -e ANTHROPIC_API_KEY --entrypoint boxmot boxmot track \
+  --source /inputs/video.mp4 --detector yolo26n --tracker bytetrack --device cpu \
+  --attributes person-appearance-anthropic \
+  --save --save-json --project /opt/boxmot/runs/anthropic
+```
+
+The profile uses `claude-haiku-5-5` through the native Anthropic Messages API. It
+sends track crops to Anthropic and keeps the queue and results in local PostgreSQL.
+See [Anthropic setup](../config/attributes.md#run-with-anthropic) for model and schema
+configuration. No local model server is needed.
+
 ### Infistar
 
 With the configured model ID included in the image, start PostgreSQL, then export
@@ -259,12 +302,13 @@ PostgreSQL database for its queue and results. No local model server is needed.
 These commands override the Compose service's entrypoint to select the
 provider, detector, and output directory explicitly. `--no-deps` prevents
 Compose from automatically starting dependencies, so each workflow starts
-PostgreSQL and its selected model service explicitly. See the
+PostgreSQL and any selected local model service explicitly. See the
 [Compose run reference](https://docs.docker.com/reference/cli/docker/compose/run/).
 
 Annotated video, `tracks.jsonl`, and `attributes.jsonl` are saved in an `exp/`
-run directory under `runs/ollama/`, `runs/vllm/`, or `runs/infistar/`. Choose a
-different `--name` or `--project` to preserve outputs from repeated runs.
+run directory under `runs/ollama/`, `runs/vllm/`, `runs/openai/`,
+`runs/anthropic/`, or `runs/infistar/`. Choose a different `--name` or `--project`
+to preserve outputs from repeated runs.
 The BoxMOT container is removed when
 the command finishes; any server started with `up -d` stays running.
 

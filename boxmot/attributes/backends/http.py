@@ -52,17 +52,20 @@ class HttpAttributeBackend(ABC):
         self._check_references(resource, registry.resolver_with_root(resource))
         self._validator = validator_class(config.schema, registry=registry)
         self._config = config
-        headers = {}
+        api_key = None
         if config.api_key_env is not None:
             api_key = os.environ.get(config.api_key_env, "").strip()
             if not api_key:
                 raise ConfigurationError(
                     f"Attribute API key environment variable {config.api_key_env!r} must be set and nonempty."
                 )
-            headers["Authorization"] = f"Bearer {api_key}"
         self._client = self._httpx.AsyncClient(
-            timeout=config.request_timeout_s, follow_redirects=False, headers=headers
+            timeout=config.request_timeout_s, follow_redirects=False, headers=self.request_headers(api_key)
         )
+
+    def request_headers(self, api_key: str | None) -> dict[str, str]:
+        """Use bearer authentication unless the provider requires another scheme."""
+        return {"Authorization": f"Bearer {api_key}"} if api_key is not None else {}
 
     def _check_references(self, resource: Any, resolver: Any) -> None:
         """Resolve every authored reference before inference, including unused branches."""

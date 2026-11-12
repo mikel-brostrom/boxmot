@@ -68,8 +68,9 @@ while stripping channels the configured tracker does not consume. A direct
 `tracker.update()` call instead rejects unsupported enrichments.
 
 Optional [track attributes](../config/attributes.md) use the original frame and
-current tracks after tracking. `boxmot.attributes` owns crop sampling, Ollama/vLLM
-requests, and its PostgreSQL queue and result history; the pipeline exposes
+current tracks after tracking. `boxmot.attributes` owns crop sampling, model
+requests through Ollama, vLLM, OpenAI, and Anthropic clients, and its PostgreSQL
+queue and result history; the pipeline exposes
 detached snapshots without changing `Tracks`. Engine workflows own completion, output journaling,
 and shutdown. Embedded callers manage the enricher's context and event API.
 

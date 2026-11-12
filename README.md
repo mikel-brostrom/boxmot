@@ -296,7 +296,7 @@ Advanced examples: [capture timing](docs/python/index.md#elapsed-time),
 [prompted tracking with EdgeTAM](docs/trackers/edgetam.md), and
 [2D/3D fusion with EagerMot](docs/trackers/eagermot.md).
 
-## Track Attributes with Ollama, vLLM, and Infistar
+## Track Attributes with Ollama, vLLM, OpenAI, Anthropic, and Infistar
 
 <table>
   <thead>
@@ -335,6 +335,18 @@ Advanced examples: [capture timing](docs/python/index.md#elapsed-time),
       <td>More setup, tuning, and maintenance; you provide the hardware to run the models.</td>
     </tr>
     <tr>
+      <td align="center"><a href="https://developers.openai.com/">OpenAI</a></td>
+      <td>Analyze track crops with GPT vision models through the native Responses API.</td>
+      <td>Hosted inference and structured JSON output; no local model server.</td>
+      <td>API usage costs; requires internet access and sends track crops to an external service.</td>
+    </tr>
+    <tr>
+      <td align="center"><a href="https://platform.claude.com/">Anthropic</a></td>
+      <td>Analyze track crops with Claude vision models through the native Messages API.</td>
+      <td>Hosted inference and structured JSON output; no local model server.</td>
+      <td>API usage costs; requires internet access and sends track crops to an external service.</td>
+    </tr>
+    <tr>
       <td align="center">
         <a href="https://www.infistar.cc/register?aff=VSCF47E6&amp;ref_source=link">
           <img src="https://infistar.ai/logo.png" alt="Infistar" height="48">
@@ -348,7 +360,9 @@ Advanced examples: [capture timing](docs/python/index.md#elapsed-time),
 </table>
 
 Add clothing, footwear, and pose descriptions to person tracks with
-**[Ollama](https://ollama.com)**, **[vLLM](https://vllm.ai)**, or
+**[Ollama](https://ollama.com)**, **[vLLM](https://vllm.ai)**,
+**[OpenAI](https://developers.openai.com/)**,
+**[Anthropic](https://platform.claude.com/)**, or
 **[Infistar](https://www.infistar.cc/register?aff=VSCF47E6&ref_source=link)**. Display attributes alongside track IDs
 and export structured JSON results.
 Every attribute run requires PostgreSQL for its queue and retained results;
