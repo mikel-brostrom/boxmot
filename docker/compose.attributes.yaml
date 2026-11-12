@@ -1,4 +1,4 @@
-# Run one backend explicitly: docker compose -f docker/compose.attributes.yaml up -d --wait vllm-cpu
+# Start the database and one backend: docker compose -f docker/compose.attributes.yaml up -d --wait postgres vllm-cpu
 name: boxmot-attributes
 
 services:
@@ -14,9 +14,13 @@ services:
     stop_signal: SIGINT
     stop_grace_period: 30s
     depends_on:
+      postgres:
+        condition: service_healthy
       vllm-cpu:
         condition: service_healthy
     environment:
+      # Local development credentials; host clients use the published loopback port.
+      BOXMOT_ATTRIBUTES_DATABASE_URL: "postgresql://${BOXMOT_POSTGRES_USER:-boxmot}:${BOXMOT_POSTGRES_PASSWORD:-boxmot-local}@postgres:5432/${BOXMOT_POSTGRES_DB:-boxmot}"
       # Host UIDs may have no passwd entry inside the image.
       USER: boxmot
       TORCHINDUCTOR_CACHE_DIR: /opt/boxmot/models/.cache/torchinductor
@@ -51,6 +55,25 @@ services:
       - --project
       - /opt/boxmot/runs/${BOXMOT_RUN_NAME:-compose}
     command: [--source, "${BOXMOT_SOURCE:-/inputs/video.mp4}"]
+
+  postgres:
+    profiles: [database, track]
+    image: postgres:17
+    environment:
+      # These defaults are for local development only.
+      POSTGRES_USER: "${BOXMOT_POSTGRES_USER:-boxmot}"
+      POSTGRES_PASSWORD: "${BOXMOT_POSTGRES_PASSWORD:-boxmot-local}"
+      POSTGRES_DB: "${BOXMOT_POSTGRES_DB:-boxmot}"
+    ports:
+      - "127.0.0.1:${BOXMOT_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -h 127.0.0.1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 5s
+      start_period: 10s
+      retries: 10
 
   ollama:
     profiles: [ollama]
@@ -122,3 +145,4 @@ services:
 
 volumes:
   ollama-models:
+  postgres-data:

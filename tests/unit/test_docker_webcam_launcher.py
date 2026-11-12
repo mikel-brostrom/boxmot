@@ -121,6 +121,10 @@ def test_sudo_keeps_custom_settings_and_resolves_relative_cache(launcher: Launch
         "VLLM_CPU_IMAGE": "vllm:test",
         "VLLM_PORT": "8010",
         "OLLAMA_PORT": "11435",
+        "BOXMOT_POSTGRES_USER": "camera",
+        "BOXMOT_POSTGRES_PASSWORD": "local-test-password",
+        "BOXMOT_POSTGRES_DB": "attributes",
+        "BOXMOT_POSTGRES_PORT": "55432",
         "VLLM_CPU_OMP_THREADS_BIND": "0-3",
         "VLLM_CPU_NUM_OF_RESERVED_CPU": "1",
     }

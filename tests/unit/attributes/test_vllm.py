@@ -254,7 +254,7 @@ def test_retry_after_http_date(monkeypatch, retry_after: str, expected: float) -
 
 
 @pytest.mark.parametrize("backend", ["ollama", "vllm"])
-def test_config_selects_backend_and_session_keeps_application_identity(monkeypatch, tmp_path, backend):
+def test_config_selects_backend_and_session_keeps_application_identity(monkeypatch, attribute_database, backend):
     requests = []
 
     def handler(request):
@@ -268,7 +268,7 @@ def test_config_selects_backend_and_session_keeps_application_identity(monkeypat
         Boxes(torch.tensor([[1, 1, 14, 14]], dtype=torch.float32)),
         torch.tensor([7]), torch.ones(1), torch.tensor([0]), torch.tensor([0]), frame.sample_id,
     )
-    with AttributeEnricher(_config(backend=backend, batch_size=1, max_crop_side=8), spool_dir=tmp_path) as session:
+    with AttributeEnricher(_config(backend=backend, batch_size=1, max_crop_side=8)) as session:
         session.update(frame, tracks)
         outcomes = list(session.finish())
         assert len(outcomes) == 1

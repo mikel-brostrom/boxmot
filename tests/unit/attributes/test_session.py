@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import sqlite3
 import threading
 import time
 from dataclasses import replace
@@ -15,6 +14,9 @@ from boxmot.attributes import AttributeConfig, AttributeEnricher
 from boxmot.attributes.errors import AttributeAnalysisError, TransientAttributeError
 from boxmot.attributes.spool import AttributeSpool
 from boxmot.structures import Boxes, Frame, Tracks
+
+psycopg = pytest.importorskip("psycopg")
+pytestmark = pytest.mark.usefixtures("attribute_database")
 
 
 def _frame(index: int, sequence: str = "video") -> Frame:
@@ -69,7 +71,7 @@ def _poll_until(session, count=1):
 
 def test_partial_departed_track_and_eof_are_analyzed(tmp_path):
     backend = _Backend()
-    session = AttributeEnricher(_config(), backend=backend, spool_dir=tmp_path)
+    session = AttributeEnricher(_config(), backend=backend)
     try:
         first = _frame(0)
         assert session.update(first, _tracks(first, (7,))) == {}
@@ -85,12 +87,12 @@ def test_partial_departed_track_and_eof_are_analyzed(tmp_path):
     finally:
         session.close()
     assert backend.closed
-    assert not session.spool_path.exists()
+    assert session._spool._db.closed
 
 
-def test_fifo_refresh_replacement_retains_latest_samples(tmp_path):
+def test_fifo_refresh_replacement_retains_latest_samples(attribute_database):
     backend = _Backend(blocked=True)
-    session = AttributeEnricher(_config(batch_size=1, sample_every=1), backend=backend, spool_dir=tmp_path)
+    session = AttributeEnricher(_config(batch_size=1, sample_every=1), backend=backend)
     try:
         first = _frame(0)
         session.update(first, _tracks(first, (0,)))
@@ -99,8 +101,11 @@ def test_fifo_refresh_replacement_retains_latest_samples(tmp_path):
             frame = _frame(index)
             session.update(frame, _tracks(frame, (1, 2)))
         assert session.pending_count == 3
-        with sqlite3.connect(session.spool_path) as db:
-            assert db.execute("SELECT max(n) FROM (SELECT count(*) n FROM crops GROUP BY job_id)").fetchone()[0] == 1
+        row = attribute_database.execute(
+            "SELECT max(n) AS maximum FROM (SELECT count(*) n FROM boxmot_attributes.crops "
+            "WHERE run_id = %s GROUP BY job_id) AS batches", (session.run_id,),
+        ).fetchone()
+        assert row["maximum"] == 1
         backend.release.set()
         outcomes = list(session.finish())
         assert [call[0] for call in backend.calls] == [0, 1, 2]
@@ -109,11 +114,11 @@ def test_fifo_refresh_replacement_retains_latest_samples(tmp_path):
         session.close()
 
 
-def test_overload_preserves_thousands_of_short_tracks_on_disk(tmp_path, monkeypatch):
+def test_overload_preserves_thousands_of_short_tracks_in_postgres(attribute_database, monkeypatch):
     # Avoid image encoding cost: this test exercises spool capacity, not crops.
     monkeypatch.setattr("boxmot.attributes.session.encode_track_crop", lambda *_args: b"small JPEG")
     backend = _Backend(blocked=True)
-    session = AttributeEnricher(_config(batch_size=1), backend=backend, spool_dir=tmp_path)
+    session = AttributeEnricher(_config(batch_size=1), backend=backend)
     try:
         first = _frame(0)
         session.update(first, _tracks(first, (0,)))
@@ -122,9 +127,13 @@ def test_overload_preserves_thousands_of_short_tracks_on_disk(tmp_path, monkeypa
         ids = tuple(range(1, 2001))
         session.update(frame, _tracks(frame, ids))
         assert session.pending_count == 2001
-        with sqlite3.connect(session.spool_path) as db:
-            assert db.execute("SELECT count(*) FROM crops").fetchone()[0] == 2001
-            assert db.execute("SELECT count(*) FROM jobs WHERE state = 'running'").fetchone()[0] == 1
+        assert attribute_database.execute(
+            "SELECT count(*) AS n FROM boxmot_attributes.crops WHERE run_id = %s", (session.run_id,),
+        ).fetchone()["n"] == 2001
+        assert attribute_database.execute(
+            "SELECT count(*) AS n FROM boxmot_attributes.jobs WHERE run_id = %s AND state = 'running'",
+            (session.run_id,),
+        ).fetchone()["n"] == 1
         backend.release.set()
         completed_ids = {event.track_id for event in session.finish() if event.status == "completed"}
         assert completed_ids == set(range(2001))
@@ -135,7 +144,7 @@ def test_overload_preserves_thousands_of_short_tracks_on_disk(tmp_path, monkeypa
 
 def test_resets_isolate_late_results_even_with_same_sequence_and_id(tmp_path):
     backend = _Backend(blocked=True)
-    session = AttributeEnricher(_config(batch_size=1, sample_every=1000), backend=backend, spool_dir=tmp_path)
+    session = AttributeEnricher(_config(batch_size=1, sample_every=1000), backend=backend)
     try:
         frame = _frame(10)
         session.update(frame, _tracks(frame, (1,)))
@@ -172,7 +181,7 @@ def test_late_completion_cannot_populate_new_generation_before_new_result(tmp_pa
             return await super().extract(track_id, samples, images)
 
     backend = Backend(blocked=True)
-    session = AttributeEnricher(_config(batch_size=1, sample_every=1000), backend=backend, spool_dir=tmp_path)
+    session = AttributeEnricher(_config(batch_size=1, sample_every=1000), backend=backend)
     try:
         frame = _frame(0, "first")
         session.update(frame, _tracks(frame, (1,)))
@@ -218,7 +227,7 @@ def test_transient_retry_yields_to_other_tracks_and_preserves_previous_values(
             return result
 
     backend = Backend()
-    with AttributeEnricher(_config(batch_size=1), backend=backend, spool_dir=tmp_path) as session:
+    with AttributeEnricher(_config(batch_size=1), backend=backend) as session:
         frame = _frame(0)
         session.update(frame, _tracks(frame, (1, 2)))
         events = list(session.finish())
@@ -237,7 +246,7 @@ def test_failed_refresh_keeps_previous_snapshot(tmp_path):
             return result
 
     backend = Backend()
-    with AttributeEnricher(_config(batch_size=1, sample_every=1), backend=backend, spool_dir=tmp_path) as session:
+    with AttributeEnricher(_config(batch_size=1, sample_every=1), backend=backend) as session:
         first = _frame(0)
         session.update(first, _tracks(first, (1,)))
         _poll_until(session)
@@ -252,7 +261,7 @@ def test_failed_refresh_keeps_previous_snapshot(tmp_path):
 
 def test_cancellation_is_prompt_and_records_running_and_partial_jobs(tmp_path):
     backend = _Backend(blocked=True)
-    session = AttributeEnricher(_config(batch_size=1, request_timeout_s=120), backend=backend, spool_dir=tmp_path)
+    session = AttributeEnricher(_config(batch_size=1, request_timeout_s=120), backend=backend)
     frame = _frame(0)
     session.update(frame, _tracks(frame, (1, 2)))
     assert backend.entered.wait(2)
@@ -268,7 +277,7 @@ def test_cancellation_is_prompt_and_records_running_and_partial_jobs(tmp_path):
 
 
 def test_no_visual_observation_is_reported_and_class_filter_is_respected(tmp_path):
-    with AttributeEnricher(_config(class_ids=(0,)), backend=_Backend(), spool_dir=tmp_path) as session:
+    with AttributeEnricher(_config(class_ids=(0,)), backend=_Backend()) as session:
         frame = _frame(0)
         tracks = replace(_tracks(frame, (1, 2), detection_index=-1), class_ids=torch.tensor([0, 3]))
         session.update(frame, tracks)
@@ -277,7 +286,7 @@ def test_no_visual_observation_is_reported_and_class_filter_is_respected(tmp_pat
 
 
 def test_session_input_order_and_completion_contracts(tmp_path):
-    with AttributeEnricher(_config(), backend=_Backend(), spool_dir=tmp_path) as session:
+    with AttributeEnricher(_config(), backend=_Backend()) as session:
         frame = _frame(0)
         session.update(frame, _tracks(frame, ()))
         with pytest.raises(ValueError, match="increase"):
@@ -291,15 +300,15 @@ def test_session_input_order_and_completion_contracts(tmp_path):
 
 
 def test_spool_write_failure_propagates_instead_of_dropping_work(tmp_path, monkeypatch):
-    session = AttributeEnricher(_config(), backend=_Backend(), spool_dir=tmp_path)
+    session = AttributeEnricher(_config(), backend=_Backend())
 
     def fail(*_args):
-        raise sqlite3.OperationalError("database or disk is full")
+        raise psycopg.OperationalError("database or disk is full")
 
     monkeypatch.setattr(session._spool, "append", fail)
     try:
         frame = _frame(0)
-        with pytest.raises(sqlite3.OperationalError, match="disk is full"):
+        with pytest.raises(RuntimeError, match="PostgreSQL operation failed"):
             session.update(frame, _tracks(frame, (1,)))
     finally:
         session.close()
@@ -307,11 +316,11 @@ def test_spool_write_failure_propagates_instead_of_dropping_work(tmp_path, monke
 
 def test_background_spool_failure_is_reported(tmp_path, monkeypatch):
     backend = _Backend(blocked=True)
-    session = AttributeEnricher(_config(batch_size=1), backend=backend, spool_dir=tmp_path)
+    session = AttributeEnricher(_config(batch_size=1), backend=backend)
     original = session._spool.complete
 
     def fail(*_args, **_kwargs):
-        raise sqlite3.OperationalError("database or disk is full")
+        raise psycopg.OperationalError("database or disk is full")
 
     try:
         frame = _frame(0)
@@ -321,33 +330,33 @@ def test_background_spool_failure_is_reported(tmp_path, monkeypatch):
         backend.release.set()
         with pytest.raises(RuntimeError, match="worker failed") as exc:
             list(session.finish())
-        assert isinstance(exc.value.__cause__, sqlite3.OperationalError)
+        assert isinstance(exc.value.__cause__, psycopg.OperationalError)
     finally:
         monkeypatch.setattr(session._spool, "complete", original)
         with pytest.raises(RuntimeError, match="worker failed"):
             session.close()
-    assert not session.spool_path.exists()
+    assert session._spool._db.closed
 
 
-def test_disk_failure_during_cancellation_still_stops_request(tmp_path, monkeypatch):
+def test_database_failure_during_cancellation_still_stops_request(tmp_path, monkeypatch):
     backend = _Backend(blocked=True)
-    session = AttributeEnricher(_config(batch_size=1), backend=backend, spool_dir=tmp_path)
+    session = AttributeEnricher(_config(batch_size=1), backend=backend)
     frame = _frame(0)
     session.update(frame, _tracks(frame, (1,)))
     assert backend.entered.wait(2)
 
     def fail(*_args, **_kwargs):
-        raise sqlite3.OperationalError("database or disk is full")
+        raise psycopg.OperationalError("database or disk is full")
 
     monkeypatch.setattr(session._spool, "cancel", fail)
     started = time.monotonic()
-    with pytest.raises(sqlite3.OperationalError, match="disk is full"):
+    with pytest.raises(psycopg.OperationalError, match="disk is full"):
         session.cancel()
-    with pytest.raises(sqlite3.OperationalError, match="disk is full"):
+    with pytest.raises(psycopg.OperationalError, match="disk is full"):
         session.close()
     assert backend.closed
     assert not session._thread.is_alive()
-    assert not session.spool_path.exists()
+    assert session._spool._db.closed
     assert time.monotonic() - started < 2
 
 
@@ -359,7 +368,7 @@ def test_cancel_interrupts_a_backend_waiting_on_a_long_io_operation(tmp_path):
             return {}
 
     backend = Backend()
-    session = AttributeEnricher(_config(batch_size=1), backend=backend, spool_dir=tmp_path)
+    session = AttributeEnricher(_config(batch_size=1), backend=backend)
     frame = _frame(0)
     session.update(frame, _tracks(frame, (1,)))
     assert backend.entered.wait(2)
@@ -372,7 +381,7 @@ def test_cancel_interrupts_a_backend_waiting_on_a_long_io_operation(tmp_path):
 
 
 def test_direct_api_revalidates_mutated_canonical_tracks(tmp_path):
-    with AttributeEnricher(_config(), backend=_Backend(), spool_dir=tmp_path) as session:
+    with AttributeEnricher(_config(), backend=_Backend()) as session:
         frame = _frame(0)
         tracks = _tracks(frame, (1, 2))
         tracks.track_ids[1] = 1
@@ -391,7 +400,7 @@ def test_request_timeout_has_finite_retries_without_blocking_other_tracks(tmp_pa
 
     backend = Backend()
     config = _config(batch_size=1, request_timeout_s=0.02, retries=1)
-    with AttributeEnricher(config, backend=backend, spool_dir=tmp_path) as session:
+    with AttributeEnricher(config, backend=backend) as session:
         frame = _frame(0)
         session.update(frame, _tracks(frame, (1, 2)))
         events = list(session.finish())

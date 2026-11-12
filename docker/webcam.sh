@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Launch the CPU webcam tracker and vLLM from a repository checkout.
+# Launch the CPU webcam tracker, vLLM, and PostgreSQL from a repository checkout.
 set -euo pipefail
 
 usage() {
   cat <<'EOF'
 Usage: ./docker/webcam.sh
 
-Build and run webcam tracking with vLLM attributes and a preview window.
+Build and run webcam tracking with vLLM attributes, PostgreSQL, and a preview window.
 Run as your desktop user; Docker uses sudo automatically when needed.
 
 Environment overrides:
@@ -15,6 +15,7 @@ Environment overrides:
   BOXMOT_DETECTOR  Detector profile (default: yolo26n)
   BOXMOT_TRACKER   Tracker (default: bytetrack)
   BOXMOT_RUN_NAME  Output directory under runs/ (default: compose)
+  BOXMOT_POSTGRES_PORT  PostgreSQL loopback host port (default: 5432)
 
 Other Compose environment settings are also supported. See
 docs/integrations/docker.md for details. Press Ctrl+C to stop.
@@ -64,6 +65,7 @@ compose_env=()
 for name in BOXMOT_UID BOXMOT_GID HF_CACHE_DIR DISPLAY VIDEO_DEVICE VIDEO_GID \
   BOXMOT_INPUT_DIR BOXMOT_SOURCE BOXMOT_DETECTOR BOXMOT_TRACKER BOXMOT_REID \
   BOXMOT_RUN_NAME VLLM_CPU_IMAGE VLLM_PORT OLLAMA_PORT \
+  BOXMOT_POSTGRES_USER BOXMOT_POSTGRES_PASSWORD BOXMOT_POSTGRES_DB BOXMOT_POSTGRES_PORT \
   VLLM_CPU_OMP_THREADS_BIND VLLM_CPU_NUM_OF_RESERVED_CPU; do
   if [[ -v $name ]]; then
     compose_env+=("$name=${!name}")

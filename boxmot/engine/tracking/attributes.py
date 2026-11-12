@@ -30,7 +30,7 @@ class AttributeRun:
         else:
             from boxmot.attributes import create_attribute_enricher
 
-            self.enricher = create_attribute_enricher(reference, spool_dir=output_dir / ".attributes")
+            self.enricher = create_attribute_enricher(reference)
         self.path = output_dir / "attributes.jsonl"
         self.progress = progress
         self._closed = False

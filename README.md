@@ -351,6 +351,8 @@ Add clothing, footwear, and pose descriptions to person tracks with
 **[Ollama](https://ollama.com)**, **[vLLM](https://vllm.ai)**, or
 **[Infistar](https://www.infistar.cc/register?aff=VSCF47E6&ref_source=link)**. Display attributes alongside track IDs
 and export structured JSON results.
+Every attribute run requires PostgreSQL for its queue and retained results;
+the Compose workflow starts the database automatically.
 
 See the [Track Attributes guide](docs/config/attributes.md) for setup,
 configuration, and examples.

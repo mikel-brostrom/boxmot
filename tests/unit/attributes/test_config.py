@@ -62,6 +62,10 @@ def test_resolves_builtin_profile_and_detaches_custom_schema(tmp_path):
         {"api_key_env": ""},
         {"api_key_env": "Bearer secret"},
         {"api_key_env": 7},
+        {"database_url_env": ""},
+        {"database_url_env": None},
+        {"database_url_env": "postgresql://user:secret@localhost/db"},
+        {"database_url_env": 7},
         {"schema": {"type": "array"}},
         {"schema": {"type": "object", "$ref": "https://example.com/schema.json"}},
         {"schema": {"type": "object", "$dynamicRef": "other.json#anchor"}},
@@ -90,6 +94,8 @@ def test_accepts_local_schema_references():
 
 
 def test_backend_specific_defaults_and_vllm_profile():
+    assert _config().database_url_env == "BOXMOT_ATTRIBUTES_DATABASE_URL"
+    assert _config(database_url_env="MY_DATABASE_URL").database_url_env == "MY_DATABASE_URL"
     assert _config().host == "http://localhost:11434"
     assert _config(backend="vllm").host == "http://localhost:8000"
     assert _config(backend="vllm", host="https://vision.example/v1").host == "https://vision.example/v1"

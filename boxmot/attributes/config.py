@@ -58,6 +58,7 @@ class AttributeConfig:
     jpeg_quality: int = 90
     think: bool | None = False  # None leaves the provider's thinking setting unchanged.
     api_key_env: str | None = None
+    database_url_env: str = "BOXMOT_ATTRIBUTES_DATABASE_URL"
     response_format: str = "json_schema"  # vLLM only; Ollama always sends the schema.
 
     def __post_init__(self) -> None:
@@ -108,6 +109,12 @@ class AttributeConfig:
             not isinstance(self.api_key_env, str) or not self.api_key_env.isidentifier()
         ):
             raise ConfigurationError("Attribute api_key_env must be a nonempty environment variable name.")
+        if (
+            not isinstance(self.database_url_env, str)
+            or not self.database_url_env.isascii()
+            or not self.database_url_env.isidentifier()
+        ):
+            raise ConfigurationError("Attribute database_url_env must be a nonempty environment variable name.")
         if self.class_ids is not None:
             if not isinstance(self.class_ids, (list, tuple)) or any(
                 isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in self.class_ids

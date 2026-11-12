@@ -12,13 +12,15 @@ For video tracking with Ollama, vLLM CPU, or hosted Infistar attributes, see
 The repository's
 [`docker/compose.attributes.yaml`](https://github.com/mikel-brostrom/boxmot/blob/master/docker/compose.attributes.yaml)
 runs the detector, tracker, and attribute client in a BoxMOT container alongside
-a vLLM server. Both use the CPU; the default models are YOLO26n and
-`Qwen/Qwen3.5-0.8B`, with ByteTrack for tracking. Python dependencies are installed
+a vLLM server and PostgreSQL. Detection and inference use the CPU; the default
+models are YOLO26n and `Qwen/Qwen3.5-0.8B`, with ByteTrack for tracking. Python dependencies are installed
 inside the images, so the host only needs Docker and
 [Docker Compose](https://docs.docker.com/compose/install/).
 
 Run the following commands from a repository checkout. Stop any manually started
-server occupying port `8001` first. The webcam launcher handles Docker access;
+server occupying port `8001` first. PostgreSQL uses loopback port `5432`; set
+`BOXMOT_POSTGRES_PORT` if that port is already in use. The webcam launcher handles
+Docker access;
 omit `sudo` from the manual commands if your Docker setup does not require it.
 
 ### Process a video
@@ -35,8 +37,8 @@ sudo env BOXMOT_UID="$(id -u)" BOXMOT_GID="$(id -g)" \
   --abort-on-container-exit --exit-code-from boxmot boxmot
 ```
 
-Compose builds the BoxMOT CPU image and waits for vLLM's health check before
-starting tracking. The first build, model downloads, and server initialization
+Compose builds the BoxMOT CPU image and waits for vLLM and PostgreSQL health
+checks before starting tracking. The first build, model downloads, and initialization
 can take several minutes. `HF_CACHE_DIR` reuses your existing Hugging Face
 downloads, including when Docker runs through `sudo`. The health check confirms
 server availability; it does not warm up image inference.
@@ -45,7 +47,8 @@ The default input is `/inputs/video.mp4` inside the container. Host `data/` is
 mounted read-only at `/inputs`; `models/` retains detector/ReID downloads and
 `runs/compose/exp/` receives the annotated video, `tracks.jsonl`, and
 `attributes.jsonl`. Matching your host UID/GID keeps these outputs writable by
-your user. When processing finishes, Compose stops both containers. Press
+your user. PostgreSQL retains attribute values and history in its `postgres-data`
+named volume. When processing finishes, Compose stops all three containers. Press
 `Ctrl+C` to stop earlier.
 
 Model caches persist under `models/.cache/`, and Ultralytics settings under
@@ -63,7 +66,7 @@ Run this from your Linux desktop terminal so `DISPLAY` is set:
 
 The launcher creates `data/`, `models/`, and `runs/`, uses your host UID/GID and
 Hugging Face cache, and detects the camera's device group. It builds and starts
-both containers using
+BoxMOT, vLLM, and PostgreSQL using
 [`docker/compose.webcam.yaml`](https://github.com/mikel-brostrom/boxmot/blob/master/docker/compose.webcam.yaml)
 for camera and X11/Xwayland display access. Run the launcher as your normal user;
 it asks for your sudo password only if Docker requires it.
@@ -97,6 +100,22 @@ For the manual video-file command, pass these variables after `sudo env`.
 | `BOXMOT_REID` | `osnet-x0-25-msmt17` | ReID profile for trackers that use it. |
 | `VIDEO_DEVICE` | `/dev/video0` | Host webcam mapped to `/dev/video0`; the launcher detects its device group. |
 | `HF_CACHE_DIR` | `$HOME/.cache/huggingface` with the launcher | Host Hugging Face model cache. |
+| `BOXMOT_POSTGRES_PORT` | `5432` | PostgreSQL port published on the host's loopback address. |
+| `BOXMOT_POSTGRES_USER` | `boxmot` | Local development database user, created when the volume is empty. |
+| `BOXMOT_POSTGRES_PASSWORD` | `boxmot-local` | Local development database password, set when the volume is empty. |
+| `BOXMOT_POSTGRES_DB` | `boxmot` | Database created when the volume is empty. |
+
+The Compose database credentials are local development defaults. These settings
+configure the PostgreSQL container and the BoxMOT container's connection URL
+together. Use URL-safe values for the user, password, and database settings.
+Changing initialization settings does not change users or passwords in an existing
+database volume; manage those changes in PostgreSQL. The webcam launcher preserves
+these settings when it invokes Docker through `sudo`.
+
+BoxMOT reads its connection URL from `BOXMOT_ATTRIBUTES_DATABASE_URL`. Compose
+sets this to the `postgres` service on port `5432`, independent of the host port.
+Host Python or CLI processes must
+[set their own database URL](../config/attributes.md#configure-postgresql).
 
 The default detector and ReID profiles download into the writable `models/`
 mount. To reuse an existing `models/yolov8n.pt`, pass
@@ -112,7 +131,7 @@ Inspect startup or inference logs from another terminal:
 
 ```bash
 sudo env HF_CACHE_DIR="$HOME/.cache/huggingface" \
-  docker compose -f docker/compose.attributes.yaml logs --tail 100 -f boxmot vllm-cpu
+  docker compose -f docker/compose.attributes.yaml logs --tail 100 -f boxmot vllm-cpu postgres
 ```
 
 For server-only Compose commands, Ollama, cache settings, and cleanup, see
@@ -128,7 +147,7 @@ are distinct images. Automatic OpenMP thread binding
 reserves two CPU cores for tracking and other work. These settings reduce
 resource contention; model weights and runtime buffers still need additional RAM.
 
-Keep available host RAM for both containers and other applications. Sustained
+Keep available host RAM for all three containers and other applications. Sustained
 swapping or heavy disk page-ins can make a first response take minutes. Check
 host memory and container usage while the request is running:
 
@@ -145,8 +164,9 @@ before retrying. Raising the request timeout does not make inference faster.
 
 ## Choose an attribute provider
 
-`docker/compose.attributes.yaml` provides local Ollama and vLLM CPU servers.
-Infistar is a hosted API, so only the BoxMOT client runs locally for that option.
+`docker/compose.attributes.yaml` provides PostgreSQL plus local Ollama and vLLM
+CPU servers. Every attribute run needs PostgreSQL. Infistar is a hosted model
+API, so that option runs only BoxMOT and PostgreSQL locally.
 The commands below run detection and tracking on the CPU and process a video
 file. For the existing vLLM webcam workflow, use the
 [Linux webcam launcher](#show-a-linux-webcam-preview).
@@ -179,14 +199,16 @@ docker compose build boxmot
 
 Keep these environment variables in the terminal used for the following
 commands. Host `data/` is mounted at `/inputs`, and `models/` and `runs/`
-preserve downloads and results. Choose one provider below.
+preserve downloads and results. PostgreSQL keeps its data in a persistent named
+volume. Compose supplies the BoxMOT container's database URL automatically.
+Choose one provider below.
 
 ### Ollama
 
-Start the server and download the model used by its profile:
+Start PostgreSQL and the model server, then download the profile's model:
 
 ```bash
-docker compose up -d --wait ollama
+docker compose up -d --wait postgres ollama
 docker compose exec ollama ollama pull qwen3.5:9b
 
 docker compose run --rm --no-deps --entrypoint boxmot boxmot track \
@@ -198,10 +220,10 @@ docker compose run --rm --no-deps --entrypoint boxmot boxmot track \
 
 ### vLLM CPU
 
-Start the x86-64 CPU service and wait for model download and initialization:
+Start PostgreSQL and the x86-64 CPU service, then wait for initialization:
 
 ```bash
-docker compose up -d --wait --wait-timeout 1800 vllm-cpu
+docker compose up -d --wait --wait-timeout 1800 postgres vllm-cpu
 
 docker compose run --rm --no-deps --entrypoint boxmot boxmot track \
   --source /inputs/video.mp4 --detector yolo26n --tracker bytetrack --device cpu \
@@ -215,11 +237,12 @@ Inside Compose, the client uses service port `8000`; the published host port
 
 ### Infistar
 
-With the configured model ID included in the image, export the key and pass it
-to the BoxMOT container:
+With the configured model ID included in the image, start PostgreSQL, then export
+the key and pass it to the BoxMOT container:
 
 ```bash
 export INFISTAR_API_KEY='YOUR_INFISTAR_API_KEY'
+docker compose up -d --wait postgres
 
 docker compose run --rm --no-deps \
   -e INFISTAR_API_KEY --entrypoint boxmot boxmot track \
@@ -228,15 +251,15 @@ docker compose run --rm --no-deps \
   --save --save-json --project /opt/boxmot/runs/infistar
 ```
 
-The client sends track crops to Infistar's HTTPS endpoint. No local model
-server is needed for this option.
+The client sends track crops to Infistar's HTTPS endpoint and uses the local
+PostgreSQL database for its queue and results. No local model server is needed.
 
 ### Results and shutdown
 
 These commands override the Compose service's entrypoint to select the
 provider, detector, and output directory explicitly. `--no-deps` prevents
-Compose from automatically starting the default vLLM dependency when running
-another provider. See the
+Compose from automatically starting dependencies, so each workflow starts
+PostgreSQL and its selected model service explicitly. See the
 [Compose run reference](https://docs.docker.com/reference/cli/docker/compose/run/).
 
 Annotated video, `tracks.jsonl`, and `attributes.jsonl` are saved in an `exp/`
@@ -251,8 +274,11 @@ Stop the servers and remove the Compose containers when finished:
 docker compose --profile '*' down
 ```
 
-Model downloads and output bind mounts are preserved, as is the Ollama model
-volume. See [server logs and settings](../config/attributes.md#logs-settings-and-shutdown)
+Model downloads and output bind mounts are preserved, along with the Ollama model
+volume and PostgreSQL `postgres-data` volume. The database retains run history
+after containers stop; new sessions create new run IDs rather than resuming old
+work. Adding `-v` to `down` deletes both named volumes, including the database.
+See [server logs and settings](../config/attributes.md#logs-settings-and-shutdown)
 for startup troubleshooting.
 
 ## Run the CPU CLI

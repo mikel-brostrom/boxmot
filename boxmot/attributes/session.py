@@ -1,4 +1,4 @@
-"""Background, sequence-aware attribute extraction with a disk-backed backlog."""
+"""Background, sequence-aware attribute extraction with a PostgreSQL backlog."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import threading
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import suppress
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from typing import Any, Protocol
 from uuid import uuid4
 
@@ -45,6 +44,7 @@ class AttributeEnricher:
     consume all outcomes, including results for departed tracks. ``reset()``
     isolates a new sequence without losing the old sequence's queued work.
     The context manager drains on normal exit and cancels on exceptional exit.
+    Backend ownership transfers when the worker starts successfully.
     """
 
     def __init__(
@@ -52,24 +52,15 @@ class AttributeEnricher:
         config: AttributeConfig,
         *,
         backend: AttributeBackend | None = None,
-        spool_dir: str | Path | None = None,
     ) -> None:
         if not isinstance(config, AttributeConfig):
             raise TypeError("config must be an AttributeConfig.")
         self.config = config
         self.run_id = uuid4().hex
-        if backend is None:
-            backend = _BACKENDS.resolve(config.backend)(config)
+        # The worker creates owned backends only after its thread has started.
+        # Database or thread startup failure therefore cannot leak an HTTP client.
+        self._spool = AttributeSpool(config, self.run_id)
         self._backend = backend
-        if spool_dir is not None:
-            Path(spool_dir).mkdir(parents=True, exist_ok=True)
-        self._temporary = TemporaryDirectory(prefix="boxmot-attributes-", dir=spool_dir)
-        self.spool_path = Path(self._temporary.name) / "queue.sqlite3"
-        try:
-            self._spool = AttributeSpool(self.spool_path, config, self.run_id)
-        except BaseException:
-            self._temporary.cleanup()
-            raise
         self._generation = 0
         self._sequence_id: str | None = None
         self._sequence_set = False
@@ -89,9 +80,18 @@ class AttributeEnricher:
         self._task: asyncio.Task[None] | None = None
         self._wake: asyncio.Event | None = None
         self._thread = threading.Thread(target=self._run_worker, name="boxmot-attributes", daemon=True)
-        self._thread.start()
-        self._started.wait()
-        self._check_worker()
+        try:
+            self._thread.start()
+            self._started.wait()
+            self._check_worker()
+        except BaseException:
+            with suppress(Exception):
+                if self._thread.ident is None:
+                    self._spool.close()
+                    self._closed = True
+                else:
+                    self.close()
+            raise
 
     def _check_worker(self) -> None:
         if self._error is not None:
@@ -111,7 +111,7 @@ class AttributeEnricher:
     def _run_worker(self) -> None:
         try:
             asyncio.run(self._worker())
-        except BaseException as exc:  # Surface disk/backend cleanup failures to the caller.
+        except BaseException as exc:  # Surface database/backend cleanup failures to the caller.
             self._error = exc
         finally:
             self._started.set()
@@ -122,11 +122,16 @@ class AttributeEnricher:
         self._task = asyncio.current_task()
         self._wake = asyncio.Event()
         watchdog = asyncio.create_task(self._watch_cancellation())
-        self._started.set()
+        backend = self._backend
         try:
+            if backend is None:
+                backend = _BACKENDS.resolve(self.config.backend)(self.config)
+                self._backend = backend
             while not self._stop.is_set():
                 self._wake.clear()
                 job = self._spool.claim()
+                # Constructor readiness includes the first successful DB query.
+                self._started.set()
                 if job is None:
                     try:
                         # Retry deadlines must also wake the scheduler. Normal
@@ -137,7 +142,7 @@ class AttributeEnricher:
                     continue
                 try:
                     values = await asyncio.wait_for(
-                        self._backend.extract(job.track_id, job.samples, job.images),
+                        backend.extract(job.track_id, job.samples, job.images),
                         timeout=self.config.request_timeout_s,
                     )
                     if not isinstance(values, dict):
@@ -160,7 +165,7 @@ class AttributeEnricher:
                     if self._stop.is_set():
                         break
                     # Spool errors must escape the worker, not masquerade as
-                    # model failures or silently drop coverage on disk-full.
+                    # model failures or silently drop coverage on storage failure.
                     self._spool.complete(job, values=values)
                 finally:
                     self._changed.set()
@@ -171,7 +176,8 @@ class AttributeEnricher:
             watchdog.cancel()
             with suppress(asyncio.CancelledError):
                 await watchdog
-            await asyncio.wait_for(self._backend.aclose(), timeout=5.0)
+            if backend is not None:
+                await asyncio.wait_for(backend.aclose(), timeout=5.0)
 
     async def _watch_cancellation(self) -> None:
         """Bound cancellation latency even if cross-thread socket wakeups fail.
@@ -285,8 +291,8 @@ class AttributeEnricher:
             return
         self._accepting = False
         # Cancellation must remain effective even when journaling fails (for
-        # example a full disk). Never leave a network request running because
-        # the cancellation record could not be persisted.
+        # example an unavailable database). Never leave a network request running
+        # because the cancellation record could not be persisted.
         self._request_stop(cancel=True)
         try:
             self._spool.flush()
@@ -322,18 +328,17 @@ class AttributeEnricher:
         if self._closed:
             return
         error: BaseException | None = None
+        # Stop the worker before waiting on database locks or a dead connection.
+        self._request_stop(cancel=True)
         try:
             if self._spool.pending_count:
                 self.cancel()
-            else:
-                self._request_stop(cancel=False)
         except BaseException as exc:
             error = exc
-            self._request_stop(cancel=True)
         self._thread.join(timeout=6.0)
         if self._thread.is_alive():
-            # Keep the database and temporary directory alive until the worker
-            # relinquishes them; callers may retry close after it exits.
+            # Keep the database connection alive until the worker relinquishes
+            # it; callers may retry close after it exits.
             raise RuntimeError("Attribute backend did not stop after cancellation.") from error
         try:
             self._stats = self._spool.stats
@@ -342,10 +347,7 @@ class AttributeEnricher:
         try:
             self._spool.close()
         finally:
-            try:
-                self._temporary.cleanup()
-            finally:
-                self._closed = True
+            self._closed = True
         if error is not None:
             raise error
         self._check_worker()
@@ -367,11 +369,10 @@ class AttributeEnricher:
 def create_attribute_enricher(
     reference: AttributeConfig | str | Path | Mapping[str, Any],
     *,
-    spool_dir: str | Path | None = None,
     backend: AttributeBackend | None = None,
 ) -> AttributeEnricher:
     """Create a session from a profile/config, optionally injecting a test backend."""
-    return AttributeEnricher(resolve_attribute_config(reference), backend=backend, spool_dir=spool_dir)
+    return AttributeEnricher(resolve_attribute_config(reference), backend=backend)
 
 
 __all__ = ("AttributeBackend", "AttributeEnricher", "create_attribute_enricher")

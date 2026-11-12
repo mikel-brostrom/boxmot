@@ -174,7 +174,7 @@ def test_attribute_host_override_preserves_authored_profile(tmp_path, monkeypatc
     assert json.loads(path.read_text()) == json.loads(json.dumps(authored))
 
 
-def test_prepared_attribute_host_reaches_vllm_request(tmp_path, monkeypatch) -> None:
+def test_prepared_attribute_host_reaches_vllm_request(tmp_path, monkeypatch, attribute_database) -> None:
     """The CLI namespace endpoint is used by the real backend without a network server."""
     httpx = pytest.importorskip("httpx")
     pytest.importorskip("jsonschema")
@@ -319,8 +319,8 @@ def test_attribute_failure_warnings_suppress_repeats_until_error_changes_or_reco
         ]
 
 
-def test_real_background_session_drains_short_tracks_across_sequences(tmp_path) -> None:
-    """Exercise the real spool/worker boundary without network or model weights."""
+def test_real_background_session_drains_short_tracks_across_sequences(tmp_path, attribute_database) -> None:
+    """Exercise the real PostgreSQL/worker boundary without model servers or weights."""
     from boxmot.attributes import AttributeConfig, create_attribute_enricher
 
     class Backend:
@@ -336,7 +336,7 @@ def test_real_background_session_drains_short_tracks_across_sequences(tmp_path) 
     backend = Backend()
     attributes = create_attribute_enricher(
         AttributeConfig(model="fixture", prompt="Describe color", schema={"type": "object"}),
-        backend=backend, spool_dir=tmp_path / "spool",
+        backend=backend,
     )
     run = run_track(
         detector=Detector(), tracker=Tracker(), source=Source([_frame(sequence="first"), _frame(sequence="second")]),

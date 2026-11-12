@@ -6,6 +6,8 @@ properties of each track while BoxMOT continues tracking. The optional attribute
 enricher sends one crop or combines chronological crops of one track into a
 storyboard, then validates the model's answer against your JSON Schema. Track
 identities and observation metadata remain application-owned.
+Every attribute run requires PostgreSQL for its queue, latest values, and result
+history, including runs that use a hosted model service.
 
 ## Attribute extraction options
 
@@ -25,8 +27,9 @@ the device for detection and tracking.
 
 ### Quick commands from a source checkout
 
-First [install the client dependencies](#install-the-client-dependencies) and
-complete the setup linked in the table. Keep the selected server running, then
+First [install the client dependencies](#install-the-client-dependencies),
+[configure PostgreSQL](#configure-postgresql), and complete the setup linked in
+the table. Keep PostgreSQL and the selected model service available, then
 run one of these commands from the repository root:
 
 ```bash
@@ -79,10 +82,47 @@ BoxMOT's GUI build and disable `--show`. See the
 [OpenCV preview fix](../guides/troubleshooting.md#opencv-preview-reports-the-function-is-not-implemented)
 if this has already happened.
 
+## Configure PostgreSQL
+
+Attribute extraction requires a PostgreSQL connection. Set
+`BOXMOT_ATTRIBUTES_DATABASE_URL` in the environment that runs BoxMOT; there is
+no implicit database URL. For a local development database, the repository's
+Compose service uses the [official PostgreSQL 17 image](https://hub.docker.com/_/postgres):
+
+```bash
+docker compose -f docker/compose.attributes.yaml up -d --wait postgres
+export BOXMOT_ATTRIBUTES_DATABASE_URL='postgresql://boxmot:boxmot-local@127.0.0.1:5432/boxmot'
+```
+
+These credentials are local development defaults. The database is published only
+on the host's loopback address and persists in the `postgres-data` named volume.
+For another database, set the URL to its host, database, and credentials. The
+database user must be able to create and use the `boxmot_attributes` schema and
+its tables. Percent-encode reserved characters in URL credentials.
+
+The profile setting `database_url_env` selects the environment variable to read;
+its default is `BOXMOT_ATTRIBUTES_DATABASE_URL`. Store the variable name in YAML
+and keep the connection URL in the environment:
+
+```yaml
+database_url_env: BOXMOT_ATTRIBUTES_DATABASE_URL
+```
+
+The same database can hold multiple runs. Queue entries, latest values, and event
+history are isolated by run ID within `boxmot_attributes`. Completed jobs release
+their crop data; latest values and history remain after a clean close. A new
+session creates a new run ID and does not resume an earlier run's pending work.
+
+Compose supplies a URL using `postgres:5432` to its BoxMOT container. Host
+processes use `127.0.0.1` and the published port instead. See the
+[database settings](../integrations/docker.md#settings-and-logs) for port and
+credential overrides, and update the host URL to match any overrides.
+
 ## Run with Ollama
 
 Install [Ollama](https://docs.ollama.com/quickstart) separately, start its server with
-`ollama serve` if it is not already running, and download the example model:
+`ollama serve` if it is not already running, and download the example model.
+Complete the [PostgreSQL setup](#configure-postgresql) before starting tracking:
 
 ```bash
 ollama pull qwen3.5:9b
@@ -118,7 +158,8 @@ curl --fail http://localhost:8000/v1/models
 ```
 
 Use the server address and host port from your profile if they differ. Once both
-checks succeed, run BoxMOT from its own environment:
+checks succeed and [PostgreSQL is configured](#configure-postgresql), run BoxMOT
+from its own environment:
 
 ```bash
 boxmot track --source video.mp4 --attributes person-appearance-vllm --save --save-json
@@ -141,7 +182,8 @@ boxmot track --tracker edgetam --source video.mp4 \
 [Infistar's API](https://doc.infistar.ai/en/api-overview) accepts OpenAI-compatible
 Chat Completions requests at `https://infistar.ai/v1/chat/completions`.
 BoxMOT connects through its `vllm` client; Infistar runs the model service, so
-you do not need a local vLLM installation.
+you do not need a local vLLM installation. The
+[PostgreSQL database](#configure-postgresql) is still required.
 
 [Register with Infistar](https://www.infistar.cc/register?aff=VSCF47E6&ref_source=link),
 create an API key in **Console → Token Management**, and set it in
@@ -213,7 +255,7 @@ placeholder must be replaced before the profile can run.
 
 The repository includes
 [`docker/compose.attributes.yaml`](https://github.com/mikel-brostrom/boxmot/blob/master/docker/compose.attributes.yaml)
-for CPU servers. Install
+for PostgreSQL and CPU model servers. Install
 [Docker Compose](https://docs.docker.com/compose/install/), then run the commands
 below from the repository root. Keep BoxMOT in your host environment for webcam
 access and `--show` when using these server-only commands. To run BoxMOT in a
@@ -221,7 +263,9 @@ container with Ollama, vLLM CPU, or Infistar, follow
 [Choose an attribute provider](../integrations/docker.md#choose-an-attribute-provider).
 The [full Docker Compose workflow](../integrations/docker.md#tracking-and-vllm-with-compose)
 also covers a Linux webcam preview with vLLM.
-Select one backend by its service name; the other services do not start.
+Start PostgreSQL and one model backend by their service names. The commands
+below use the local development database defaults from
+[Configure PostgreSQL](#configure-postgresql).
 
 ### vLLM on x86-64 CPU
 
@@ -229,7 +273,8 @@ Stop any previously started server using host port `8001` before starting Compos
 
 ```bash
 docker compose -f docker/compose.attributes.yaml up -d \
-  --wait --wait-timeout 1800 vllm-cpu
+  --wait --wait-timeout 1800 postgres vllm-cpu
+export BOXMOT_ATTRIBUTES_DATABASE_URL='postgresql://boxmot:boxmot-local@127.0.0.1:5432/boxmot'
 boxmot track --source 0 --attributes person-appearance-vllm-cpu \
   --show --save --save-json
 ```
@@ -252,7 +297,7 @@ your user's cache path explicitly to avoid downloading the model again:
 ```bash
 sudo env HF_CACHE_DIR="$HOME/.cache/huggingface" \
   docker compose -f docker/compose.attributes.yaml up -d \
-  --wait --wait-timeout 1800 vllm-cpu
+  --wait --wait-timeout 1800 postgres vllm-cpu
 ```
 
 ### Ollama on CPU
@@ -261,8 +306,9 @@ Use an available host port `11434`, start Ollama, and download its model before
 running BoxMOT:
 
 ```bash
-docker compose -f docker/compose.attributes.yaml up -d --wait ollama
+docker compose -f docker/compose.attributes.yaml up -d --wait postgres ollama
 docker compose -f docker/compose.attributes.yaml exec ollama ollama pull qwen3.5:9b
+export BOXMOT_ATTRIBUTES_DATABASE_URL='postgresql://boxmot:boxmot-local@127.0.0.1:5432/boxmot'
 boxmot track --source 0 --attributes person-appearance-ollama --show --save --save-json
 ```
 
@@ -281,7 +327,7 @@ docker compose -f docker/compose.attributes.yaml ps -a
 docker compose -f docker/compose.attributes.yaml logs --tail 100 -f vllm-cpu
 ```
 
-Use `ollama` instead of `vllm-cpu` for its logs. Environment variables
+Use `ollama` or `postgres` instead of `vllm-cpu` for their logs. Environment variables
 `VLLM_PORT`, `OLLAMA_PORT`, and `HF_CACHE_DIR` override the host ports and
 Hugging Face cache location. `VLLM_CPU_IMAGE` selects an alternative CPU image.
 If you change the server's model or host port, use a custom attribute YAML with
@@ -294,8 +340,9 @@ Stop and remove the Compose containers with:
 docker compose -f docker/compose.attributes.yaml --profile '*' down
 ```
 
-This preserves the Hugging Face cache and Ollama model volume. Avoid `down -v`
-if you want to keep the Ollama downloads.
+This preserves the Hugging Face cache, Ollama model volume, and PostgreSQL data
+volume. `down -v` also deletes the local database and its retained attribute
+history, as well as the Ollama downloads.
 
 ## Customize a profile
 
@@ -306,6 +353,7 @@ live in `boxmot/configs/attributes/`. Save this example as `visible-color.yaml`:
 backend: ollama
 model: qwen3.5:9b
 host: http://localhost:11434
+database_url_env: BOXMOT_ATTRIBUTES_DATABASE_URL
 prompt: >-
   Describe the main visible clothing color of this tracked person. Return
   Unknown with low confidence when clothing is hidden or ambiguous. Use
@@ -398,8 +446,8 @@ from original frames, with clipped box bounds, enclosing bounds for OBBs, or
 current mask bounds. OBB crops retain their image orientation for pose analysis.
 
 One worker analyzes batches of up to five crops. Compressed crops and pending
-work live in a per-run SQLite spool. Each track can have one running batch and
-one pending batch; newer pending samples replace older pending samples without
+work live in PostgreSQL, isolated by run ID. Each track can have one running batch
+and one pending batch; newer pending samples replace older pending samples without
 moving that track to the back of the queue. This limits memory usage while
 preserving work for short-lived tracks. Partial batches are flushed when a
 track disappears, the sequence resets, or input ends.
@@ -424,7 +472,9 @@ failure/cancellation outcome, not necessarily a successful description.
 Interrupting a run cancels outstanding work and preserves completed events.
 Sequence generations isolate reused track IDs, including results arriving
 after a reset. A temporarily absent track returning in the same sequence keeps
-its identity. The spool is not a restart-recovery interface.
+its identity. Closing a session retains the run's latest values and event history
+in PostgreSQL. Starting another session creates a new run ID; it does not claim
+or resume work from earlier runs.
 
 ## Outputs
 
@@ -432,6 +482,8 @@ Attribute-enabled tracking writes `attributes.jsonl` in the run directory even
 without `--save-json`. Events record run/sequence/track identity, source samples,
 the model, and validated attribute values, or an explicit failure/cancellation.
 `TrackRun.attributes_path` points to this journal.
+PostgreSQL also retains the run's latest values and event history independently
+of the exported JSONL files.
 
 With `--save-json`, `tracks.jsonl` also contains the latest available attributes
 for each frame. Saved video and previews display the selected fields on wrapped
@@ -452,6 +504,10 @@ Pending batches include crop collection, queued requests, and active inference;
 completed counts include refreshes of previously analyzed tracks.
 
 ## Python
+
+Set `BOXMOT_ATTRIBUTES_DATABASE_URL` before starting your Python process, using
+the same [PostgreSQL setup](#configure-postgresql) as the CLI. A custom
+`AttributeConfig` can select a different variable through `database_url_env`.
 
 For an engine-owned run, pass `attributes="person-appearance-ollama"`,
 `attributes="person-appearance-vllm"`, or your YAML path to
@@ -491,4 +547,5 @@ Standalone tracker loops can call `attributes.update(frame, tracks)` with
 canonical `Frame` and `Tracks` values, then use the same event API. Reset the
 pipeline between sequences as usual; it also resets the attribute generation.
 Attribute extraction is optional and its dependencies are loaded only when
-enabled. CLI help and ordinary tracking do not require the `attributes` extra.
+enabled. CLI help and ordinary tracking do not require the `attributes` extra
+or a database connection.

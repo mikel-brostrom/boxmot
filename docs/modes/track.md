@@ -122,7 +122,8 @@ The example profile describes visible clothing, footwear, and pose. For vLLM,
 use `--attributes person-appearance-vllm`. For Infistar, configure the model ID
 in `person-appearance-infistar.yaml`, set `INFISTAR_API_KEY`, and use
 `--attributes person-appearance-infistar`. Install the `attributes` extra and
-prepare your selected model service before running; see
+prepare your selected model service and PostgreSQL database before running.
+Set `BOXMOT_ATTRIBUTES_DATABASE_URL` in the tracking environment; see
 [Track Attributes](../config/attributes.md) for setup and custom schemas.
 This also works with prompted EdgeTAM tracks.
 

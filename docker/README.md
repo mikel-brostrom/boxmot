@@ -2,14 +2,15 @@
 
 [`compose.attributes.yaml`](compose.attributes.yaml) can run the complete CPU
 pipeline: a BoxMOT container for detection, tracking, and rendering, plus vLLM
-for attributes. Start a Linux webcam preview from the repository root:
+for attributes and PostgreSQL for the queue and results. Start a Linux webcam
+preview from the repository root:
 
 ```bash
 ./docker/webcam.sh
 ```
 
 The launcher creates output directories, configures your user, model cache,
-camera, and display, then builds and starts both containers. It asks for your
+camera, and display, then builds and starts all three containers. It asks for your
 sudo password only if Docker requires it. Settings can be overridden with
 environment variables, for example `VIDEO_DEVICE=/dev/video2 ./docker/webcam.sh`.
 See the
@@ -19,8 +20,12 @@ for video files, settings, and persistent inputs, models, and outputs.
 For a BoxMOT container using Ollama, vLLM CPU, or Infistar, see
 [Choose an attribute provider](../docs/integrations/docker.md#choose-an-attribute-provider).
 
-To run only Ollama or vLLM and keep BoxMOT on the host, use the
+To run PostgreSQL and Ollama or vLLM while keeping BoxMOT on the host, use the
 [attribute server setup](../docs/config/attributes.md#docker-compose).
+All attribute providers, including Infistar, require PostgreSQL and a connection
+URL in `BOXMOT_ATTRIBUTES_DATABASE_URL`. Compose sets the URL for its BoxMOT
+container; host clients must [configure their URL](../docs/config/attributes.md#configure-postgresql).
+The `postgres-data` volume preserves attribute history when containers stop.
 
 BoxMOT uses one shared multi-stage Dockerfile for four independently built
 images. CI publishes CPU images; build GPU images locally with the targets below:
