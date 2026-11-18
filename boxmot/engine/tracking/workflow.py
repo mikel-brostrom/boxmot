@@ -230,15 +230,28 @@ def _validate_tracker_geometry(tracker: Tracker, geometry: str) -> None:
 
 
 def _output_directory(args: Any) -> Path:
+    """Reserve a run directory atomically, reusing it only with explicit consent."""
     project = Path(getattr(args, "project", "runs/track"))
     name = str(getattr(args, "name", "track") or "track")
     output = project / name
-    output.mkdir(parents=True, exist_ok=True)
-    return output
+    if bool(getattr(args, "exist_ok", False)):
+        output.mkdir(parents=True, exist_ok=True)
+        return output
+    output.parent.mkdir(parents=True, exist_ok=True)
+    candidate = output
+    suffix = 2
+    while True:
+        try:
+            candidate.mkdir()
+            return candidate
+        except FileExistsError:
+            candidate = output.with_name(f"{output.name}{suffix}")
+            suffix += 1
 
 
 def _default_sinks(
-    args: Any, *, guidance_mask_provider: Callable[[], Mapping[int, np.ndarray]] | None = None
+    args: Any, *, output_dir: Path | None = None,
+    guidance_mask_provider: Callable[[], Mapping[int, np.ndarray]] | None = None,
 ) -> tuple[tuple[TrackSink, ...], Path | None, Path | None, Path | None]:
     """Build output sinks, sharing one optional guidance overlay per frame."""
     sinks: list[TrackSink] = []
@@ -246,7 +259,7 @@ def _default_sinks(
     video_sink: VideoSink | None = None
     display_sink: DisplaySink | None = None
     needs_directory = any(bool(getattr(args, name, False)) for name in ("save", "save_txt", "save_json"))
-    output = _output_directory(args) if needs_directory else None
+    output = output_dir if output_dir is not None else (_output_directory(args) if needs_directory else None)
     line_width = int(getattr(args, "line_width", 2) or 2)
     show_labels = bool(getattr(args, "show_labels", True))
     if bool(getattr(args, "save", False)):
@@ -578,7 +591,11 @@ def _run_track(
                 if getattr(tracker, "guidance_masks", None) is not None
                 else None
             )
-            sinks, video_path, mot_path, json_path = _default_sinks(args, guidance_mask_provider=provider)
+            sinks, video_path, mot_path, json_path = _default_sinks(
+                args,
+                output_dir=attribute_run.path.parent if attribute_run is not None else None,
+                guidance_mask_provider=provider,
+            )
     else:
         video_path = mot_path = json_path = None
 

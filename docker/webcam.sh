@@ -11,7 +11,6 @@ Run as your desktop user; Docker uses sudo automatically when needed.
 
 Environment overrides:
   VIDEO_DEVICE     Webcam device (default: /dev/video0)
-  HF_CACHE_DIR     Hugging Face cache (default: $HOME/.cache/huggingface)
   BOXMOT_DETECTOR  Detector profile (default: yolo26n)
   BOXMOT_TRACKER   Tracker (default: bytetrack)
   BOXMOT_RUN_NAME  Output directory under runs/ (default: compose)
@@ -49,22 +48,20 @@ cd -- "$repo_root"
 
 BOXMOT_UID=${BOXMOT_UID:-$(id -u)}
 BOXMOT_GID=${BOXMOT_GID:-$(id -g)}
-HF_CACHE_DIR=${HF_CACHE_DIR:-$HOME/.cache/huggingface}
 VIDEO_DEVICE=${VIDEO_DEVICE:-/dev/video0}
 if [[ ! -c $VIDEO_DEVICE ]]; then
   echo "Webcam device not found: $VIDEO_DEVICE. Set VIDEO_DEVICE to your camera's device path." >&2
   exit 1
 fi
 VIDEO_GID=${VIDEO_GID:-$(stat -c '%g' -- "$VIDEO_DEVICE")}
-mkdir -p -- data models runs "$HF_CACHE_DIR"
-# Compose resolves relative bind paths beside its YAML files.
-HF_CACHE_DIR=$(cd -- "$HF_CACHE_DIR" && pwd)
+mkdir -p -- data models runs
 
 # Pass only Compose settings through sudo, retaining the desktop user's values.
 compose_env=()
-for name in BOXMOT_UID BOXMOT_GID HF_CACHE_DIR DISPLAY VIDEO_DEVICE VIDEO_GID \
+for name in BOXMOT_UID BOXMOT_GID DISPLAY VIDEO_DEVICE VIDEO_GID \
   BOXMOT_INPUT_DIR BOXMOT_SOURCE BOXMOT_DETECTOR BOXMOT_TRACKER BOXMOT_REID \
-  BOXMOT_RUN_NAME VLLM_CPU_IMAGE VLLM_PORT OLLAMA_PORT \
+  BOXMOT_RUN_NAME VLLM_CPU_IMAGE VLLM_MODEL_REVISION VLLM_PORT OLLAMA_PORT OLLAMA_IMAGE \
+  COMPOSE_PROJECT_NAME \
   BOXMOT_POSTGRES_USER BOXMOT_POSTGRES_PASSWORD BOXMOT_POSTGRES_DB BOXMOT_POSTGRES_PORT \
   VLLM_CPU_OMP_THREADS_BIND VLLM_CPU_NUM_OF_RESERVED_CPU; do
   if [[ -v $name ]]; then

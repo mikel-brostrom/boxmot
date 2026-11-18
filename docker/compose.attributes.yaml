@@ -77,7 +77,7 @@ services:
 
   ollama:
     profiles: [ollama]
-    image: ollama/ollama:latest
+    image: ${OLLAMA_IMAGE:-ollama/ollama@sha256:910d0d8107b538fb0894e63163eb195de0cc7aefcbc666dc62d3b18f71124592}
     ports:
       - "127.0.0.1:${OLLAMA_PORT:-11434}:11434"
     volumes:
@@ -91,7 +91,8 @@ services:
 
   vllm-cpu:
     profiles: [vllm-cpu, track]
-    image: ${VLLM_CPU_IMAGE:-vllm/vllm-openai-cpu:latest-x86_64}
+    # vLLM 0.33.0; validated CPU image recorded in deploy/kubernetes/VALIDATION.md.
+    image: ${VLLM_CPU_IMAGE:-vllm/vllm-openai-cpu@sha256:4154467a886f8b7ffa9dbab32f873f5ca4528409d042a6ec866e8888223263d3}
     platform: linux/amd64
     shm_size: "2gb"
     ports:
@@ -101,10 +102,12 @@ services:
       VLLM_CPU_OMP_THREADS_BIND: "${VLLM_CPU_OMP_THREADS_BIND:-auto}"
       VLLM_CPU_NUM_OF_RESERVED_CPU: "${VLLM_CPU_NUM_OF_RESERVED_CPU:-2}"
     volumes:
-      # With sudo, pass HF_CACHE_DIR explicitly to preserve the user's cache path.
-      - "${HF_CACHE_DIR:-${HOME}/.cache/huggingface}:/root/.cache/huggingface"
+      # The model server owns this cache; it never writes to the host user's home.
+      - vllm-models:/root/.cache/huggingface
     command:
       - Qwen/Qwen3.5-0.8B
+      - --revision
+      - ${VLLM_MODEL_REVISION:-2fc06364715b967f1860aea9cf38778875588b17}
       - --host
       - 0.0.0.0
       - --port
@@ -148,3 +151,4 @@ services:
 volumes:
   ollama-models:
   postgres-data:
+  vllm-models:

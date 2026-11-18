@@ -28,6 +28,20 @@ uv run --no-sync pytest tests/unit/native
 
 ## CI smoke tests
 
+### Docker Compose
+
+Check the assembled CPU, GPU and Ollama stacks, each with and without the
+webcam overlay, using Docker Compose without starting containers:
+
+```bash
+uv run --no-sync python -m tests.ci.compose_contract
+```
+
+The `Compose integration` workflow runs these checks on relevant PRs. Its
+weekly/manual CPU job also runs actual inference and streaming recovery with
+the [end-to-end harness](https://github.com/mikel-brostrom/boxmot/blob/master/tests/e2e/README.md).
+GPU execution requires a suitably configured host.
+
 ### Attribute database contracts
 
 Attribute session tests use a real PostgreSQL database. Install the `attributes`

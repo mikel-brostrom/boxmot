@@ -6,6 +6,7 @@ import importlib
 import json
 from dataclasses import asdict, dataclass, field
 from io import StringIO
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -143,6 +144,39 @@ def test_workflow_persists_results_arriving_after_final_video_frame(tmp_path) ->
     assert "attributes" not in json.loads(run.json_path.read_text())["tracks"][0]
     assert attributes.closed and source.closed and not attributes.cancelled
     assert attributes.calls[-1] == "finish"
+
+
+@pytest.mark.parametrize("with_attributes", [False, True])
+def test_repeated_runs_preserve_outputs_and_share_one_directory(tmp_path: Path, with_attributes: bool) -> None:
+    """Reusing a namespace must allocate once per run, including late attributes."""
+    args = build_mode_namespace("track", {"project": tmp_path, "name": "exp", "save_json": True})
+
+    def run():
+        return run_track(
+            args, detector=Detector(), tracker=Tracker(), source=Source([_frame()]),
+            attributes=Enricher() if with_attributes else None,
+        )
+
+    first = run()
+    first.json_path.write_text("original tracks\n")
+    if with_attributes:
+        first.attributes_path.write_text("original attributes\n")
+    second = run()
+    assert first.json_path.parent == tmp_path / "exp"
+    assert second.json_path.parent == tmp_path / "exp2"
+    assert first.json_path.read_text() == "original tracks\n"
+    assert json.loads(second.json_path.read_text())["tracks"]
+    if with_attributes:
+        assert first.attributes_path.read_text() == "original attributes\n"
+        assert second.attributes_path.parent == second.json_path.parent
+        assert json.loads(second.attributes_path.read_text())["status"] == "completed"
+    args.exist_ok = True
+    overwritten = run()
+    assert overwritten.json_path == first.json_path
+    assert json.loads(first.json_path.read_text())["tracks"]
+    if with_attributes:
+        assert overwritten.attributes_path == first.attributes_path
+        assert json.loads(first.attributes_path.read_text())["status"] == "completed"
 
 
 @pytest.mark.parametrize("reference_kind", ("profile", "yaml", "mapping", "config"))

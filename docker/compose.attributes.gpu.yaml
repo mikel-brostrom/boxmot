@@ -45,7 +45,8 @@ services:
 
   vllm-gpu:
     profiles: [vllm-gpu, track]
-    image: ${VLLM_GPU_IMAGE:-vllm/vllm-openai:latest}
+    # vLLM 0.33.0; GPU inference still requires hardware acceptance testing.
+    image: ${VLLM_GPU_IMAGE:-vllm/vllm-openai@sha256:d825baf9ce4b1b6bfc5ecc7b79880c7e6748c65a72d697ce3d47607aafa84c6e}
     shm_size: "2gb"
     deploy:
       resources:
@@ -57,10 +58,12 @@ services:
     ports:
       - "127.0.0.1:${VLLM_PORT:-8001}:8000"
     volumes:
-      - "${HF_CACHE_DIR:-${HOME}/.cache/huggingface}:/root/.cache/huggingface"
+      - vllm-models:/root/.cache/huggingface
     entrypoint: [vllm, serve]
     command:
       - Qwen/Qwen3.5-0.8B
+      - --revision
+      - ${VLLM_MODEL_REVISION:-2fc06364715b967f1860aea9cf38778875588b17}
       - --host
       - 0.0.0.0
       - --port

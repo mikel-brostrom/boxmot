@@ -15,6 +15,7 @@ _TRACK_CORE_OPTION_NAMES = (
     "iou",
     "device",
     "project",
+    "exist_ok",
     "half",
     "tracker",
     "variable_dt",
@@ -169,7 +170,7 @@ def _core_option_decorators(defaults: Any, *, half_help: str) -> dict[str, Calla
             "--exist-ok",
             is_flag=True,
             default=defaults.exist_ok,
-            help="existing project/name ok, do not increment",
+            help="reuse project/name and allow overwriting outputs instead of incrementing",
         ),
         "half": click.option("--half", is_flag=True, default=defaults.half, help=half_help),
         "ci": click.option(

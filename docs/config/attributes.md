@@ -10,10 +10,10 @@ history.
 
 For continuous network cameras, use the [Kubernetes streaming workflow](../integrations/kubernetes.md).
 It adds ownership leases, bounded queues, durable event replay and seven-day
-retention. Existing attribute databases require the explicit
-[`boxmot stream-db upgrade`](../integrations/kubernetes.md#upgrade-the-schema-and-install)
-before running clients from this release; stop old clients first and preserve
-your database backup.
+retention. Existing attribute databases require an explicit `boxmot stream-db upgrade`
+before running clients from this release. Follow the backup, stop-client and
+upgrade procedure for [Compose](../integrations/docker.md#upgrade-an-existing-compose-database)
+or [Kubernetes](../integrations/kubernetes.md#upgrade-the-schema-and-install).
 
 ## Attribute extraction options
 
@@ -220,14 +220,9 @@ enough available host RAM for both processes: sustained swapping can stretch
 inference into minutes. See [CPU resource use](../integrations/docker.md#cpu-resource-use)
 for the defaults and diagnostic commands.
 
-The server reuses `$HOME/.cache/huggingface`. If Docker requires `sudo`, preserve
-your user's cache path explicitly to avoid downloading the model again:
-
-```bash
-sudo env HF_CACHE_DIR="$HOME/.cache/huggingface" \
-  docker compose -f docker/compose.attributes.yaml up -d \
-  --wait --wait-timeout 1800 postgres vllm-cpu
-```
+The server stores its pinned model snapshot in a dedicated `vllm-models` named
+volume. It does not write into your personal Hugging Face cache. For existing
+downloads, see [prefilling the model cache](../integrations/docker.md#pinned-models-and-cache-ownership).
 
 ### Ollama on CPU
 
@@ -245,6 +240,8 @@ Ollama stores models in the persistent `ollama-models` named volume. Its health
 check confirms that the server responds; the separate `pull` command makes the
 model available. This uses the 9B Ollama profile; choose a custom profile and
 pull its matching model if you need a smaller model.
+For a containerized client that verifies the full model digest before tracking,
+use the [Ollama Compose overlay](../integrations/docker.md#ollama).
 
 ### Logs, settings, and shutdown
 
@@ -257,11 +254,11 @@ docker compose -f docker/compose.attributes.yaml logs --tail 100 -f vllm-cpu
 ```
 
 Use `ollama` or `postgres` instead of `vllm-cpu` for their logs. Environment variables
-`VLLM_PORT`, `OLLAMA_PORT`, and `HF_CACHE_DIR` override the host ports and
-Hugging Face cache location. `VLLM_CPU_IMAGE` selects an alternative CPU image.
+`VLLM_PORT` and `OLLAMA_PORT` override the host ports. `VLLM_CPU_IMAGE` selects
+an alternative CPU image; `VLLM_MODEL_REVISION` selects its model snapshot.
 If you change the server's model or host port, use a custom attribute YAML with
 matching `model` and `host` values. When using `sudo`, pass these variables with
-`sudo env` as in the cache example above.
+`sudo env NAME=value docker ...`.
 
 Stop and remove the Compose containers with:
 
@@ -269,9 +266,9 @@ Stop and remove the Compose containers with:
 docker compose -f docker/compose.attributes.yaml --profile '*' down
 ```
 
-This preserves the Hugging Face cache, Ollama model volume, and PostgreSQL data
+This preserves the vLLM and Ollama model volumes and PostgreSQL data
 volume. `down -v` also deletes the local database and its retained attribute
-history, as well as the Ollama downloads.
+history, as well as both model caches.
 
 ## Customize a profile
 

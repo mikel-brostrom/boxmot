@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shlex
 import socket
 import subprocess
@@ -71,13 +72,18 @@ class ComposeTest:
     """Own only the containers and artifacts created by one test invocation."""
 
     def __init__(self, profile: str, image: str | None = None) -> None:
-        self.project = f"boxmot-e2e-{uuid4().hex[:10]}"
+        self.project = os.environ.get("BOXMOT_TEST_PROJECT", f"boxmot-e2e-{uuid4().hex[:10]}")
+        if not re.fullmatch(r"boxmot-e2e-[a-z0-9-]+", self.project):
+            raise ValueError(
+                "BOXMOT_TEST_PROJECT must start with boxmot-e2e- and use lowercase letters/digits/hyphens."
+            )
         self.directory = ROOT / "runs" / self.project
         self.inputs = self.directory / "inputs"
         self.inputs.mkdir(parents=True)
         self.profile = profile
         self.image = image or f"boxmot/boxmot:{self.project}"
         self.server = f"vllm-{profile}"
+        self.cache_volume = os.environ.get("BOXMOT_TEST_VLLM_CACHE_VOLUME", "boxmot-e2e-vllm-models")
         self.health_port = available_port()
         self.env = {
             **os.environ,
@@ -90,7 +96,6 @@ class ComposeTest:
             "BOXMOT_POSTGRES_PASSWORD": uuid4().hex,
             "BOXMOT_POSTGRES_DB": "boxmot",
             "VLLM_PORT": str(available_port()),
-            "HF_CACHE_DIR": os.environ.get("HF_CACHE_DIR", str(Path.home() / ".cache/huggingface")),
         }
         # Include profiled services in logs, ps, and down as well as explicit up/run.
         self.compose = [
@@ -250,6 +255,8 @@ class ComposeTest:
         )
         image_name = self.image
         override = {
+            # Reuse only model downloads across isolated projects, never their databases.
+            "volumes": {"vllm-models": {"name": self.cache_volume, "external": True}},
             "services": {
                 "boxmot": {"image": image_name},
                 "fixture-camera": {
@@ -269,7 +276,6 @@ class ComposeTest:
             }
         }
         (self.directory / "override.json").write_text(json.dumps(override, indent=2))
-        Path(self.env["HF_CACHE_DIR"]).mkdir(parents=True, exist_ok=True)
         for name in ("models", "runs"):
             (ROOT / name).mkdir(exist_ok=True)
         # Cross-file `extends: {service: boxmot}` sees the image-only override,
@@ -292,6 +298,7 @@ class ComposeTest:
 
     def run(self, *, skip_build: bool = False) -> None:
         self.command(["docker", "info", "--format", "{{.ServerVersion}}"])
+        self.command(["docker", "volume", "create", self.cache_volume])
         if not skip_build:
             print("Building BoxMOT; this can take several minutes.", flush=True)
             self.dc("build", "boxmot", timeout=3600)

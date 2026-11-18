@@ -25,10 +25,16 @@ worker session, so inference cannot finish before SIGTERM reaches the worker.
 The server is unpaused in cleanup. No model responses are fabricated.
 
 Each invocation uses a unique Compose project and database volume. Existing
-application databases and running Compose projects are not selected. Model
-caches are reused. Exact commands, logs, JSONL, and `result.json` are retained
+application databases and running Compose projects are not selected. vLLM uses
+the dedicated external volume `boxmot-e2e-vllm-models`; it never writes to the
+host Hugging Face cache. Override its name with `BOXMOT_TEST_VLLM_CACHE_VOLUME`.
+The volume is created when needed and retained across tests. To prefill it, use
+the Docker guide's read-only host cache copy with this test volume as the target.
+Exact commands, logs, JSONL, and `result.json` are retained
 under the printed `runs/boxmot-e2e-.../` directory. The test stops its containers
 on completion or failure and preserves its database volume for inspection.
+`BOXMOT_TEST_PROJECT` may select a unique `boxmot-e2e-...` project name for CI
+cleanup; an existing artifact directory is rejected to prevent accidental reuse.
 
 For the GPU Compose variant, use `--profile gpu`. Docker must support NVIDIA
 GPU allocation, and the GPU must support the selected model/image. The existing
@@ -49,3 +55,22 @@ or a blocked capture backend. Queue capacity, rotation, retention, stale inferen
 responses after takeover, and bounded memory need their dedicated tests.
 Cold image builds, downloads, and CPU inference may take several minutes. Each
 stage has a timeout and retains its log on failure.
+
+## CI
+
+The `Compose integration` workflow checks all six assembled CPU, GPU and Ollama
+configurations, with and without the webcam overlay, on relevant PRs. Run this
+check locally without a Docker daemon:
+
+```bash
+uv run --no-sync python -m tests.ci.compose_contract
+```
+
+A weekly or manually dispatched job builds the checkout and runs the real CPU
+test. It requires at least 12 GiB RAM and 25 GiB free disk, and retains logs,
+result JSON and attribute exports for 14 days. The default runner is
+`ubuntu-24.04`; set the repository variable `BOXMOT_COMPOSE_RUNNER` to a suitable
+larger runner label if needed. Each CI invocation uses its own model cache and
+removes its test volumes after collecting the evidence. Persistent runners
+should also reclaim resources left by forced job termination.
+GPU execution remains a manual check on a host with the required hardware.

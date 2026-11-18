@@ -119,7 +119,9 @@ def run_prompted_track(
             if sinks is None:
                 output_args = copy(args)
                 output_args.show = False  # The prompt window owns the preview.
-                sinks, video_path, mot_path, json_path = _default_sinks(output_args)
+                sinks, video_path, mot_path, json_path = _default_sinks(
+                    output_args, output_dir=attribute_run.path.parent if attribute_run is not None else None,
+                )
                 for sink in sinks:
                     resources.callback(sink.close)
             iterator = iter(source)

@@ -80,7 +80,7 @@ os.execvpe(sys.argv[1], sys.argv[1:], {{'PATH': os.environ['PATH'], 'HOME': '/ro
 
 
 @pytest.mark.parametrize("docker_access", (True, False))
-def test_default_launch_preserves_desktop_identity_and_cache(launcher: Launcher, docker_access: bool) -> None:
+def test_default_launch_preserves_desktop_identity_without_host_cache(launcher: Launcher, docker_access: bool) -> None:
     result = launcher.run(docker_access=docker_access)
 
     assert result.returncode == 0, result.stderr
@@ -94,7 +94,6 @@ def test_default_launch_preserves_desktop_identity_and_cache(launcher: Launcher,
     expected = {
         "BOXMOT_UID": str(os.getuid()),
         "BOXMOT_GID": str(os.getgid()),
-        "HF_CACHE_DIR": str(cache),
         "DISPLAY": ":42",
         "VIDEO_DEVICE": "/dev/null",
         "VIDEO_GID": str(Path("/dev/null").stat().st_gid),
@@ -102,16 +101,17 @@ def test_default_launch_preserves_desktop_identity_and_cache(launcher: Launcher,
     assert {name: invocation["env"][name] for name in expected} == expected
     assert invocation["env"]["HOME"] == (launcher.environment["HOME"] if docker_access else "/root")
     assert launcher.sudo_log.exists() is not docker_access
-    assert cache.is_dir()
+    assert not cache.exists()
+    assert "HF_CACHE_DIR" not in invocation["env"]
     assert all((launcher.repo / name).is_dir() for name in ("data", "models", "runs"))
 
 
-def test_sudo_keeps_custom_settings_and_resolves_relative_cache(launcher: Launcher) -> None:
+def test_sudo_keeps_custom_settings_and_project_identity(launcher: Launcher) -> None:
     overrides = {
         "BOXMOT_UID": "1234",
         "BOXMOT_GID": "5678",
         "VIDEO_GID": "999",
-        "HF_CACHE_DIR": "model cache $(literal)",
+        "COMPOSE_PROJECT_NAME": "webcam-test",
         "BOXMOT_INPUT_DIR": "/inputs with spaces",
         "BOXMOT_SOURCE": "0",
         "BOXMOT_DETECTOR": "custom detector.onnx",
@@ -119,6 +119,8 @@ def test_sudo_keeps_custom_settings_and_resolves_relative_cache(launcher: Launch
         "BOXMOT_REID": "custom reid.pt",
         "BOXMOT_RUN_NAME": "webcam run",
         "VLLM_CPU_IMAGE": "vllm:test",
+        "VLLM_MODEL_REVISION": "a" * 40,
+        "OLLAMA_IMAGE": "ollama:test",
         "VLLM_PORT": "8010",
         "OLLAMA_PORT": "11435",
         "BOXMOT_POSTGRES_USER": "camera",
@@ -133,10 +135,8 @@ def test_sudo_keeps_custom_settings_and_resolves_relative_cache(launcher: Launch
     result = launcher.run(docker_access=False)
 
     assert result.returncode == 0, result.stderr
-    expected = {**overrides, "HF_CACHE_DIR": str(launcher.repo / overrides["HF_CACHE_DIR"])}
     environment = launcher.calls()[-1]["env"]
-    assert {name: environment[name] for name in expected} == expected
-    assert Path(environment["HF_CACHE_DIR"]).is_dir()
+    assert {name: environment[name] for name in overrides} == overrides
 
 
 @pytest.mark.parametrize("docker_access", (True, False))

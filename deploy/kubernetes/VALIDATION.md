@@ -1,5 +1,69 @@
 # Local validation
 
+## Compose reliability follow-up — 2026-11-18
+
+The Compose defaults now pin the previously validated CPU vLLM image and
+Hugging Face revision `2fc06364715b967f1860aea9cf38778875588b17`. The model cache
+uses a Docker volume, prefilled for this check from a read-only host mount.
+The GPU vLLM 0.33.0 and Ollama image digests were checked against their registry
+manifests; their inference remains untested on this host. The Ollama overlay
+checks the installed model's full manifest digest before tracking starts.
+
+The updated checkout was rebuilt and passed **all nine real CPU integration
+stages** with the pinned model and named cache:
+
+```bash
+UV_CACHE_DIR=/tmp/boxmot-review-uv uv run --no-sync python -m tests.e2e.compose_attributes --profile cpu
+```
+
+Image: `boxmot/boxmot:boxmot-e2e-c13c965779`. Evidence:
+`runs/boxmot-e2e-c13c965779/result.json` and its command logs and exports.
+The report has `error: null` and no cleanup errors. The finite video produced
+real tracks and completed attributes in PostgreSQL and JSONL. Streaming
+inference, ownership exclusion, camera reconnection, cancellation during
+inference, database outage/recovery and acknowledged export consistency all
+passed. Service startup took 131 seconds and the finite pipeline 236 seconds.
+All test containers were removed; the test database and model cache volumes
+remain for inspection and reuse.
+
+The commands below used Python 3.11 and `UV_CACHE_DIR=/tmp/boxmot-review-uv`:
+
+```bash
+uv run --no-sync python -m tests.ci.compose_contract
+uv run --no-sync python -m pytest tests/unit/engine/test_attributes.py \
+  tests/unit/engine/test_prompted_tracking.py tests/unit/engine/test_runner_sinks_v24.py -q
+uv run --no-sync python -m pytest tests/unit/engine/test_cli_v24.py \
+  tests/unit/test_compose_contract.py tests/unit/test_docker_webcam_launcher.py \
+  tests/unit/engine/streaming/test_compose_cleanup.py -q
+uv run --no-sync python -m pytest tests/unit/test_docker_cache_layers.py \
+  tests/unit/test_docker_dependency_manifest.py tests/unit/test_docker_native_runtime.py \
+  tests/unit/test_docker_workflow_v24.py -q
+uv run --no-sync python -m pytest tests/unit/engine/test_prompted_tracking.py -k prompted_attributes -q
+uv run --no-sync python -m boxmot.engine.cli track --help
+uv run --no-sync python -m tests.e2e.compose_attributes --profile gpu --prepare-only
+uv run --no-sync mkdocs build --strict
+bash -n docker/webcam.sh
+git diff --check
+```
+
+All six actual Compose merges passed (CPU/GPU/Ollama, with and without webcam).
+The first pytest selection passed 74 tests with two PostgreSQL-fixture skips
+because `BOXMOT_TEST_POSTGRES_URL` was unset. The other selections passed 182,
+76 and 2 tests respectively. The final two tests additionally exercise prompted
+tracking with its default JSON sink and shared attribute directory; one replaces
+a case in the first selection. CLI help, GPU preparation, shell syntax, Ruff on
+all changed Python files, whitespace and the strict documentation build passed.
+GPU preparation evidence is in `runs/boxmot-e2e-d39d16548c/`.
+
+The documented backup and upgrade commands were also run against an isolated
+PostgreSQL 17 database containing version-1 tracks and completed attributes.
+The custom-format archive was readable, the one-off `stream-db upgrade` command
+succeeded twice and preserved both latest attributes and events, and restoring
+the backup into a separate database preserved the original version-1 schema
+and values. Commands and results are in
+`runs/boxmot-e2e-upgrade-70e4763b/result.json`; its containers and database volume
+were removed. No existing application database was upgraded.
+
 ## Docker and PostgreSQL 17 checks — 2026-11-18
 
 Docker access was enabled for this session. The CPU CLI image was built from

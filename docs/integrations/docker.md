@@ -1,340 +1,281 @@
 # Docker
 
-For continuous cameras with ownership leases and durable metadata, see
-[Kubernetes deployment](kubernetes.md). It uses the same CLI CPU/GPU image targets.
-
-Use the CLI images to run tracking and batch workflows in a container. For
-stateful HTTP tracking from external detections, use the separate
-[service deployment guide](../guides/deployment.md).
-
-For video tracking with Ollama or vLLM CPU attributes, see
-[Choose an attribute provider](#choose-an-attribute-provider).
+Run finite video jobs and Linux webcam previews with Compose. For continuous
+camera ownership, recovery and retention, use the [streaming deployment](kubernetes.md).
+For HTTP tracking from external detections, see [service deployment](../guides/deployment.md).
 
 ## Tracking and vLLM with Compose
 
-For a repeatable test using real inference and a fixture camera, see the
-[Compose end-to-end test](https://github.com/mikel-brostrom/boxmot/blob/master/tests/e2e/README.md).
-It checks the video pipeline and streaming recovery in an isolated project.
-
-The repository's
-[`docker/compose.attributes.yaml`](https://github.com/mikel-brostrom/boxmot/blob/master/docker/compose.attributes.yaml)
-runs the detector, tracker, and attribute client in a BoxMOT container alongside
-a vLLM server and PostgreSQL. Detection and inference use the CPU; the default
-models are YOLO26n and `Qwen/Qwen3.5-0.8B`, with ByteTrack for tracking. Python dependencies are installed
-inside the images, so the host only needs Docker and
-[Docker Compose](https://docs.docker.com/compose/install/).
-For CUDA detection, ReID, and VLM inference, use the
-[GPU override](#gpu-detection-reid-and-vlm-inference).
-
-Run the following commands from a repository checkout. Stop any manually started
-server occupying port `8001` first. PostgreSQL uses loopback port `5432`; set
-`BOXMOT_POSTGRES_PORT` if that port is already in use. The webcam launcher handles
-Docker access;
-omit `sudo` from the manual commands if your Docker setup does not require it.
+The base [`compose.attributes.yaml`](https://github.com/mikel-brostrom/boxmot/blob/master/docker/compose.attributes.yaml)
+runs BoxMOT, PostgreSQL and vLLM on the CPU: YOLO26n detection, ByteTrack tracking
+and `Qwen/Qwen3.5-0.8B` attributes. Python dependencies are inside the images.
+Use Docker with Compose **2.24.4 or newer** for all documented overlays.
+Run commands from the repository root in a terminal with Docker access.
+If Docker requires sudo, pass settings with `sudo env NAME=value docker ...`;
+the webcam launcher handles this automatically.
 
 ### Process a video
 
-Create host directories and copy your input video into `data/video.mp4`:
-
 ```bash
+export BOXMOT_UID="$(id -u)" BOXMOT_GID="$(id -g)"
 mkdir -p data models runs
 cp /path/to/video.mp4 data/video.mp4
 
-sudo env BOXMOT_UID="$(id -u)" BOXMOT_GID="$(id -g)" \
-  HF_CACHE_DIR="$HOME/.cache/huggingface" \
-  docker compose -f docker/compose.attributes.yaml up --build \
+docker compose -f docker/compose.attributes.yaml up --build \
   --abort-on-container-exit --exit-code-from boxmot boxmot
 ```
 
-Compose builds the BoxMOT CPU image and waits for vLLM and PostgreSQL health
-checks before starting tracking. The first build, model downloads, and initialization
-can take several minutes. `HF_CACHE_DIR` reuses your existing Hugging Face
-downloads, including when Docker runs through `sudo`. The health check confirms
-server availability; it does not warm up image inference.
+BoxMOT starts after PostgreSQL and vLLM pass their health checks. Initial builds,
+model downloads and CPU initialization may take several minutes. The server
+health check does not warm up image inference. On completion or Ctrl+C, Compose
+stops the job and its dependencies.
 
-The default input is `/inputs/video.mp4` inside the container. Host `data/` is
-mounted read-only at `/inputs`; `models/` retains detector/ReID downloads and
-`runs/compose/exp/` receives the annotated video, `tracks.jsonl`, and
-`attributes.jsonl`. Matching your host UID/GID keeps these outputs writable by
-your user. PostgreSQL retains attribute values and history in its `postgres-data`
-named volume. When processing finishes, Compose stops all three containers. Press
-`Ctrl+C` to stop earlier.
+Input `data/` is mounted read-only at `/inputs`. Detector/ReID downloads live in
+`models/`; outputs live in `runs/compose/exp/`. Subsequent runs use `exp2/`,
+`exp3/`, etc., preserving earlier video, tracks and attributes. All exports from
+one run share its directory. `BOXMOT_RUN_NAME` changes the parent directory.
+Pass `--exist-ok` only when deliberately reusing and overwriting an output run:
 
-Model caches persist under `models/.cache/`, and Ultralytics settings under
-`models/Ultralytics/`. Compose supplies a runtime username and an explicit
-PyTorch cache path so your host UID does not need an `/etc/passwd` entry
-inside the image.
+```bash
+docker compose -f docker/compose.attributes.yaml run --rm boxmot \
+  --source /inputs/video.mp4 --exist-ok
+```
+
+Unlike `up --abort-on-container-exit`, `run` leaves dependency servers running.
+Use the [shutdown command](#results-and-shutdown) afterward.
 
 ### Show a Linux webcam preview
 
-Run this from your Linux desktop terminal so `DISPLAY` is set:
+Run as your normal user from a Linux desktop terminal with `DISPLAY` set:
 
 ```bash
 ./docker/webcam.sh
 ```
 
-The launcher creates `data/`, `models/`, and `runs/`, uses your host UID/GID and
-Hugging Face cache, and detects the camera's device group. It builds and starts
-BoxMOT, vLLM, and PostgreSQL using
-[`docker/compose.webcam.yaml`](https://github.com/mikel-brostrom/boxmot/blob/master/docker/compose.webcam.yaml)
-for camera and X11/Xwayland display access. Run the launcher as your normal user;
-it asks for your sudo password only if Docker requires it.
-
-By default, it maps `/dev/video0` and adds `--source 0 --show`. The container
-runs as your host user and shares the X11 socket. If the display rejects that
-user, allow it from your desktop terminal
-with `xhost +si:localuser:$(id -un)` and rerun the command. Press `q` or `Esc` in
-the preview, or `Ctrl+C` in the terminal, to stop the job. Completed attributes and saved outputs remain on
-the host. The CPU profile sends the first eligible crop immediately, with its
-longest side limited to 640 pixels and no storyboard padding. Attribute labels
-appear after the first model response; latency depends on the CPU and available RAM.
-
-### GPU detection, ReID, and VLM inference
-
-Layer
-[`docker/compose.attributes.gpu.yaml`](https://github.com/mikel-brostrom/boxmot/blob/master/docker/compose.attributes.gpu.yaml)
-over the base file to build the BoxMOT `cli-gpu` image and start `vllm-gpu`
-alongside PostgreSQL. The defaults use YOLO26n detection and OSNet ReID on CUDA,
-BoT-SORT tracking, and `Qwen/Qwen3.5-0.8B` on vLLM. The CPU stack and
-`./docker/webcam.sh` remain CPU workflows.
-
-The host needs an NVIDIA driver compatible with the BoxMOT image's CUDA 13.0
-PyTorch build, the NVIDIA Container Toolkit, and
-[Docker Compose GPU support](https://docs.docker.com/compose/how-tos/gpu-support/).
-Use Compose 2.24.4 or newer: the overlay uses
-[`!override`](https://docs.docker.com/reference/compose-file/merge/#replace-value)
-to replace CPU dependencies and profiles. Stop an existing CPU stack before
-switching; the CPU and GPU model services publish the same host port.
-
-From the repository root, prepare a video and start the GPU stack:
-
-```bash
-mkdir -p data models runs "$HOME/.cache/huggingface"
-cp /path/to/video.mp4 data/video.mp4
-
-sudo env BOXMOT_UID="$(id -u)" BOXMOT_GID="$(id -g)" \
-  HF_CACHE_DIR="$HOME/.cache/huggingface" \
-  docker compose -f docker/compose.attributes.yaml \
-  -f docker/compose.attributes.gpu.yaml up --build \
-  --abort-on-container-exit --exit-code-from boxmot boxmot
-```
-
-The BoxMOT container connects to `http://vllm-gpu:8000` and reuses
-`person-appearance-vllm-cpu`. That profile selects the small model and crop
-settings; the server determines where VLM inference runs. Detection and ReID
-use `--device 0` inside the BoxMOT container. Inputs, caches, outputs, and
-PostgreSQL storage use the same mounts as the CPU workflow; GPU outputs default
-to `runs/compose-gpu/exp/`.
-
-Pass these variables after `sudo env` to customize GPU allocation:
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `BOXMOT_GPU_ID` | `0` | Host GPU exposed to BoxMOT for detection and ReID. |
-| `VLLM_GPU_ID` | `0` | Host GPU exposed to the VLM server. |
-| `VLLM_GPU_MEMORY_UTILIZATION` | `0.5` | Fraction of GPU memory budgeted by vLLM. |
-| `VLLM_GPU_IMAGE` | `vllm/vllm-openai:latest` | vLLM GPU server image. |
-
-Both containers share GPU 0 by default. The `0.5` setting is a vLLM memory
-budget, not GPU isolation; available VRAM must also fit detection, ReID, and
-other GPU workloads. With two GPUs, set `BOXMOT_GPU_ID=0 VLLM_GPU_ID=1`.
-Each container sees one GPU, so the BoxMOT client still uses `--device 0`.
-
-For a Linux webcam preview, add the webcam override last from your desktop
-terminal. This manual command uses GPU inference:
-
-```bash
-mkdir -p data models runs "$HOME/.cache/huggingface"
-video_device="${VIDEO_DEVICE:-/dev/video0}"
-
-sudo env BOXMOT_UID="$(id -u)" BOXMOT_GID="$(id -g)" \
-  HF_CACHE_DIR="$HOME/.cache/huggingface" DISPLAY="$DISPLAY" \
-  VIDEO_DEVICE="$video_device" VIDEO_GID="$(stat -c '%g' "$video_device")" \
-  docker compose -f docker/compose.attributes.yaml \
-  -f docker/compose.attributes.gpu.yaml -f docker/compose.webcam.yaml \
-  up --build --abort-on-container-exit --exit-code-from boxmot boxmot
-```
-
-The same X11 access and preview controls described
-[above](#show-a-linux-webcam-preview) apply. Use both the base and GPU Compose
-files for subsequent `logs` or `down` commands.
-
-### Settings and logs
-
-Set environment variables before the launcher to adjust a run:
+The launcher creates output directories, passes your UID/GID, detects the camera
+device group, and layers `compose.webcam.yaml` over the CPU stack. It maps
+`/dev/video0` and the X11/Xwayland socket. It asks for sudo only when Docker
+requires it. If X11 rejects your user, run
+`xhost +si:localuser:$(id -un)` from the desktop terminal and retry.
+Press `q`, `Esc`, or Ctrl+C to stop.
 
 ```bash
 VIDEO_DEVICE=/dev/video2 BOXMOT_RUN_NAME=webcam-test ./docker/webcam.sh
 ```
 
-For the manual video-file command, pass these variables after `sudo env`.
+### GPU detection, ReID, and VLM inference
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `BOXMOT_RUN_NAME` | `compose` (`compose-gpu` with the GPU override) | Results go to `runs/<name>/exp/`; choose a new name for each run to preserve earlier outputs. |
-| `BOXMOT_INPUT_DIR` | `../data` | Host input directory, relative to the Compose file; use an absolute path for another location. |
-| `BOXMOT_SOURCE` | `/inputs/video.mp4`, or `0` with the webcam override | Source path or camera index inside the container. |
-| `BOXMOT_DETECTOR` | `yolo26n` | Detector profile, or path to existing weights inside the container. |
-| `BOXMOT_TRACKER` | `bytetrack` (`botsort` with the GPU override) | Tracker name. |
-| `BOXMOT_REID` | `osnet-x0-25-msmt17` | ReID profile for trackers that use it. |
-| `VIDEO_DEVICE` | `/dev/video0` | Host webcam mapped to `/dev/video0`; the launcher detects its device group. |
-| `HF_CACHE_DIR` | `$HOME/.cache/huggingface` with the launcher | Host Hugging Face model cache. |
-| `BOXMOT_POSTGRES_PORT` | `5432` | PostgreSQL port published on the host's loopback address. |
-| `BOXMOT_POSTGRES_USER` | `boxmot` | Local development database user, created when the volume is empty. |
-| `BOXMOT_POSTGRES_PASSWORD` | `boxmot-local` | Local development database password, set when the volume is empty. |
-| `BOXMOT_POSTGRES_DB` | `boxmot` | Database created when the volume is empty. |
-
-The Compose database credentials are local development defaults. These settings
-configure the PostgreSQL container and the BoxMOT container's connection URL
-together. Use URL-safe values for the user, password, and database settings.
-Changing initialization settings does not change users or passwords in an existing
-database volume; manage those changes in PostgreSQL. The webcam launcher preserves
-these settings when it invokes Docker through `sudo`.
-
-BoxMOT reads its connection URL from `BOXMOT_ATTRIBUTES_DATABASE_URL`. Compose
-sets this to the `postgres` service on port `5432`, independent of the host port.
-Host Python or CLI processes must
-[set their own database URL](../config/attributes.md#configure-postgresql).
-
-The default detector and ReID profiles download into the writable `models/`
-mount. To reuse an existing `models/yolov8n.pt`, pass
-`BOXMOT_DETECTOR=models/yolov8n.pt`. For other downloads, use a built-in model
-profile or a custom YAML with its checkpoint path under `models/` and a download
-URI.
-
-The container connects to `http://vllm-cpu:8000` through
-`--attributes-host`, overriding the packaged profile's host URL. This connection
-uses Compose networking and does not depend on the published host port.
-
-Inspect startup or inference logs from another terminal:
+The GPU overlay selects `cli-gpu`, BoT-SORT, CUDA detection/ReID and a GPU vLLM
+server. The host needs a driver compatible with CUDA 13.0 PyTorch and the NVIDIA
+Container Toolkit. See [Compose GPU support](https://docs.docker.com/compose/how-tos/gpu-support/).
+Stop the CPU stack before switching: both model services publish port `8001`.
 
 ```bash
-sudo env HF_CACHE_DIR="$HOME/.cache/huggingface" \
-  docker compose -f docker/compose.attributes.yaml logs --tail 100 -f boxmot vllm-cpu postgres
+export BOXMOT_UID="$(id -u)" BOXMOT_GID="$(id -g)"
+mkdir -p data models runs
+
+docker compose -f docker/compose.attributes.yaml \
+  -f docker/compose.attributes.gpu.yaml up --build \
+  --abort-on-container-exit --exit-code-from boxmot boxmot
 ```
 
-For server-only Compose commands, Ollama, cache settings, and cleanup, see
-[Track attributes](../config/attributes.md#docker-compose).
+Both containers share host GPU 0 by default; `VLLM_GPU_MEMORY_UTILIZATION=0.5`
+budgets vLLM memory without isolating GPU resources. With two GPUs, set
+`BOXMOT_GPU_ID=0 VLLM_GPU_ID=1`. BoxMOT still uses device `0` inside its container.
+Outputs default to `runs/compose-gpu/exp/`, then numbered directories.
+The small `person-appearance-vllm-cpu` attribute preset is also used here;
+the server determines the VLM hardware.
+
+For GPU webcam inference, add the webcam overlay last:
+
+```bash
+export VIDEO_DEVICE="${VIDEO_DEVICE:-/dev/video0}"
+export VIDEO_GID="$(stat -c '%g' "$VIDEO_DEVICE")"
+docker compose -f docker/compose.attributes.yaml \
+  -f docker/compose.attributes.gpu.yaml -f docker/compose.webcam.yaml \
+  up --build --abort-on-container-exit --exit-code-from boxmot boxmot
+```
+
+Use the same files for subsequent logs, stop and down commands. GPU and Ollama
+are alternative provider overlays; do not combine them.
+
+### Settings and logs
+
+| Variable | Default / purpose |
+| --- | --- |
+| `BOXMOT_UID`, `BOXMOT_GID` | `1000`; set to your host UID/GID for writable outputs. |
+| `BOXMOT_RUN_NAME` | `compose`, `compose-gpu`, or `compose-ollama`; parent under `runs/`. |
+| `BOXMOT_INPUT_DIR` | `../data`, relative to the base Compose file; use an absolute path elsewhere. |
+| `BOXMOT_SOURCE` | `/inputs/video.mp4`, or `0` for the webcam overlay. |
+| `BOXMOT_DETECTOR` | `yolo26n`; profile or weights path inside the container. |
+| `BOXMOT_TRACKER` | `bytetrack`, or `botsort` with the GPU overlay. |
+| `BOXMOT_REID` | `osnet-x0-25-msmt17`, used by appearance trackers. |
+| `BOXMOT_GPU_ID`, `VLLM_GPU_ID` | `0`; host GPUs exposed to the respective containers. |
+| `VLLM_GPU_MEMORY_UTILIZATION` | `0.5`; vLLM GPU memory budget. |
+| `VLLM_CPU_IMAGE`, `VLLM_GPU_IMAGE`, `OLLAMA_IMAGE` | Override the digest-pinned server images. |
+| `VLLM_MODEL_REVISION` | Pinned Hugging Face commit for the small Qwen model. |
+| `OLLAMA_MODEL_DIGEST` | Expected full digest of the installed `qwen3.5:9b` model. |
+| `VLLM_PORT`, `OLLAMA_PORT` | Loopback ports `8001`, `11434`. |
+| `BOXMOT_POSTGRES_PORT` | Loopback database port `5432`. |
+| `BOXMOT_POSTGRES_USER`, `BOXMOT_POSTGRES_PASSWORD`, `BOXMOT_POSTGRES_DB` | Local defaults `boxmot`, `boxmot-local`, `boxmot`. |
+| `COMPOSE_PROJECT_NAME` | Override `boxmot-attributes` to isolate another stack; also select unused host ports. |
+
+Database settings initialize an empty volume only; changing them does not alter
+existing PostgreSQL users or passwords. Use URL-safe credential values because
+Compose embeds them in the client's connection URL. Host clients configure
+[their own database URL](../config/attributes.md#configure-postgresql).
+Container clients use service DNS and internal ports, independent of host ports.
+
+```bash
+docker compose -f docker/compose.attributes.yaml logs --tail 100 -f boxmot vllm-cpu postgres
+```
+
+### Pinned models and cache ownership
+
+Server images use immutable digests. Both vLLM services pin the model with
+`--revision`; changing the image does not implicitly update its weights.
+The defaults live in the Compose files. The CPU image/revision match the
+[recorded inference run](https://github.com/mikel-brostrom/boxmot/blob/master/deploy/kubernetes/VALIDATION.md).
+GPU and Ollama image manifests were registry-verified; inference on those
+backends still needs acceptance testing on the target hardware.
+
+vLLM owns a persistent `vllm-models` named volume shared by the CPU and GPU
+variants of a Compose project. It no longer writes into your personal Hugging
+Face cache. Old host downloads remain untouched; the new volume downloads its
+pinned snapshot on first use. Ollama uses `ollama-models`. BoxMOT's own caches
+remain under the host-owned `models/` mount. Changing projects creates separate
+server caches and databases.
+
+To prefill the vLLM volume from an existing host snapshot without giving the
+server write access to your home, stop vLLM and run:
+
+```bash
+docker compose -f docker/compose.attributes.yaml run --rm --no-deps \
+  -v "$HOME/.cache/huggingface/hub:/seed:ro" --entrypoint sh vllm-cpu \
+  -c 'mkdir -p /root/.cache/huggingface/hub && cp -a /seed/. /root/.cache/huggingface/hub/'
+```
+
+Update image digests and model revisions deliberately, rerun the integration
+test, and keep the previous references for rollback. An override can use any
+image reference, but use a digest for repeatable deployments.
 
 ### CPU resource use
 
-The vLLM service uses a 256 MiB KV cache, a 2,048-token context and prefill batch,
-and one active request. Image preprocessing is capped at 262,144 pixels,
-including its startup probe; the model's default permits 16,777,216 pixels.
-Its multimodal processor cache is disabled because successive track crops
-are distinct images. The CPU profile also disables prefix caching to avoid
-expensive compilation of Mamba cache-copy kernels on the first request.
-Automatic OpenMP thread binding
-reserves two CPU cores for tracking and other work. These settings reduce
-resource contention; model weights and runtime buffers still need additional RAM.
-
-Keep available host RAM for all three containers and other applications. Sustained
-swapping or heavy disk page-ins can make a first response take minutes. Check
-host memory and container usage while the request is running:
-
-```bash
-free -h
-vmstat 1 5
-sudo docker stats --no-stream
-```
-
-In `free`, inspect the `available` column. In `vmstat`, sustained nonzero `si`
-or `so` indicates active swapping; allocated swap alone does not show current
-pressure. Stop unnecessary memory-heavy processes or reduce their memory use
-before retrying. Raising the request timeout does not make inference faster.
+vLLM uses a 256 MiB KV cache, a 2,048-token context, one active request, and an
+image preprocessing cap of 262,144 pixels. Prefix caching and the multimodal
+processor cache are disabled. OpenMP reserves two CPU cores by default; set
+`VLLM_CPU_OMP_THREADS_BIND` and `VLLM_CPU_NUM_OF_RESERVED_CPU` for your host.
+Weights and runtime buffers need additional RAM. Use `docker stats --no-stream`,
+`free -h`, and `vmstat 1 5` to check memory pressure before increasing timeouts.
 
 ## Choose an attribute provider
 
-`docker/compose.attributes.yaml` provides PostgreSQL plus local Ollama and vLLM
-CPU servers. Every attribute run needs PostgreSQL.
-The commands below run detection and tracking on the CPU and process a video
-file. For the existing vLLM webcam workflow, use the
-[Linux webcam launcher](#show-a-linux-webcam-preview).
+Use the base stack for CPU vLLM, the GPU overlay for CUDA vLLM, or the Ollama
+overlay below. Every provider requires PostgreSQL. The webcam overlay can be
+added last to any one of these configurations.
 
-| Provider | Attribute profile | Endpoint used inside the BoxMOT container |
-| --- | --- | --- |
-| [Ollama](https://ollama.com) | `person-appearance-ollama` | `http://ollama:11434` |
-| [vLLM](https://vllm.ai) CPU (x86-64) | `person-appearance-vllm-cpu` | `http://vllm-cpu:8000` |
+### Ollama
 
-### Prepare the image and input
+Prepare the pinned model once, then use the same complete-stack invocation as
+vLLM. Run these commands in the same terminal:
 
-Run these examples from the repository root as your Docker-enabled user.
+```bash
+export COMPOSE_FILE=docker/compose.attributes.yaml:docker/compose.attributes.ollama.yaml
+export BOXMOT_UID="$(id -u)" BOXMOT_GID="$(id -g)"
+mkdir -p data models runs
+cp /path/to/video.mp4 data/video.mp4
+
+docker compose up -d --wait postgres ollama
+docker compose exec ollama ollama pull qwen3.5:9b
+docker compose up --build --abort-on-container-exit --exit-code-from boxmot boxmot
+```
+
+Before tracking, the BoxMOT container checks `/api/tags` against the full
+`OLLAMA_MODEL_DIGEST` from the overlay. A missing model or changed tag fails
+with an explicit error. Keep the prepared model volume to reproduce the pinned
+revision. If the registry tag changes, restore your retained model volume or
+validate the new model and explicitly update the digest; do not bypass the
+check accidentally by copying a new digest without testing inference.
+The server health check only checks availability, so it can start before the
+model is pulled. This profile uses the 9B model on the CPU and needs more memory
+than the small vLLM profile.
+
+### vLLM CPU
+
+For repeated jobs sharing already started servers:
 
 ```bash
 export COMPOSE_FILE=docker/compose.attributes.yaml
 export BOXMOT_UID="$(id -u)" BOXMOT_GID="$(id -g)"
-export HF_CACHE_DIR="$HOME/.cache/huggingface"
-
-mkdir -p data models runs "$HF_CACHE_DIR"
-cp /path/to/video.mp4 data/video.mp4
 docker compose build boxmot
-```
-
-Keep these environment variables in the terminal used for the following
-commands. Host `data/` is mounted at `/inputs`, and `models/` and `runs/`
-preserve downloads and results. PostgreSQL keeps its data in a persistent named
-volume. Compose supplies the BoxMOT container's database URL automatically.
-Choose one provider below.
-
-### Ollama
-
-Start PostgreSQL and the model server, then download the profile's model:
-
-```bash
-docker compose up -d --wait postgres ollama
-docker compose exec ollama ollama pull qwen3.5:9b
-
-docker compose run --rm --no-deps --entrypoint boxmot boxmot track \
-  --source /inputs/video.mp4 --detector yolo26n --tracker bytetrack --device cpu \
-  --attributes person-appearance-ollama \
-  --attributes-host http://ollama:11434 \
-  --save --save-json --project /opt/boxmot/runs/ollama
-```
-
-### vLLM CPU
-
-Start PostgreSQL and the x86-64 CPU service, then wait for initialization:
-
-```bash
 docker compose up -d --wait --wait-timeout 1800 postgres vllm-cpu
-
-docker compose run --rm --no-deps --entrypoint boxmot boxmot track \
-  --source /inputs/video.mp4 --detector yolo26n --tracker bytetrack --device cpu \
-  --attributes person-appearance-vllm-cpu \
-  --attributes-host http://vllm-cpu:8000 \
-  --save --save-json --project /opt/boxmot/runs/vllm
+docker compose run --rm --no-deps boxmot --source /inputs/video.mp4
 ```
-
-Inside Compose, the client uses service port `8000`; the published host port
-`8001` is for clients outside Docker.
 
 ### Results and shutdown
 
-These commands override the Compose service's entrypoint to select the
-provider, detector, and output directory explicitly. `--no-deps` prevents
-Compose from automatically starting dependencies, so each workflow starts
-PostgreSQL and any selected local model service explicitly. See the
-[Compose run reference](https://docs.docker.com/reference/cli/docker/compose/run/).
-
-Annotated video, `tracks.jsonl`, and `attributes.jsonl` are saved in an `exp/`
-run directory under `runs/ollama/` or `runs/vllm/`. Choose a different `--name`
-or `--project` to preserve outputs
-from repeated runs.
-The BoxMOT container is removed when
-the command finishes; any server started with `up -d` stays running.
-
-Stop the servers and remove the Compose containers when finished:
+Results include annotated video, `tracks.jsonl`, and `attributes.jsonl` in each
+unique run directory. PostgreSQL retains attributes and run history in its
+`postgres-data` volume. The named model caches and host outputs survive:
 
 ```bash
 docker compose --profile '*' down
 ```
 
-Model downloads and output bind mounts are preserved, along with the Ollama model
-volume and PostgreSQL `postgres-data` volume. The database retains run history
-after containers stop; new sessions create new run IDs rather than resuming old
-work. Adding `-v` to `down` deletes both named volumes, including the database.
-See [server logs and settings](../config/attributes.md#logs-settings-and-shutdown)
-for startup troubleshooting.
+Set `COMPOSE_FILE` as above or pass the same `-f` files used to start the stack.
+Adding `-v` deletes **all named volumes**, including the database and both model
+caches. Run history uses new session IDs for each finite job.
+
+## Upgrade an existing Compose database
+
+Version-1 attribute databases need an explicit upgrade before this release can
+use them. Fresh databases initialize automatically. Keep your previous image
+reference and configuration. Stop **all** clients of this database, including
+host CLI jobs, other Compose projects and any streaming/maintenance workers.
+Keep them stopped until the upgrade succeeds.
+
+Select your normal `COMPOSE_FILE` (including the GPU or Ollama overlay if used),
+then run from a Docker-enabled terminal:
+
+```bash
+set -e
+umask 077
+docker compose build boxmot
+docker compose stop boxmot
+docker compose up -d --wait postgres
+mkdir -p runs/backups
+backup="runs/backups/attributes-$(date -u +%Y%m%dT%H%M%SZ).dump"
+docker compose exec -T postgres sh -ec \
+  'exec pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$backup"
+docker compose exec -T postgres pg_restore --list < "$backup" > /dev/null
+
+docker compose run --rm --no-deps --entrypoint boxmot boxmot stream-db upgrade
+docker compose up --abort-on-container-exit --exit-code-from boxmot boxmot
+```
+
+The one-off container uses the existing Compose database URL and bypasses
+tracking/model startup. The additive upgrade preserves runs, crops and outcomes
+and is safe to rerun. It allows ten minutes per SQL statement and thirty seconds
+to acquire locks. Validate restore of the backup separately before a production
+upgrade. Do not delete the database volume to resolve a schema mismatch.
+Restart any other stopped clients after the upgrade succeeds.
+
+Old version-1 clients reject the upgraded database. Rolling back to them requires
+restoring the matching backup into a separate PostgreSQL database and pointing
+the old deployment to it; keeping the upgraded volume protects later data.
+Releases supporting the same schema version can reuse the database.
+
+## Verify the integration
+
+Run the inexpensive six-combination check without starting containers:
+
+```bash
+uv run --no-sync python -m tests.ci.compose_contract
+```
+
+Relevant PRs run this check in CI. A weekly/manual workflow runs actual CPU
+inference and recovery using the [Compose end-to-end harness](https://github.com/mikel-brostrom/boxmot/blob/master/tests/e2e/README.md).
+GPU inference remains a hardware acceptance check.
 
 ## Run the CPU CLI
 
