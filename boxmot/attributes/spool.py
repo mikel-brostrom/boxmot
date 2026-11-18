@@ -12,84 +12,11 @@ from importlib import import_module
 from typing import Any
 
 from boxmot.attributes.config import AttributeConfig
+from boxmot.attributes.database import ensure_schema
 from boxmot.attributes.models import AttributeResult, AttributeSample
+from boxmot.attributes.streams import CameraLease, cancel_jobs
 from boxmot.utils.config import ConfigurationError
 from boxmot.utils.dependencies import require_extra
-
-_SCHEMA_VERSION = "boxmot_attributes:1"
-
-_SCHEMA_SQL = """
-CREATE SCHEMA IF NOT EXISTS boxmot_attributes;
-COMMENT ON SCHEMA boxmot_attributes IS 'boxmot_attributes:1';
-CREATE TABLE IF NOT EXISTS boxmot_attributes.runs (
-    run_id TEXT PRIMARY KEY,
-    model TEXT NOT NULL,
-    backend TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    ticket BIGINT NOT NULL DEFAULT 0
-);
-CREATE TABLE IF NOT EXISTS boxmot_attributes.tracks (
-    run_id TEXT NOT NULL REFERENCES boxmot_attributes.runs(run_id) ON DELETE CASCADE,
-    generation BIGINT NOT NULL,
-    track_id BIGINT NOT NULL,
-    sequence_id TEXT,
-    class_id BIGINT NOT NULL,
-    last_seen BIGINT NOT NULL,
-    last_sample BIGINT,
-    observation JSONB NOT NULL,
-    ever_sampled BOOLEAN NOT NULL DEFAULT FALSE,
-    unavailable_reported BOOLEAN NOT NULL DEFAULT FALSE,
-    latest JSONB,
-    last_status TEXT,
-    PRIMARY KEY (run_id, generation, track_id)
-);
-CREATE INDEX IF NOT EXISTS tracks_seen ON boxmot_attributes.tracks(run_id, generation, last_seen);
-CREATE TABLE IF NOT EXISTS boxmot_attributes.jobs (
-    run_id TEXT NOT NULL,
-    id BIGINT GENERATED ALWAYS AS IDENTITY,
-    ticket BIGINT NOT NULL,
-    generation BIGINT NOT NULL,
-    track_id BIGINT NOT NULL,
-    state TEXT NOT NULL DEFAULT 'pending',
-    ready BOOLEAN NOT NULL DEFAULT FALSE,
-    attempts INTEGER NOT NULL DEFAULT 0,
-    available TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (run_id, id),
-    FOREIGN KEY (run_id, generation, track_id)
-        REFERENCES boxmot_attributes.tracks(run_id, generation, track_id) ON DELETE CASCADE
-);
-CREATE UNIQUE INDEX IF NOT EXISTS one_pending
-    ON boxmot_attributes.jobs(run_id, generation, track_id) WHERE state = 'pending';
-CREATE UNIQUE INDEX IF NOT EXISTS one_frozen
-    ON boxmot_attributes.jobs(run_id, generation, track_id) WHERE state IN ('running', 'retry');
-CREATE INDEX IF NOT EXISTS ready_jobs ON boxmot_attributes.jobs(run_id, state, ready, ticket);
-CREATE TABLE IF NOT EXISTS boxmot_attributes.crops (
-    run_id TEXT NOT NULL,
-    id BIGINT GENERATED ALWAYS AS IDENTITY,
-    job_id BIGINT NOT NULL,
-    sample JSONB NOT NULL,
-    image BYTEA NOT NULL,
-    PRIMARY KEY (run_id, id),
-    FOREIGN KEY (run_id, job_id) REFERENCES boxmot_attributes.jobs(run_id, id) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS job_crops ON boxmot_attributes.crops(run_id, job_id, id);
-CREATE TABLE IF NOT EXISTS boxmot_attributes.events (
-    run_id TEXT NOT NULL REFERENCES boxmot_attributes.runs(run_id) ON DELETE CASCADE,
-    id BIGINT GENERATED ALWAYS AS IDENTITY,
-    payload JSONB NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    delivered_at TIMESTAMPTZ,
-    PRIMARY KEY (run_id, id)
-);
-CREATE INDEX IF NOT EXISTS undelivered_events
-    ON boxmot_attributes.events(run_id, id) WHERE delivered_at IS NULL;
-CREATE TABLE IF NOT EXISTS boxmot_attributes.counters (
-    run_id TEXT NOT NULL REFERENCES boxmot_attributes.runs(run_id) ON DELETE CASCADE,
-    status TEXT NOT NULL,
-    count BIGINT NOT NULL,
-    PRIMARY KEY (run_id, status)
-);
-"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,7 +42,15 @@ class AttributeSpool:
     does not resume abandoned jobs or attach additional workers to a run.
     """
 
-    def __init__(self, config: AttributeConfig, run_id: str) -> None:
+    def __init__(
+        self,
+        config: AttributeConfig,
+        run_id: str,
+        *,
+        ownership: CameraLease | None = None,
+        max_pending_jobs: int = 1000,
+        max_crop_bytes: int = 256 * 1024 * 1024,
+    ) -> None:
         """Connect using an environment-owned URL and create this run atomically."""
         database_url = os.environ.get(config.database_url_env, "").strip()
         if not database_url:
@@ -127,6 +62,9 @@ class AttributeSpool:
         dict_row = import_module("psycopg.rows").dict_row
         self.config = config
         self.run_id = run_id
+        self.ownership = ownership
+        self.max_pending_jobs = max_pending_jobs
+        self.max_crop_bytes = max_crop_bytes
         self._lock = threading.RLock()
         self._transaction_depth = 0
         self._closed = False
@@ -148,23 +86,22 @@ class AttributeSpool:
                 tcp_user_timeout=5000,
             )
             with self._db.transaction():
-                # DDL IF NOT EXISTS alone can race when two runs first start.
-                # The transaction-scoped key is stable across processes.
-                self._db.execute("SELECT pg_advisory_xact_lock(1112496205, 1096045650)")
-                schema = self._db.execute(
-                    """SELECT pg_catalog.obj_description(oid, 'pg_namespace') AS version
-                    FROM pg_catalog.pg_namespace WHERE nspname = 'boxmot_attributes'"""
-                ).fetchone()
-                if schema is None:
-                    self._db.execute(_SCHEMA_SQL, prepare=False)
-                elif schema["version"] != _SCHEMA_VERSION:
-                    raise ConfigurationError(
-                        "Attribute PostgreSQL schema version is unsupported. "
-                        "Use a database with the matching BoxMOT attributes schema or an empty schema destination."
-                    )
+                ensure_schema(self._db)
+                if ownership is not None:
+                    ownership.guard(self._db)
                 self._db.execute(
-                    "INSERT INTO boxmot_attributes.runs(run_id, model, backend) VALUES (%s, %s, %s)",
-                    (self.run_id, config.model, config.backend),
+                    """INSERT INTO boxmot_attributes.runs
+                    (run_id,model,backend,camera_id,owner_id,epoch,display_fields)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb)""",
+                    (
+                        self.run_id,
+                        config.model,
+                        config.backend,
+                        ownership.camera_id if ownership else None,
+                        ownership.owner_id if ownership else None,
+                        ownership.epoch if ownership else None,
+                        json.dumps(config.display_fields),
+                    ),
                 )
         except self._driver.Error as exc:
             if self._db is not None:
@@ -188,6 +125,8 @@ class AttributeSpool:
             try:
                 if outermost:
                     with self._db.transaction():
+                        if self.ownership is not None:
+                            self.ownership.guard(self._db, self.run_id)
                         yield
                 else:
                     yield
@@ -220,7 +159,8 @@ class AttributeSpool:
                 (run_id, generation, track_id, sequence_id, class_id, last_seen, observation)
                 VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb)
                 ON CONFLICT(run_id, generation, track_id) DO UPDATE SET
-                last_seen = excluded.last_seen, class_id = excluded.class_id, observation = excluded.observation
+                last_seen = excluded.last_seen, class_id = excluded.class_id, observation = excluded.observation,
+                observed_at = clock_timestamp(), active = TRUE
                 RETURNING last_sample""",
                 (self.run_id, generation, track_id, sequence_id, class_id, step, json.dumps(asdict(sample))),
             ).fetchone()
@@ -265,6 +205,28 @@ class AttributeSpool:
                 WHERE run_id = %s AND generation = %s AND track_id = %s""",
                 (step, self.run_id, generation, track_id),
             )
+            if self.ownership is not None:
+                self._enforce_capacity()
+
+    def _enforce_capacity(self) -> None:
+        """Evict oldest pending work with explicit outcomes, never a running request."""
+        while True:
+            totals = self._db.execute(
+                """SELECT count(*) AS jobs,
+                COALESCE((SELECT sum(octet_length(image)) FROM boxmot_attributes.crops WHERE run_id=%s),0) AS bytes
+                FROM boxmot_attributes.jobs WHERE run_id=%s""",
+                (self.run_id, self.run_id),
+            ).fetchone()
+            if totals["jobs"] <= self.max_pending_jobs and totals["bytes"] <= self.max_crop_bytes:
+                return
+            row = self._db.execute(
+                """SELECT id FROM boxmot_attributes.jobs WHERE run_id=%s AND state='pending'
+                ORDER BY ticket LIMIT 1 FOR UPDATE""",
+                (self.run_id,),
+            ).fetchone()
+            if row is None:
+                raise RuntimeError("Running attribute evidence exceeds the configured crop capacity.")
+            cancel_jobs(self._db, [self.run_id], "Attribute queue capacity exceeded.", [row["id"]])
 
     def _publish(self, result: AttributeResult) -> None:
         """Retain an outcome, replacing latest only for a successful analysis."""
@@ -301,6 +263,7 @@ class AttributeSpool:
             params.append(departed_at)
         predicate = " AND ".join(where)
         with self.transaction():
+            self._db.execute(f"UPDATE boxmot_attributes.tracks SET active=FALSE WHERE {predicate}", params)
             self._db.execute(
                 f"""UPDATE boxmot_attributes.jobs SET ready = TRUE
                 WHERE run_id = %s AND state = 'pending' AND NOT ready
@@ -368,8 +331,14 @@ class AttributeSpool:
                 samples.append(AttributeSample(**crop["sample"]))
                 images.append(bytes(crop["image"]))
             return _Job(
-                row["id"], row["generation"], row["track_id"], row["sequence_id"],
-                row["class_id"], row["attempts"] + 1, tuple(samples), tuple(images),
+                row["id"],
+                row["generation"],
+                row["track_id"],
+                row["sequence_id"],
+                row["class_id"],
+                row["attempts"] + 1,
+                tuple(samples),
+                tuple(images),
             )
 
     def retry(self, job: _Job, delay: float) -> None:
@@ -386,7 +355,7 @@ class AttributeSpool:
         """Atomically retain an outcome and release the completed job's crops."""
         with self.transaction():
             row = self._db.execute(
-                "SELECT id FROM boxmot_attributes.jobs WHERE run_id = %s AND id = %s FOR UPDATE",
+                "SELECT id FROM boxmot_attributes.jobs WHERE run_id = %s AND id = %s AND state='running' FOR UPDATE",
                 (self.run_id, job.id),
             ).fetchone()
             if row is None:
@@ -406,9 +375,7 @@ class AttributeSpool:
                     display_fields=self.config.display_fields,
                 )
             )
-            self._db.execute(
-                "DELETE FROM boxmot_attributes.jobs WHERE run_id = %s AND id = %s", (self.run_id, job.id)
-            )
+            self._db.execute("DELETE FROM boxmot_attributes.jobs WHERE run_id = %s AND id = %s", (self.run_id, job.id))
 
     def cancel(self) -> None:
         """Record all this run's outstanding batches as cancelled, freeing crops."""
@@ -482,9 +449,28 @@ class AttributeSpool:
     def pending_count(self) -> int:
         """Count this run's pending, running, and retrying requests."""
         with self.transaction():
-            return int(self._db.execute(
-                "SELECT count(*) AS count FROM boxmot_attributes.jobs WHERE run_id = %s", (self.run_id,)
-            ).fetchone()["count"])
+            return int(
+                self._db.execute(
+                    "SELECT count(*) AS count FROM boxmot_attributes.jobs WHERE run_id = %s", (self.run_id,)
+                ).fetchone()["count"]
+            )
+
+    @property
+    def queue_metrics(self) -> dict[str, int | float]:
+        """Return aggregate backlog size and age without loading crop payloads."""
+        with self.transaction():
+            row = self._db.execute(
+                """SELECT count(*) AS pending_batches,
+                COALESCE(extract(epoch FROM clock_timestamp()-min(created_at)),0) AS oldest_batch_age_s,
+                COALESCE((SELECT sum(octet_length(image)) FROM boxmot_attributes.crops WHERE run_id=%s),0)
+                  AS queued_crop_bytes FROM boxmot_attributes.jobs WHERE run_id=%s""",
+                (self.run_id, self.run_id),
+            ).fetchone()
+            return {
+                "pending_batches": int(row["pending_batches"]),
+                "queued_crop_bytes": int(row["queued_crop_bytes"]),
+                "oldest_batch_age_s": float(row["oldest_batch_age_s"]),
+            }
 
     @property
     def stats(self) -> dict[str, int]:

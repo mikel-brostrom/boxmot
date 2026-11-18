@@ -1,0 +1,12 @@
+camera_id: camera-01
+source_url_env: BOXMOT_CAMERA_URL
+attributes: person-appearance-vllm-cpu
+attributes_host: http://vllm:8000
+output_dir: /outputs
+health_port: 8080
+retention_days: 7
+tracking:
+  detector: yolo26n
+  tracker: botsort
+  reid: osnet-x0-25-msmt17
+  device: "0"

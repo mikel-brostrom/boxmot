@@ -24,10 +24,10 @@ def attribute_database(monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
     run_ids: list[str] = []
     initialize = AttributeSpool.__init__
 
-    def record_run(self: AttributeSpool, config: Any, run_id: str) -> None:
+    def record_run(self: AttributeSpool, config: Any, run_id: str, **kwargs: Any) -> None:
         """Track this test's run IDs without affecting concurrent pytest workers."""
         run_ids.append(run_id)
-        initialize(self, config, run_id)
+        initialize(self, config, run_id, **kwargs)
 
     monkeypatch.setattr(AttributeSpool, "__init__", record_run)
     with psycopg.connect(url, autocommit=True, row_factory=dict_row, connect_timeout=5) as connection:

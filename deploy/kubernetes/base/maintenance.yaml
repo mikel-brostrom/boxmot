@@ -1,0 +1,64 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: attribute-maintenance
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 240
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001}
+          containers:
+            - name: maintenance
+              image: boxmot-runtime
+              command: [boxmot, stream-db, maintain, --retention-days, "7"]
+              env:
+                - name: BOXMOT_ATTRIBUTES_DATABASE_URL
+                  valueFrom:
+                    secretKeyRef: {name: attributes-database, key: url}
+              resources:
+                requests: {cpu: 100m, memory: 256Mi}
+                limits: {cpu: "1", memory: 1Gi}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: camera-01-output-maintenance
+spec:
+  schedule: "17 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 240
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001}
+          containers:
+            - name: maintenance
+              image: boxmot-runtime
+              command: [boxmot, stream-db, maintain, --retention-days, "7", --output-dir, /outputs, --camera-id, camera-01]
+              env:
+                - name: BOXMOT_ATTRIBUTES_DATABASE_URL
+                  valueFrom:
+                    secretKeyRef: {name: attributes-database, key: url}
+              resources:
+                requests: {cpu: 100m, memory: 256Mi}
+                limits: {cpu: "1", memory: 1Gi}
+              volumeMounts:
+                - {name: outputs, mountPath: /outputs}
+          volumes:
+            - name: outputs
+              persistentVolumeClaim: {claimName: camera-01-outputs}

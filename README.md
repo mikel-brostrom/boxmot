@@ -298,6 +298,10 @@ Advanced examples: [capture timing](docs/python/index.md#elapsed-time),
 
 ## Track Attributes with Ollama and vLLM
 
+For continuous network cameras, see the [Kubernetes deployment guide](docs/integrations/kubernetes.md)
+and `boxmot stream --config PATH`. CPU and GPU examples use shared model serving,
+PostgreSQL ownership leases, and durable JSON metadata with seven-day retention.
+
 <table>
   <thead>
     <tr>

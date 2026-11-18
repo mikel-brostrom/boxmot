@@ -125,6 +125,7 @@ class HttpAttributeBackend(ABC):
             if not isinstance(text, str) or not text.strip():
                 raise ValueError(f"{self.name} returned an empty response.")
             values = json.loads(text, parse_constant=_reject_nonfinite)
+            json.dumps(values, allow_nan=False)
             self._validator.validate(values)
         except (ValueError, self._jsonschema.ValidationError) as exc:
             message = exc.message if isinstance(exc, self._jsonschema.ValidationError) else str(exc)

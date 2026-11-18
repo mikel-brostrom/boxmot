@@ -112,6 +112,8 @@ services:
       - --dtype
       - bfloat16
       - --enforce-eager
+      # Avoid expensive Triton compilation for cached Mamba state copies on CPU.
+      - --disable-prefix-caching
       # One short attribute request needs a small cache, not a serving-sized pool.
       - --kv-cache-memory-bytes
       - "268435456"

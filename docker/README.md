@@ -1,5 +1,9 @@
 # Docker images
 
+For continuous camera workers on a cluster, see the
+[Kubernetes deployment guide](../docs/integrations/kubernetes.md). It reuses the
+CLI CPU/GPU image targets with shared vLLM and an existing PostgreSQL database.
+
 [`compose.attributes.yaml`](compose.attributes.yaml) can run the complete CPU
 pipeline: a BoxMOT container for detection, tracking, and rendering, plus vLLM
 for attributes and PostgreSQL for the queue and results. Start a Linux webcam
@@ -34,6 +38,19 @@ Both attribute providers require PostgreSQL and a connection
 URL in `BOXMOT_ATTRIBUTES_DATABASE_URL`. Compose sets the URL for its BoxMOT
 container; host clients must [configure their URL](../docs/config/attributes.md#configure-postgresql).
 The `postgres-data` volume preserves attribute history when containers stop.
+
+To test the real CPU pipeline and streaming recovery on your machine, run from
+the repository root:
+
+```bash
+uv run --no-sync python -m tests.e2e.compose_attributes --profile cpu
+```
+
+This builds the image and uses an isolated Compose project with a fixture video,
+network camera, real vLLM inference, and PostgreSQL. See the
+[test instructions](../tests/e2e/README.md) for prerequisites, evidence, cleanup,
+and GPU limitations, and the [validation record](../deploy/kubernetes/VALIDATION.md)
+for checks actually completed.
 
 BoxMOT uses one shared multi-stage Dockerfile for four independently built
 images. CI publishes CPU images; build GPU images locally with the targets below:

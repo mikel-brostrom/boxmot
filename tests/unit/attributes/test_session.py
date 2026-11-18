@@ -69,6 +69,23 @@ def _poll_until(session, count=1):
     return outcomes
 
 
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
+def test_nonfinite_backend_values_produce_failed_events(value):
+    class Backend(_Backend):
+        async def extract(self, *_args):
+            return {"nested": [value]}
+
+    session = AttributeEnricher(_config(batch_size=1), backend=Backend())
+    try:
+        frame = _frame(0)
+        session.update(frame, _tracks(frame, (1,)))
+        events = list(session.finish())
+        assert len(events) == 1 and events[0].status == "failed" and events[0].values is None
+        assert session.pending_count == 0
+    finally:
+        session.close()
+
+
 def test_partial_departed_track_and_eof_are_analyzed(tmp_path):
     backend = _Backend()
     session = AttributeEnricher(_config(), backend=backend)

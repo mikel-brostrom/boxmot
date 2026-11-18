@@ -272,7 +272,9 @@ def _default_sinks(
     elif video_sink is not None:
         sinks.append(
             SharedRenderingSink(
-                (video_sink,), line_width=line_width, show_labels=show_labels,
+                (video_sink,),
+                line_width=line_width,
+                show_labels=show_labels,
                 guidance_mask_provider=guidance_mask_provider,
             )
             if guidance_mask_provider is not None
@@ -291,7 +293,9 @@ def _default_sinks(
     if display_sink is not None and video_sink is None:
         sinks.append(
             SharedRenderingSink(
-                (display_sink,), line_width=line_width, show_labels=show_labels,
+                (display_sink,),
+                line_width=line_width,
+                show_labels=show_labels,
                 guidance_mask_provider=guidance_mask_provider,
             )
             if guidance_mask_provider is not None
@@ -344,8 +348,14 @@ def run_track(
     perception_explicit = any(options.get(name) is not None for name in ("detector", "segmentor", "reid"))
     if reference is None:
         return _run_track(
-            args, detector=detector, segmentor=segmentor, encoder=encoder,
-            tracker=tracker, source=source, sinks=sinks, ui_pipeline=ui_pipeline,
+            args,
+            detector=detector,
+            segmentor=segmentor,
+            encoder=encoder,
+            tracker=tracker,
+            source=source,
+            sinks=sinks,
+            ui_pipeline=ui_pipeline,
             perception_explicit=perception_explicit,
         )
     from boxmot.engine.tracking.attributes import AttributeRun
@@ -356,46 +366,40 @@ def run_track(
         progress=ui_pipeline.update if ui_pipeline is not None else None,
     ) as attribute_run:
         result = _run_track(
-            args, detector=detector, segmentor=segmentor, encoder=encoder,
-            tracker=tracker, source=source, sinks=sinks, ui_pipeline=ui_pipeline,
-            attribute_run=attribute_run, perception_explicit=perception_explicit,
+            args,
+            detector=detector,
+            segmentor=segmentor,
+            encoder=encoder,
+            tracker=tracker,
+            source=source,
+            sinks=sinks,
+            ui_pipeline=ui_pipeline,
+            attribute_run=attribute_run,
+            perception_explicit=perception_explicit,
         )
         interrupted = attribute_run.finish(cancel=result.summary.interrupted)
         return replace(
-            result, attributes_path=attribute_run.path,
+            result,
+            attributes_path=attribute_run.path,
             summary=replace(result.summary, interrupted=result.summary.interrupted or interrupted),
         )
 
 
-def _run_track(
+def build_tracking_pipeline(
     args: Any,
     *,
-    detector: Detector | None = None,
-    segmentor: Segmentor | None = None,
-    encoder: AppearanceEncoder | None = None,
-    tracker: Tracker | None = None,
-    source: FrameSource | None = None,
-    sinks: tuple[TrackSink, ...] | None = None,
-    ui_pipeline: PipelineTracker | None = None,
-    attribute_run: Any | None = None,
-    perception_explicit: bool = False,
-) -> TrackRun:
-    """Assemble tracking while the caller owns optional attribute resources."""
-    from boxmot.trackers.edgetam.tracker import EdgeTAM
-
-    if getattr(args, "tracker", None) == "edgetam" or isinstance(tracker, EdgeTAM):
-        if edgetam_checkpoint(args) is not None:
-            raise ValueError("EdgeTAM prompt tracking cannot be combined with detector-based mask guidance.")
-        if any(component is not None for component in (detector, segmentor, encoder)) or perception_explicit:
-            raise ValueError("EdgeTAM prompt tracking does not use detector, segmentor, or ReID components.")
-        from boxmot.engine.tracking.prompted import run_prompted_track
-
-        return run_prompted_track(
-            args, tracker=tracker, source=source, sinks=sinks, ui_pipeline=ui_pipeline,
-            attribute_run=attribute_run,
-        )
-    profiler = RuntimeProfiler()
-    startup_timings_ms: dict[str, float] = {}
+    detector: Any = None,
+    tracker: Any = None,
+    segmentor: Any = None,
+    encoder: Any = None,
+    attributes: Any = None,
+    profiler: RuntimeProfiler | None = None,
+    startup_timings_ms: dict[str, float] | None = None,
+    ui_pipeline: Any = None,
+) -> TrackingPipeline:
+    """Construct reusable perception/tracking components for finite and continuous runs."""
+    profiler = profiler if profiler is not None else RuntimeProfiler()
+    startup_timings_ms = startup_timings_ms if startup_timings_ms is not None else {}
     requested_geometry = str(getattr(args, "geometry", "auto") or "auto")
     if requested_geometry not in {"auto", "aabb", "obb"}:
         raise ValueError("geometry must be 'auto', 'aabb' or 'obb'")
@@ -495,6 +499,70 @@ def _run_track(
         with startup_stage(startup_timings_ms, "segmentor_load"):
             segmentor = create_segmentor(segmentor_spec)
 
+    with startup_stage(startup_timings_ms, "pipeline_prepare"):
+        detector, segmentor, encoder, tracker = profile_components(
+            profiler,
+            detector=detector,
+            segmentor=segmentor,
+            reid=encoder,
+            tracker=tracker,
+        )
+        tracking_pipeline = TrackingPipeline(
+            detector=detector,
+            tracker=tracker,
+            segmentor=segmentor,
+            reid=encoder,
+            outputs=PipelineOutputs(masks=segmentor_reference is not None),
+            attributes=attributes,
+        )
+    return tracking_pipeline
+
+
+def _run_track(
+    args: Any,
+    *,
+    detector: Detector | None = None,
+    segmentor: Segmentor | None = None,
+    encoder: AppearanceEncoder | None = None,
+    tracker: Tracker | None = None,
+    source: FrameSource | None = None,
+    sinks: tuple[TrackSink, ...] | None = None,
+    ui_pipeline: PipelineTracker | None = None,
+    attribute_run: Any | None = None,
+    perception_explicit: bool = False,
+) -> TrackRun:
+    """Assemble tracking while the caller owns optional attribute resources."""
+    from boxmot.trackers.edgetam.tracker import EdgeTAM
+
+    if getattr(args, "tracker", None) == "edgetam" or isinstance(tracker, EdgeTAM):
+        if edgetam_checkpoint(args) is not None:
+            raise ValueError("EdgeTAM prompt tracking cannot be combined with detector-based mask guidance.")
+        if any(component is not None for component in (detector, segmentor, encoder)) or perception_explicit:
+            raise ValueError("EdgeTAM prompt tracking does not use detector, segmentor, or ReID components.")
+        from boxmot.engine.tracking.prompted import run_prompted_track
+
+        return run_prompted_track(
+            args,
+            tracker=tracker,
+            source=source,
+            sinks=sinks,
+            ui_pipeline=ui_pipeline,
+            attribute_run=attribute_run,
+        )
+    profiler = RuntimeProfiler()
+    startup_timings_ms: dict[str, float] = {}
+    tracking_pipeline = build_tracking_pipeline(
+        args,
+        detector=detector,
+        tracker=tracker,
+        segmentor=segmentor,
+        encoder=encoder,
+        attributes=None if attribute_run is None else attribute_run.enricher,
+        profiler=profiler,
+        startup_timings_ms=startup_timings_ms,
+        ui_pipeline=ui_pipeline,
+    )
+    tracker = tracking_pipeline.tracker
     if source is None:
         if ui_pipeline is not None:
             ui_pipeline.update("Opening frame source…")
@@ -514,22 +582,6 @@ def _run_track(
     else:
         video_path = mot_path = json_path = None
 
-    with startup_stage(startup_timings_ms, "pipeline_prepare"):
-        detector, segmentor, encoder, tracker = profile_components(
-            profiler,
-            detector=detector,
-            segmentor=segmentor,
-            reid=encoder,
-            tracker=tracker,
-        )
-        tracking_pipeline = TrackingPipeline(
-            detector=detector,
-            tracker=tracker,
-            segmentor=segmentor,
-            reid=encoder,
-            outputs=PipelineOutputs(masks=segmentor_reference is not None),
-            attributes=None if attribute_run is None else attribute_run.enricher,
-        )
     if ui_pipeline is not None:
         ui_pipeline.advance("Processing frames…")
 

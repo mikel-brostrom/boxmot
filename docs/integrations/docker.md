@@ -1,5 +1,8 @@
 # Docker
 
+For continuous cameras with ownership leases and durable metadata, see
+[Kubernetes deployment](kubernetes.md). It uses the same CLI CPU/GPU image targets.
+
 Use the CLI images to run tracking and batch workflows in a container. For
 stateful HTTP tracking from external detections, use the separate
 [service deployment guide](../guides/deployment.md).
@@ -8,6 +11,10 @@ For video tracking with Ollama or vLLM CPU attributes, see
 [Choose an attribute provider](#choose-an-attribute-provider).
 
 ## Tracking and vLLM with Compose
+
+For a repeatable test using real inference and a fixture camera, see the
+[Compose end-to-end test](https://github.com/mikel-brostrom/boxmot/blob/master/tests/e2e/README.md).
+It checks the video pipeline and streaming recovery in an isolated project.
 
 The repository's
 [`docker/compose.attributes.yaml`](https://github.com/mikel-brostrom/boxmot/blob/master/docker/compose.attributes.yaml)
@@ -215,7 +222,9 @@ The vLLM service uses a 256 MiB KV cache, a 2,048-token context and prefill batc
 and one active request. Image preprocessing is capped at 262,144 pixels,
 including its startup probe; the model's default permits 16,777,216 pixels.
 Its multimodal processor cache is disabled because successive track crops
-are distinct images. Automatic OpenMP thread binding
+are distinct images. The CPU profile also disables prefix caching to avoid
+expensive compilation of Mamba cache-copy kernels on the first request.
+Automatic OpenMP thread binding
 reserves two CPU cores for tracking and other work. These settings reduce
 resource contention; model weights and runtime buffers still need additional RAM.
 

@@ -38,6 +38,8 @@ EXPECTED_PUBLIC_API = (
     *(public_name for _, public_name in EXPECTED_TRACKERS),
 )
 EXPECTED_CLI_COMMANDS = (
+    "stream",
+    "stream-db",
     "ui",
     "track",
     "materialize",

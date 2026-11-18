@@ -8,6 +8,13 @@ JSON Schema. Track identities and observation metadata remain application-owned.
 Every attribute run requires PostgreSQL for its queue, latest values, and result
 history.
 
+For continuous network cameras, use the [Kubernetes streaming workflow](../integrations/kubernetes.md).
+It adds ownership leases, bounded queues, durable event replay and seven-day
+retention. Existing attribute databases require the explicit
+[`boxmot stream-db upgrade`](../integrations/kubernetes.md#upgrade-the-schema-and-install)
+before running clients from this release; stop old clients first and preserve
+your database backup.
+
 ## Attribute extraction options
 
 Choose a model service and pass its matching profile to `--attributes`:

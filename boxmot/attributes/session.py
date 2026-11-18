@@ -15,6 +15,7 @@ from boxmot.attributes.crops import encode_track_crop
 from boxmot.attributes.errors import TransientAttributeError
 from boxmot.attributes.models import AttributeResult, AttributeSample
 from boxmot.attributes.spool import AttributeSpool
+from boxmot.attributes.streams import CameraLease
 from boxmot.components.registry import LazyComponentRegistry
 from boxmot.structures import Frame, Tracks
 
@@ -52,6 +53,9 @@ class AttributeEnricher:
         config: AttributeConfig,
         *,
         backend: AttributeBackend | None = None,
+        ownership: CameraLease | None = None,
+        max_pending_jobs: int = 1000,
+        max_crop_bytes: int = 256 * 1024 * 1024,
     ) -> None:
         if not isinstance(config, AttributeConfig):
             raise TypeError("config must be an AttributeConfig.")
@@ -59,7 +63,18 @@ class AttributeEnricher:
         self.run_id = uuid4().hex
         # The worker creates owned backends only after its thread has started.
         # Database or thread startup failure therefore cannot leak an HTTP client.
-        self._spool = AttributeSpool(config, self.run_id)
+        self._stream_owned = ownership is not None
+        self._spool = (
+            AttributeSpool(config, self.run_id)
+            if ownership is None
+            else AttributeSpool(
+                config,
+                self.run_id,
+                ownership=ownership,
+                max_pending_jobs=max_pending_jobs,
+                max_crop_bytes=max_crop_bytes,
+            )
+        )
         self._backend = backend
         self._generation = 0
         self._sequence_id: str | None = None
@@ -147,6 +162,10 @@ class AttributeEnricher:
                     )
                     if not isinstance(values, dict):
                         raise TypeError("Attribute backends must return a JSON object.")
+                    # Includes injected backends and exponent overflow such as 1e999.
+                    import json
+
+                    json.dumps(values, allow_nan=False)
                 except (TransientAttributeError, asyncio.TimeoutError) as exc:
                     if self._stop.is_set():
                         break
@@ -319,6 +338,12 @@ class AttributeEnricher:
         return 0 if self._closed else self._spool.pending_count
 
     @property
+    def queue_metrics(self) -> dict[str, int | float]:
+        """Aggregate streaming backlog counters, with worker failures surfaced."""
+        self._check_worker()
+        return self._spool.queue_metrics
+
+    @property
     def stats(self) -> dict[str, int]:
         """Analysis outcome counts plus distinct observed/analyzed track counts."""
         return dict(self._stats) if self._closed else self._spool.stats
@@ -326,6 +351,17 @@ class AttributeEnricher:
     def close(self) -> None:
         """Release resources; consume ``finish()`` first to retain all outcomes."""
         if self._closed:
+            return
+        if self._stream_owned:
+            # The engine's camera journal owns terminal events and replay. Do not
+            # consume those events or issue unfenced writes after ownership loss.
+            self._accepting = False
+            self._request_stop(cancel=True)
+            self._thread.join(timeout=6.0)
+            if self._thread.is_alive():
+                raise RuntimeError("Attribute backend did not stop after cancellation.")
+            self._spool.close()
+            self._closed = True
             return
         error: BaseException | None = None
         # Stop the worker before waiting on database locks or a dead connection.

@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: boxmot-vllm}
+  template:
+    metadata:
+      labels: {app: boxmot-vllm}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: vllm
+          image: vllm-runtime
+          command: [vllm, serve]
+          args:
+            - Qwen/Qwen3.5-0.8B
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8000"
+            - --dtype
+            - bfloat16
+            - --enforce-eager
+            - --disable-prefix-caching
+            - --kv-cache-memory-bytes
+            - "268435456"
+            - --max-model-len
+            - "2048"
+            - --max-num-batched-tokens
+            - "2048"
+            - --max-num-seqs
+            - "1"
+            - --mm-processor-cache-gb
+            - "0"
+            - --mm-processor-kwargs
+            - '{"images_kwargs":{"size":{"shortest_edge":65536,"longest_edge":262144}}}'
+            - --limit-mm-per-prompt
+            - '{"image":1,"video":0}'
+            - --reasoning-parser
+            - qwen3
+          env:
+            - {name: HF_HOME, value: /models/huggingface}
+            - {name: VLLM_CPU_OMP_THREADS_BIND, value: auto}
+            - {name: VLLM_CPU_NUM_OF_RESERVED_CPU, value: "2"}
+          ports:
+            - {name: http, containerPort: 8000}
+          startupProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+            failureThreshold: 180
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            requests: {cpu: "4", memory: 8Gi}
+            limits: {cpu: "8", memory: 16Gi}
+          volumeMounts:
+            - {name: models, mountPath: /models/huggingface}
+            - {name: shm, mountPath: /dev/shm}
+      volumes:
+        - name: models
+          persistentVolumeClaim: {claimName: vlm-models}
+        - name: shm
+          emptyDir: {medium: Memory, sizeLimit: 2Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm
+spec:
+  type: ClusterIP
+  selector: {app: boxmot-vllm}
+  ports:
+    - {name: http, port: 8000, targetPort: http}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vlm-models
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests: {storage: 20Gi}
