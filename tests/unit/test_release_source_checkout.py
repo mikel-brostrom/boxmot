@@ -175,8 +175,10 @@ def test_reusable_docker_job_selects_candidate_or_published_source() -> None:
     steps = workflow["jobs"]["build-and-push"]["steps"]
     assert steps[0]["uses"] == "actions/checkout@v4"
     assert steps[0]["with"]["ref"] == "${{ github.workflow_sha }}"
-    assert steps[1]["uses"] == "./.github/actions/checkout-release-source"
-    assert steps[1]["with"] == {
+    selection = next(step for step in steps if step.get("uses") == "./.github/actions/checkout-release-source")
+    safeguards = next(step for step in steps if step.get("name") == "Preserve current image publication safeguards")
+    assert 0 < steps.index(safeguards) < steps.index(selection)
+    assert selection["with"] == {
         "source_sha": "${{ inputs.source_base || inputs.source_ref || github.event.release.tag_name }}",
         "candidate_sha": "${{ inputs.source_bundle && inputs.source_ref || '' }}",
         "source_bundle": "${{ inputs.source_bundle }}",
