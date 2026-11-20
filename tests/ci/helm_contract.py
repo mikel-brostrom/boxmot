@@ -1,7 +1,7 @@
 """Render the actual chart and check deployment invariants without a cluster.
 
-Run ``python -m tests.ci.helm_contract`` from the repository root. Only Helm and
-PyYAML are required; synthetic image digests here are never used for deployment.
+Run ``python -m tests.ci.helm_contract`` from the repository root with Helm,
+PyYAML and platformdirs. Synthetic digests are never used for deployment.
 """
 
 from __future__ import annotations
@@ -10,10 +10,14 @@ import json
 import re
 import subprocess
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from boxmot.attributes.config import resolve_attribute_config
+from boxmot.engine.config.streams import load_stream_config
 
 ROOT = Path(__file__).resolve().parents[2]
 CHART = ROOT / "deploy/helm/boxmot"
@@ -43,7 +47,26 @@ def render(
         assert "Error" in result.stderr, result.stderr
         return []
     assert result.returncode == 0, result.stderr
-    return [obj for obj in yaml.safe_load_all(result.stdout) if obj]
+    objects = [obj for obj in yaml.safe_load_all(result.stdout) if obj]
+    check_stream_configs(objects)
+    return objects
+
+
+def check_stream_configs(objects: list[dict[str, Any]]) -> None:
+    """Load generated YAML through the worker's real, lightweight config boundary."""
+    with tempfile.TemporaryDirectory(prefix="boxmot-stream-config-") as directory:
+        for index, obj in enumerate(objects):
+            if obj["kind"] != "ConfigMap" or "stream.yaml" not in obj.get("data", {}):
+                continue
+            path = Path(directory) / f"camera-{index}.yaml"
+            path.write_text(obj["data"]["stream.yaml"])
+            config = load_stream_config(path)
+            args = config.tracking_args()
+            assert not args.show and not args.save and not args.save_json and not args.save_txt
+            # Exercise profile/inline schema validation and endpoint substitution
+            # exactly as run_stream does, without loading models or opening sockets.
+            attributes = resolve_attribute_config(config.attributes)
+            replace(attributes, host=config.attributes_host)
 
 
 def pod_spec(obj: dict[str, Any]) -> dict[str, Any]:
@@ -117,10 +140,18 @@ def check() -> None:
     assert stream["camera_id"] == "camera-01"
     assert stream["attributes_host"] == "http://test-vllm:8000"
     assert stream["source_url_env"] == "BOXMOT_CAMERA_URL"
+    assert stream["timestamp_source"] == "capture"
+    assert not any(obj["kind"] in {"PodMonitor", "PrometheusRule"} for obj in default)
 
     multiple = render({"cameras": {"camera-02": {"sourceSecret": {"name": "camera-two", "key": "source"}}}})
     check_workloads(multiple)
     assert len([obj for obj in multiple if obj["kind"] == "CronJob"]) == 3
+    database_job = pod_spec(by_name(multiple, "CronJob", "test-db-gc"))["containers"][0]
+    assert database_job["command"][:3] == ["boxmot", "stream-db", "maintain"]
+    for camera in ("camera-01", "camera-02"):
+        output_job = pod_spec(by_name(multiple, "CronJob", f"test-{camera}-out-gc"))["containers"][0]
+        assert output_job["command"][:3] == ["boxmot", "stream-outputs", "maintain"]
+        assert output_job["command"][-2:] == ["--camera-id", camera]
     second = pod_spec(by_name(multiple, "Deployment", "test-camera-02"))
     secrets = {
         item["name"]: item["valueFrom"]["secretKeyRef"]
@@ -191,7 +222,11 @@ def check() -> None:
         {
             "postgres": {"enabled": True},
             "networkPolicy": {"enabled": True},
-            "monitoring": {"serviceMonitor": {"enabled": True, "labels": {"release": "prometheus"}}},
+            "monitoring": {
+                "serviceMonitor": {"enabled": True, "labels": {"release": "prometheus"}},
+                "podMonitor": {"enabled": True, "labels": {"release": "prometheus"}},
+                "rules": {"enabled": True, "labels": {"release": "prometheus"}},
+            },
         }
     )
     check_workloads(secured)
@@ -209,6 +244,26 @@ def check() -> None:
     )
     assert monitor["spec"]["endpoints"][0]["path"] == "/metrics"
     assert monitor["spec"]["endpoints"][0]["port"] == service["spec"]["ports"][0]["name"]
+    camera_monitor = by_name(secured, "PodMonitor", "test-cameras")
+    camera_pod = by_name(secured, "Deployment", "test-camera-01")["spec"]["template"]
+    assert all(
+        camera_pod["metadata"]["labels"].get(key) == value
+        for key, value in camera_monitor["spec"]["selector"]["matchLabels"].items()
+    )
+    endpoint = camera_monitor["spec"]["podMetricsEndpoints"][0]
+    assert endpoint["port"] == camera_pod["spec"]["containers"][0]["ports"][0]["name"]
+    assert endpoint["path"] == "/metrics"
+    rules = by_name(secured, "PrometheusRule", "test-cameras")["spec"]["groups"][0]["rules"]
+    assert {item["alert"] for item in rules} == {
+        "BoxmotCameraUnavailable", "BoxmotCameraScrapeFailed", "BoxmotAttributeBacklogOld",
+        "BoxmotCameraFrameDropsHigh", "BoxmotAttributeFailures",
+    }
+    assert all('namespace="test-streams",boxmot_release="test"' in item["expr"] for item in rules)
+
+    # Filesystem retention does not trigger database cleanup and can differ per camera.
+    independent_retention = render({"cameraDefaults": {"config": {"retention_days": 1, "timestamp_source": "media"}}})
+    output_job = pod_spec(by_name(independent_retention, "CronJob", "test-camera-01-out-gc"))["containers"][0]
+    assert output_job["command"][output_job["command"].index("--retention-days") + 1] == "1"
 
     attributes = {
         "backend": "vllm",
@@ -291,7 +346,7 @@ def check() -> None:
             "migration": {"enabled": True},
             "cameras": {"camera-01": {"suspend": False}},
         },
-        {"cameraDefaults": {"config": {"retention_days": 1}}},
+        {"cameraDefaults": {"config": {"timestamp_source": "fps"}}},
         {"cameras": {"vllm": {"sourceSecret": {"name": "camera", "key": "url"}}}},
         {"cameraDefaults": {"podLabels": {"app.kubernetes.io/instance": "another"}}},
         {"cameraDefaults": {"env": {"BOXMOT_ATTRIBUTES_DATABASE_URL": "postgresql://unsafe"}}},
@@ -316,6 +371,9 @@ def check() -> None:
             "vllm": {"enabled": False, "externalEndpoint": "https://models.example.test"},
         },
         {"monitoring": {"serviceMonitor": {"enabled": True, "scrapeTimeout": "60s", "interval": "30s"}}},
+        {"monitoring": {"podMonitor": {"enabled": True, "scrapeTimeout": "60s", "interval": "30s"}}},
+        {"monitoring": {"rules": {"enabled": True}}},
+        {"monitoring": {"rules": {"maxDroppedFrameRatio": 2}}},
         {
             "cameraDefaults": {"serviceAccount": {"create": True, "name": "duplicate"}},
             "vllm": {"serviceAccount": {"create": True, "name": "duplicate"}},

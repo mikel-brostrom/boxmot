@@ -1,0 +1,25 @@
+{{- if .Values.monitoring.podMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "boxmot.fullname" . }}-cameras
+  labels:
+    {{- include "boxmot.labels" (dict "root" . "component" "monitoring") | nindent 4 }}
+    {{- with .Values.monitoring.podMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "boxmot.selectorLabels" (dict "root" . "component" "camera") | nindent 6 }}
+  podMetricsEndpoints:
+    - port: health
+      path: /metrics
+      interval: {{ .Values.monitoring.podMonitor.interval }}
+      scrapeTimeout: {{ .Values.monitoring.podMonitor.scrapeTimeout }}
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_label_boxmot_io_camera]
+          targetLabel: camera
+        - targetLabel: boxmot_release
+          replacement: {{ .Release.Name | quote }}
+{{- end }}

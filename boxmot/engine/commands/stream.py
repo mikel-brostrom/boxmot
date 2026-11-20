@@ -50,20 +50,33 @@ def upgrade(database_url_env: str) -> None:
 @stream_db.command()
 @click.option("--database-url-env", default="BOXMOT_ATTRIBUTES_DATABASE_URL", show_default=True)
 @click.option("--retention-days", type=click.IntRange(min=1), default=7, show_default=True)
-@click.option("--output-dir", type=click.Path(path_type=Path), default=None)
-@click.option("--camera-id", default=None)
-def maintain(database_url_env: str, retention_days: int, output_dir: Path | None, camera_id: str | None) -> None:
+def maintain(database_url_env: str, retention_days: int) -> None:
     """Cancel orphan work and prune acknowledged historical database records."""
     from boxmot.attributes.streams import maintain_database
 
-    if (output_dir is None) != (camera_id is None):
-        raise click.UsageError("--output-dir and --camera-id must be provided together.")
-    if camera_id is not None:
-        from boxmot.engine.config.streams import StreamConfig
-
-        StreamConfig(camera_id=camera_id)
     maintain_database(database_url_env, retention_days)
-    if output_dir is not None:
-        from boxmot.engine.streaming.maintenance import maintain_outputs
 
-        maintain_outputs(database_url_env, camera_id, output_dir, retention_days)
+
+@click.group("stream-outputs")
+def stream_outputs() -> None:
+    """Maintain one camera's exported metadata without global database cleanup."""
+
+
+@stream_outputs.command("maintain")
+@click.option("--database-url-env", default="BOXMOT_ATTRIBUTES_DATABASE_URL", show_default=True)
+@click.option("--retention-days", type=click.IntRange(min=1), default=7, show_default=True)
+@click.option(
+    "--output-dir", type=click.Path(path_type=Path), required=True, help="Root containing camera directories."
+)
+@click.option("--camera-id", required=True, help="Stable camera identity to maintain.")
+def maintain_camera_outputs(database_url_env: str, retention_days: int, output_dir: Path, camera_id: str) -> None:
+    """Export abandoned events and prune this camera's expired output segments."""
+    from boxmot.engine.config.streams import StreamConfig
+    from boxmot.engine.streaming.maintenance import maintain_outputs
+    from boxmot.utils.config import ConfigurationError
+
+    try:
+        StreamConfig(camera_id=camera_id)
+    except ConfigurationError as exc:
+        raise click.BadParameter(str(exc), param_hint="--camera-id") from None
+    maintain_outputs(database_url_env, camera_id, output_dir, retention_days)

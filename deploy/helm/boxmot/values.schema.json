@@ -564,6 +564,12 @@
       "additionalProperties": false,
       "properties": {
         "serviceMonitor": {
+          "$ref": "#/definitions/monitor"
+        },
+        "podMonitor": {
+          "$ref": "#/definitions/monitor"
+        },
+        "rules": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -573,25 +579,33 @@
             "labels": {
               "$ref": "#/definitions/podLabels"
             },
-            "interval": {
+            "for": {
               "type": "string",
-              "pattern": "^[1-9][0-9]*(ms|s|m|h)$"
+              "pattern": "^[1-9][0-9]*(s|m|h)$"
             },
-            "scrapeTimeout": {
-              "type": "string",
-              "pattern": "^[1-9][0-9]*(ms|s|m|h)$"
+            "maxBacklogAgeSeconds": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "maxDroppedFrameRatio": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1
             }
           },
           "required": [
             "enabled",
             "labels",
-            "interval",
-            "scrapeTimeout"
+            "for",
+            "maxBacklogAgeSeconds",
+            "maxDroppedFrameRatio"
           ]
         }
       },
       "required": [
-        "serviceMonitor"
+        "serviceMonitor",
+        "podMonitor",
+        "rules"
       ]
     }
   },
@@ -1050,6 +1064,13 @@
         "rotation_seconds": {
           "type": "number",
           "exclusiveMinimum": 0
+        },
+        "timestamp_source": {
+          "type": "string",
+          "enum": [
+            "capture",
+            "media"
+          ]
         }
       },
       "required": [
@@ -1106,6 +1127,13 @@
         "rotation_seconds": {
           "type": "number",
           "exclusiveMinimum": 0
+        },
+        "timestamp_source": {
+          "type": "string",
+          "enum": [
+            "capture",
+            "media"
+          ]
         }
       }
     },
@@ -1186,6 +1214,32 @@
           }
         ]
       }
+    },
+    "monitor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "labels": {
+          "$ref": "#/definitions/podLabels"
+        },
+        "interval": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*(ms|s|m|h)$"
+        },
+        "scrapeTimeout": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*(ms|s|m|h)$"
+        }
+      },
+      "required": [
+        "enabled",
+        "labels",
+        "interval",
+        "scrapeTimeout"
+      ]
     }
   }
 }

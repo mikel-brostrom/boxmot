@@ -6,6 +6,7 @@ import errno
 import json
 import os
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -134,7 +135,13 @@ class AttributeEventWriter:
         self._session = None
 
 
-def export_events(journal: Any, writer: Any, *, limit: int = 100) -> int:
+def export_events(
+    journal: Any,
+    writer: Any,
+    *,
+    limit: int = 100,
+    on_export: Callable[[dict[str, Any]], None] | None = None,
+) -> int:
     """Export a bounded page at least once; duplicates retain their event IDs."""
     events = journal.read(limit)
     for event in events:
@@ -142,6 +149,9 @@ def export_events(journal: Any, writer: Any, *, limit: int = 100) -> int:
     if events:
         writer.sync()
         journal.acknowledge(events)
+        if on_export is not None:
+            for event in events:
+                on_export(event)
     return len(events)
 
 

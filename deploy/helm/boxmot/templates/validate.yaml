@@ -18,9 +18,6 @@
 {{- if and $.Values.migration.enabled (not $settings.suspend) -}}
 {{- fail "migration.enabled requires every camera to be suspended; stop and verify clients before enabling migration" -}}
 {{- end -}}
-{{- if ne (int $settings.config.retention_days) (int $.Values.maintenance.retentionDays) -}}
-{{- fail "camera config.retention_days must equal maintenance.retentionDays because output cleanup also performs global database cleanup" -}}
-{{- end -}}
 {{- if $.Values.vllm.enabled -}}
 {{- $attributes := $settings.config.attributes -}}
 {{- $message := printf "camera %s attributes must use backend vllm and model %s; select a matching attribute profile or full inline config" $camera $.Values.vllm.model -}}
@@ -71,12 +68,17 @@
 {{- fail "monitoring.serviceMonitor.enabled requires the bundled vllm.enabled=true" -}}
 {{- end -}}
 
-{{- if .Values.monitoring.serviceMonitor.enabled -}}
-{{- $monitor := .Values.monitoring.serviceMonitor -}}
+{{- if and .Values.monitoring.rules.enabled (not .Values.monitoring.podMonitor.enabled) -}}
+{{- fail "monitoring.rules.enabled requires monitoring.podMonitor.enabled=true" -}}
+{{- end -}}
+
+{{- range $name, $monitor := dict "serviceMonitor" .Values.monitoring.serviceMonitor "podMonitor" .Values.monitoring.podMonitor -}}
+{{- if $monitor.enabled -}}
 {{- $factors := dict "ms" 1 "s" 1000 "m" 60000 "h" 3600000 -}}
 {{- $interval := mul (int (regexFind "^[0-9]+" $monitor.interval)) (index $factors (regexFind "[a-z]+$" $monitor.interval)) -}}
 {{- $timeout := mul (int (regexFind "^[0-9]+" $monitor.scrapeTimeout)) (index $factors (regexFind "[a-z]+$" $monitor.scrapeTimeout)) -}}
 {{- if gt $timeout $interval -}}
-{{- fail "monitoring.serviceMonitor.scrapeTimeout must not exceed interval" -}}
+{{- fail (printf "monitoring.%s.scrapeTimeout must not exceed interval" $name) -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}

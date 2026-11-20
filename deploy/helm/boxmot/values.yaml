@@ -23,6 +23,8 @@ cameraDefaults:
   secretRevision: ""
   config:
     attributes: person-appearance-vllm-cpu
+    # Decoder receipt time; select media only for verified increasing source PTS.
+    timestamp_source: capture
     tracking:
       detector: yolo26n
       tracker: bytetrack
@@ -139,7 +141,7 @@ maintenance:
   suspend: false
   schedule: "*/5 * * * *"
   outputSchedule: "17 * * * *"
-  # Shared retention policy: must match every camera config.retention_days.
+  # Global database retention; each camera has its own output retention_days.
   retentionDays: 7
   activeDeadlineSeconds: 240
   resources:
@@ -168,6 +170,19 @@ networkPolicy:
   additionalVllmIngress: []
 
 monitoring:
+  podMonitor:
+    # Requires Prometheus Operator; scrapes all camera workers on their health port.
+    enabled: false
+    labels: {}
+    interval: 30s
+    scrapeTimeout: 10s
+  rules:
+    # Requires podMonitor.enabled and Prometheus Operator rule selection labels.
+    enabled: false
+    labels: {}
+    for: 5m
+    maxBacklogAgeSeconds: 300
+    maxDroppedFrameRatio: 0.5
   serviceMonitor:
     # Requires the Prometheus Operator CRD and the bundled vLLM service.
     enabled: false

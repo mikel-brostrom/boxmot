@@ -6,6 +6,7 @@ import time
 
 import pytest
 
+from boxmot.engine.streaming.health import StreamHealth
 from boxmot.engine.streaming.outputs import AttributeEventWriter, RotatingJsonl, export_events, prune_outputs
 
 
@@ -30,18 +31,22 @@ def records(directory):
 
 def test_crash_after_sync_replays_stable_duplicate_ids(tmp_path):
     journal = Journal()
+    health = StreamHealth()
     writer = AttributeEventWriter(tmp_path, max_bytes=1000, max_seconds=3600)
     journal.crash = True
     with pytest.raises(RuntimeError, match="acknowledgment"):
-        export_events(journal, writer)
+        export_events(journal, writer, on_export=health.observe_attribute_event)
+    assert health.attribute_events["completed"] == 0
     writer.close()
     assert records(tmp_path)[0]["event_id"] == "session:1"
     journal.crash = False
     replay = AttributeEventWriter(tmp_path, max_bytes=1000, max_seconds=3600)
-    assert export_events(journal, replay) == 1
+    assert export_events(journal, replay, on_export=health.observe_attribute_event) == 1
+    assert health.attribute_events["completed"] == 1
     replay.close()
     assert [e["event_id"] for e in records(tmp_path)] == ["session:1", "session:1"]
-    assert export_events(journal, replay) == 0
+    assert export_events(journal, replay, on_export=health.observe_attribute_event) == 0
+    assert health.attribute_events["completed"] == 1
     assert all(path.parent.name == "session" for path in tmp_path.rglob("*.jsonl"))
 
 

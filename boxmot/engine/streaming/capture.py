@@ -73,14 +73,14 @@ class FrameSlot:
             self.lock.release()
 
 
-def _capture(url: str, timeout_s: float, slot: FrameSlot, stop: Any) -> None:
+def _capture(url: str, timeout_s: float, slot: FrameSlot, stop: Any, timestamp_source: str) -> None:
     """Own all OpenCV operations in a process that the supervisor can terminate."""
     # OpenCV/FFmpeg can log credentialed URLs directly to stderr on failure.
     with open(os.devnull, "w") as sink:
         os.dup2(sink.fileno(), 2)
     import cv2
 
-    from boxmot.engine.tracking.timestamps import SourceTimestamps
+    from boxmot.engine.tracking.timestamps import LiveTimestamps
 
     capture = None
     try:
@@ -96,7 +96,7 @@ def _capture(url: str, timeout_s: float, slot: FrameSlot, stop: Any) -> None:
         )
         if not capture.isOpened():
             return
-        timestamps = SourceTimestamps(float(capture.get(cv2.CAP_PROP_FPS)))
+        timestamps = LiveTimestamps(timestamp_source)
         index = 0
         while not stop.is_set():
             ok, image = capture.read()
@@ -108,8 +108,8 @@ def _capture(url: str, timeout_s: float, slot: FrameSlot, stop: Any) -> None:
                     image,
                     index,
                     timestamps.resolve(
-                        float(capture.get(cv2.CAP_PROP_POS_MSEC)),
-                        frame_index=index,
+                        captured_at=captured_at,
+                        position_ms=float(capture.get(cv2.CAP_PROP_POS_MSEC)) if timestamp_source == "media" else None,
                     ),
                     captured_at,
                     wall_time,
@@ -130,12 +130,15 @@ class NetworkCapture:
         timeout_s: float = 10,
         *,
         max_frame_bytes: int = 32 * 1024 * 1024,
+        timestamp_source: str = "capture",
         target: Callable[..., None] = _capture,
     ) -> None:
         context = mp.get_context("spawn")
         self._slot = FrameSlot(context, max_frame_bytes)
         self._stop = context.Event()
-        self._process = context.Process(target=target, args=(url, timeout_s, self._slot, self._stop), daemon=True)
+        self._process = context.Process(
+            target=target, args=(url, timeout_s, self._slot, self._stop, timestamp_source), daemon=True
+        )
         self.timeout_s = timeout_s
         self._last_received = time.monotonic()
         self._previous_index = -1

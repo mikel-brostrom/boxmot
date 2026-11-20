@@ -40,6 +40,7 @@ EXPECTED_PUBLIC_API = (
 EXPECTED_CLI_COMMANDS = (
     "stream",
     "stream-db",
+    "stream-outputs",
     "ui",
     "track",
     "materialize",

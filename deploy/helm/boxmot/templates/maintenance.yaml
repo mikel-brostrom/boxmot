@@ -28,7 +28,7 @@ spec:
 {{- $cameraSettings := mergeOverwrite (deepCopy $.Values.cameraDefaults) $overrides }}
 {{- $cameraName := printf "%s-%s" (include "boxmot.fullname" $) $camera }}
 {{- $outputClaim := include "boxmot.claimName" (dict "name" (printf "%s-outputs" $cameraName) "persistence" $cameraSettings.outputs) }}
-{{- $outputCtx := merge (dict "camera" $camera "component" "output-maintenance" "outputClaim" $outputClaim "command" (list "boxmot" "stream-db" "maintain" "--retention-days" ($cameraSettings.config.retention_days | toString) "--output-dir" "/outputs" "--camera-id" $camera)) $ctx }}
+{{- $outputCtx := merge (dict "camera" $camera "component" "output-maintenance" "outputClaim" $outputClaim "command" (list "boxmot" "stream-outputs" "maintain" "--retention-days" ($cameraSettings.config.retention_days | toString) "--output-dir" "/outputs" "--camera-id" $camera)) $ctx }}
 ---
 apiVersion: batch/v1
 kind: CronJob

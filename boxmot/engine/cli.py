@@ -25,6 +25,7 @@ class _CommandSpec:
 _COMMAND_SPECS = (
     _CommandSpec("stream", "boxmot.engine.commands.stream", "stream", "Supervise a continuous network camera"),
     _CommandSpec("stream-db", "boxmot.engine.commands.stream", "stream_db", "Maintain stream attribute storage"),
+    _CommandSpec("stream-outputs", "boxmot.engine.commands.stream", "stream_outputs", "Maintain camera output files"),
     _CommandSpec("ui", "boxmot.engine.commands.ui", "ui", "Choose commands, models, and options interactively"),
     _CommandSpec("track", "boxmot.engine.commands.track", "track", "Track objects in streams or saved detections"),
     _CommandSpec(

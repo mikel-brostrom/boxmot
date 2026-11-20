@@ -88,7 +88,7 @@ def run_stream(config: StreamConfig) -> None:
         pipeline = build_tracking_pipeline(config.tracking_args(), profiler=profiler)
         health.initialized = True
         delay = min(1.0, config.reconnect_max_s)
-        last_maintenance = last_report = 0.0
+        last_maintenance = last_report = last_metrics = 0.0
         camera_directory = config.output_dir / config.camera_id
         replay = AttributeEventWriter(
             camera_directory, max_bytes=config.rotation_bytes, max_seconds=config.rotation_seconds
@@ -98,8 +98,13 @@ def run_stream(config: StreamConfig) -> None:
             while not stop.is_set():
                 lease.check()
                 health.heartbeat = time.monotonic()
-                export_events(journal, replay)
-                capture = NetworkCapture(url, config.capture_timeout_s, max_frame_bytes=config.max_frame_bytes)
+                export_events(journal, replay, on_export=health.observe_attribute_event)
+                capture = NetworkCapture(
+                    url,
+                    config.capture_timeout_s,
+                    max_frame_bytes=config.max_frame_bytes,
+                    timestamp_source=config.timestamp_source,
+                )
                 enricher = None
                 tracks = None
                 previous_index = -1
@@ -112,7 +117,7 @@ def run_stream(config: StreamConfig) -> None:
                         if stop.is_set():
                             break
                         if captured is None:
-                            export_events(journal, replay)
+                            export_events(journal, replay, on_export=health.observe_attribute_event)
                             continue
                         if enricher is None:
                             enricher = AttributeEnricher(
@@ -168,19 +173,21 @@ def run_stream(config: StreamConfig) -> None:
                                 }
                             )
                             tracks.sync()
-                            export_events(journal, replay)
+                            export_events(journal, replay, on_export=health.observe_attribute_event)
                         finally:
                             profiler.finish_sample(frame.sample_id, (time.monotonic() - started) * 1000)
                             timings.append(profiler.release_sample(frame.sample_id))
                         health.last_frame = time.monotonic()
                         health.frames += 1
+                        health.processing_seconds += time.monotonic() - started
+                        health.mean_frame_ms = sum(row["overall"] for row in timings) / len(timings)
                         health.heartbeat = time.monotonic()
                         if time.monotonic() - healthy_since > 30:
                             delay = min(1.0, config.reconnect_max_s)
+                        if time.monotonic() - last_metrics > 5:
+                            health.observe_queue(enricher.queue_metrics)
+                            last_metrics = time.monotonic()
                         if time.monotonic() - last_report > 30:
-                            for name, value in enricher.queue_metrics.items():
-                                setattr(health, name, value)
-                            health.mean_frame_ms = sum(row["overall"] for row in timings) / len(timings)
                             LOGGER.info(f"Stream {config.camera_id} status: {health.snapshot()}")
                             last_report = time.monotonic()
                         if time.monotonic() - last_maintenance > 3600:
@@ -195,6 +202,8 @@ def run_stream(config: StreamConfig) -> None:
                     LOGGER.warning(f"Camera {config.camera_id} disconnected; starting a new session after reconnect.")
                 finally:
                     health.connected = False
+                    health.observe_queue({"pending_batches": 0, "queued_crop_bytes": 0, "oldest_batch_age_s": 0.0})
+                    last_metrics = 0.0
                     capture.close()
                     # Cleanup also has a ceiling during ordinary reconnections.
                     cleanup = threading.Timer(20, os._exit, args=(1,))
@@ -209,7 +218,7 @@ def run_stream(config: StreamConfig) -> None:
                                 pipeline.attributes = None
                                 journal.end_session(enricher.run_id)
                                 # Bounded pages; later pages remain durable for replay.
-                                export_events(journal, replay)
+                                export_events(journal, replay, on_export=health.observe_attribute_event)
                     finally:
                         cleanup.cancel()
                 _wait(stop, lease, health, delay * random.uniform(0.8, 1.0))

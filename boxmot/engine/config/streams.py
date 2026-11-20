@@ -24,6 +24,7 @@ class StreamConfig:
     output_dir: Path = Path("runs/streams")
     health_port: int = 8080
     capture_timeout_s: float = 10
+    timestamp_source: str = "capture"
     reconnect_max_s: float = 30
     ready_timeout_s: float = 30
     rotation_bytes: int = 64 * 1024 * 1024
@@ -38,6 +39,8 @@ class StreamConfig:
             raise ConfigurationError("camera_id must contain 1–63 letters, digits, underscores or hyphens.")
         if not isinstance(self.source_url_env, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", self.source_url_env):
             raise ConfigurationError("source_url_env must be an environment variable name.")
+        if self.timestamp_source not in ("capture", "media"):
+            raise ConfigurationError("timestamp_source must be 'capture' or 'media'.")
         for name in (
             "health_port",
             "rotation_bytes",

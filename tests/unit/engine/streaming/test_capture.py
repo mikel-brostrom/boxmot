@@ -9,7 +9,7 @@ import pytest
 from boxmot.engine.streaming.capture import CapturedFrame, CaptureDisconnected, FrameSlot, NetworkCapture
 
 
-def produce(_url, _timeout, slot, stop):
+def produce(_url, _timeout, slot, stop, _timestamp_source):
     image = np.zeros((16, 16, 3), dtype=np.uint8)
     index = 0
     while not stop.wait(0.002):
@@ -17,7 +17,7 @@ def produce(_url, _timeout, slot, stop):
         index += 1
 
 
-def blocked(_url, _timeout, slot, stop):
+def blocked(_url, _timeout, slot, stop, _timestamp_source):
     # Simulate a decoder killed while holding the shared slot lock.
     slot.lock.acquire()
     while True:
