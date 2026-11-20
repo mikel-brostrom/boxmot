@@ -179,7 +179,7 @@ def test_reusable_docker_job_selects_candidate_or_published_source() -> None:
     safeguards = next(step for step in steps if step.get("name") == "Preserve current image publication safeguards")
     assert 0 < steps.index(safeguards) < steps.index(selection)
     assert selection["with"] == {
-        "source_sha": "${{ inputs.source_base || inputs.source_ref || github.event.release.tag_name }}",
+        "source_sha": "${{ inputs.source_base || inputs.source_ref }}",
         "candidate_sha": "${{ inputs.source_bundle && inputs.source_ref || '' }}",
         "source_bundle": "${{ inputs.source_bundle }}",
     }

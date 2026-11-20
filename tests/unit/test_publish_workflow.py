@@ -188,6 +188,8 @@ def test_release_dispatch_and_gates_share_one_unpublished_candidate() -> None:
     assert [step["name"] for step in steps[-4:]] == [DESTINATION_STEP, PUBLISH_STEP, PUSH_STEP, RELEASE_STEP]
     assert all(step["if"] == PYPI_SUCCESS for step in steps[-2:])
     assert all("git push" not in step.get("run", "") for step in jobs["prepare-release"]["steps"])
+    candidate_step = next(step for step in jobs["prepare-release"]["steps"] if step.get("id") == "candidate")
+    assert "git add pyproject.toml boxmot/__init__.py uv.lock deploy/helm/boxmot/Chart.yaml" in candidate_step["run"]
 
 
 def test_successful_pypi_upload_precedes_atomic_commit_tag_push_and_release(release_repo: ReleaseRepository) -> None:

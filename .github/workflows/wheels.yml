@@ -39,12 +39,28 @@ jobs:
   source_gates:
     name: Source tests, docs, and native parity
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: boxmot
+          POSTGRES_PASSWORD: boxmot
+          POSTGRES_DB: boxmot_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U boxmot -d boxmot_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     timeout-minutes: 60
     env:
       # Match regular CI's numerical thread limits in workers and child processes.
       OMP_NUM_THREADS: "1"
       MKL_NUM_THREADS: "1"
       OPENBLAS_NUM_THREADS: "1"
+      BOXMOT_TEST_POSTGRES_URL: postgresql://boxmot:boxmot@localhost:5432/boxmot_test
+      BOXMOT_REQUIRE_POSTGRES_TESTS: "1"
     steps:
       # Load release setup actions from this workflow's revision before selecting source.
       - name: Bootstrap release checkout action
@@ -76,6 +92,7 @@ jobs:
             --extra yolo \
             --extra evolve \
             --extra service \
+            --extra attributes \
             --extra mots \
             --group dev \
             --group test \

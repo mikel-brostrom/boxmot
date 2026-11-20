@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import subprocess
+import sys
 import urllib.error
 from pathlib import Path
 
 import pytest
+import yaml
 
 from tests.ci.deployment_release import (
     latest_stable_release,
@@ -59,7 +62,9 @@ def test_chart_release_is_bound_to_tag_source_version_and_default_branch(
     monkeypatch.chdir(tmp_path)
 
     assert validate_chart_release("boxmot-chart-0.1.0", sha, "master", chart) == {
-        "chart_version": "0.1.0", "app_version": "26.0.0", "source_sha": sha
+        "chart_version": "0.1.0",
+        "app_version": "26.0.0",
+        "source_sha": sha,
     }
     with pytest.raises(ValueError, match="full lowercase commit SHA"):
         validate_chart_release("boxmot-chart-0.1.0", "HEAD", "master", chart)
@@ -111,6 +116,7 @@ def _evidence() -> dict:
     """Represent the successful harness artifact consumed by promotion."""
     return {
         "schema_version": 1,
+        "scenario": "recovery",
         "camera_image": "boxmot/boxmot@sha256:" + "a" * 64,
         "vllm_image": "vllm/vllm-openai-cpu@sha256:" + "b" * 64,
         "model_revision": "c" * 40,
@@ -133,6 +139,8 @@ def test_promotion_preserves_the_exact_tested_image_identity() -> None:
     ("key", "value"),
     [
         ("schema_version", 2),
+        ("scenario", "capacity"),
+        ("scenario", None),
         ("camera_image", "boxmot/boxmot:latest-cpu"),
         ("camera_image", "someone/boxmot@sha256:" + "a" * 64),
         ("vllm_image", "vllm/vllm-openai-cpu:latest"),
@@ -152,3 +160,41 @@ def test_promotion_rejects_mutable_images_and_mismatched_test_evidence(key: str,
     evidence = {**_evidence(), key: value}
     with pytest.raises(ValueError):
         validate_promotion(evidence, run_id="123", run_attempt="2", source_sha="d" * 40)
+
+
+@pytest.mark.parametrize("path", [".github/workflows/helm.yml", ".github/workflows/helm.yml@refs/heads/master"])
+def test_promotion_accepts_github_workflow_paths_with_optional_ref(tmp_path: Path, path: str) -> None:
+    """Run the API verification shell using a recorded successful workflow response."""
+    binary = tmp_path / "gh"
+    binary.write_text(f"#!{sys.executable}\nimport os\nprint(os.environ['RUN_RESPONSE'])\n")
+    binary.chmod(0o755)
+    workflow = yaml.safe_load(
+        (Path(__file__).resolve().parents[2] / ".github/workflows/promote-images.yml").read_text()
+    )
+    script = next(step["run"] for step in workflow["jobs"]["promote"]["steps"] if step.get("id") == "validation")
+    output = tmp_path / "output"
+    run = {
+        "path": path,
+        "conclusion": "success",
+        "status": "completed",
+        "event": "workflow_dispatch",
+        "head_repository": {"full_name": "example/boxmot"},
+        "head_sha": "d" * 40,
+        "run_attempt": 2,
+    }
+    result = subprocess.run(
+        ["bash", "-eo", "pipefail", "-c", script],
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
+            "RUNNER_TEMP": str(tmp_path),
+            "VALIDATION_RUN_ID": "123",
+            "GITHUB_REPOSITORY": "example/boxmot",
+            "GITHUB_OUTPUT": str(output),
+            "RUN_RESPONSE": json.dumps(run),
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert output.read_text() == f"source_sha={'d' * 40}\nrun_attempt=2\n"

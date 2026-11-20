@@ -13,7 +13,8 @@ The top-level `on:` block decides whether any job in a workflow is created:
 | `.github/workflows/benchmark.yml` | Manual dispatch only |
 | `.github/workflows/wheels.yml` | Reusable release gate and manual dispatch |
 | `.github/workflows/publish.yml` | Manual dispatch after the wheel and Docker gates pass |
-| `.github/workflows/docker.yml` | Reusable pre-publication gate, manual dispatch, and published releases |
+| `.github/workflows/docker.yml` | Reusable image validation/publication and manual dispatch |
+| `.github/workflows/helm.yml` | Relevant pull requests and pushes, scheduled real integration, and manual dispatch |
 
 A valid job block does not run when its workflow was not triggered. In
 particular, a direct push to a feature branch does not start `ci.yml`; open or
@@ -37,6 +38,12 @@ that the workflow revision containing the job is part of the tested commit.
 metric parity/evaluation, ReID training, OBB, pose/detection/segmentation
 integrations, export runtimes, the Python API smoke test, and the full pytest
 suite. The final `check-failures` job collects their results.
+
+The `python_contracts` matrix also checks public structures, tracker
+configuration and CLI imports on the supported Python 3.10 and 3.13 boundaries.
+The full suite uses PostgreSQL and the attribute client dependencies. Required
+database mode fails when its URL or dependencies are missing instead of silently
+skipping database contracts; release source tests use the same requirement.
 
 The local `.github/actions/setup-ci-python` action installs Python and the uv
 version required by the root `pyproject.toml`, and enables uv's dependency
@@ -110,8 +117,9 @@ in the `release-source` bundle artifact without pushing the branch or a tag.
 Every release gate restores that exact candidate. The reusable wheel workflow
 runs source tests, the strict documentation build, and native checks on Python
 3.11, then tests clean-wheel imports and tracker contracts on Python 3.10
-through 3.13. Docker validates `cli-cpu` and
-`service-cpu`, without pushing them. Package checks compare the
+through 3.13. Docker builds and validates `cli-cpu` and `service-cpu`, without
+pushing them. The exact tested images are saved in `boxmot-image-cli-cpu` and
+`boxmot-image-service-cpu` artifacts, retained for 30 days. Package checks compare the
 requested release version with the candidate and installed artifacts; they do
 not pin a particular version.
 
@@ -133,15 +141,27 @@ project metadata. Dependency stages use temporary copies of the canonical
 project and lock files with only BoxMOT's own version normalized, so a
 version-only bump does not reinstall third-party packages. CLI images copy
 the dependency environment before installing the separately built BoxMOT wheel;
-the wheel always retains the actual release version. See the repository's
-`docker/README.md` for the cache layout and invalidation rules.
+the wheel always retains the actual release version. See the
+[Docker guide](../integrations/docker.md) for image targets and local use.
 
 After these gates pass, the workflow publishes the checksummed wheel and source
 distribution. Successful **PyPI** publication is followed by an atomic push of
 the tested version commit and its `v<version>` tag, then a GitHub release at that
-commit. The release event starts Docker image publication. **TestPyPI** runs
-the same preparation and validation but leaves the remote branch, tags, and
-GitHub releases unchanged.
+commit. The dependent `docker-publish` job restores the two tested image
+artifacts from that same workflow run and publishes them without rebuilding.
+It verifies archive checksums, source SHA, release version, build target and
+Docker image ID before pushing. **TestPyPI** runs the same preparation and
+validation but leaves remote branches, tags, GitHub releases and public Docker
+images unchanged.
+
+If image publication fails after the package and code release succeed, rerun
+the failed `docker-publish` job while the candidate artifacts are retained.
+Manual `docker.yml` dispatch defaults to building, smoke-testing and archiving
+images. Setting `push_images=true` requires a `candidate_run_id` from an earlier
+manual `publish.yml` or `docker.yml` run containing the tested image artifacts,
+plus the matching `source_ref` and existing `release_tag`. Publication rejects
+missing or mismatched artifacts. There is no release-event image rebuild; if
+archives have expired, run a new explicit image validation before publication.
 
 Release runs targeting the same package repository are serialized. The workflow
 checks that the branch still points at the selected revision before preparation
@@ -154,6 +174,6 @@ permission to push the version commit and tag and create the release.
 
 CI builds, validates, and publishes only CPU images. GPU images are built by
 end users with the `cli-gpu` or `service-gpu` Dockerfile target; release gates,
-published releases, and manual workflow runs never schedule GPU image builds.
+image publication, and manual workflow runs never schedule GPU image builds.
 The CPU service smoke uses CPU-only Torch and exercises the `/v1` request
 boundary without CUDA.

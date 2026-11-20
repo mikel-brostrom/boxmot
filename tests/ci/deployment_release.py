@@ -101,6 +101,8 @@ def validate_promotion(
     """Accept only the immutable images recorded by the successful CPU Helm run."""
     if manifest.get("schema_version") != 1:
         raise ValueError("Unsupported deployment evidence schema")
+    if manifest.get("scenario") != "recovery":
+        raise ValueError("Promotion requires successful recovery scenario evidence")
     for key, expected in (
         ("validation_run_id", run_id),
         ("validation_run_attempt", run_attempt),

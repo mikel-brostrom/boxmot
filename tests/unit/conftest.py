@@ -2,11 +2,27 @@
 
 from __future__ import annotations
 
+import importlib
 import os
 from collections.abc import Iterator
 from typing import Any
 
 import pytest
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Make database coverage mandatory in CI and release gates that request it."""
+    if os.environ.get("BOXMOT_REQUIRE_POSTGRES_TESTS") != "1":
+        return
+    if not os.environ.get("BOXMOT_TEST_POSTGRES_URL"):
+        raise pytest.UsageError("Required PostgreSQL tests need BOXMOT_TEST_POSTGRES_URL.")
+    for dependency in ("psycopg", "httpx", "jsonschema", "referencing"):
+        try:
+            importlib.import_module(dependency)
+        except ImportError as error:
+            raise pytest.UsageError(
+                f"Required PostgreSQL/attribute tests need {dependency}; install the attributes extra."
+            ) from error
 
 
 @pytest.fixture

@@ -69,7 +69,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Bump project, package, and lockfile versions
+      - name: Bump project, package, lockfile and chart application versions
         id: bump
         env:
           BUMP_TYPE: ${{ inputs.bump_type }}
@@ -85,7 +85,7 @@ jobs:
           git config --local user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git config --local user.name 'github-actions[bot]'
           git checkout -b release-candidate
-          git add pyproject.toml boxmot/__init__.py uv.lock
+          git add pyproject.toml boxmot/__init__.py uv.lock deploy/helm/boxmot/Chart.yaml
           git commit -m "ci: bump version from $OLD_VERSION to $RELEASE_VERSION"
           git bundle create "$RUNNER_TEMP/release-source.bundle" "$BASE_SHA..refs/heads/release-candidate"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -233,6 +233,20 @@ jobs:
       - name: Create code release at the published commit
         if: ${{ success() && inputs.pypi == 'pypi' }}
         env:
-          # A PAT allows release.published to start the Docker publishing workflow.
+          # The PAT creates the public code release after the tested tag is pushed.
           GH_TOKEN: ${{ secrets.RELEASE_PAT }}
         run: gh release create "v$RELEASE_VERSION" --verify-tag --title "Release v$RELEASE_VERSION" --notes "Release v$RELEASE_VERSION"
+
+  docker-publish:
+    name: Publish the exact Docker images that passed the release gates
+    if: inputs.pypi == 'pypi'
+    needs: [prepare-release, release-gates, docker-gates, pypi-upload]
+    uses: ./.github/workflows/docker.yml
+    with:
+      source_ref: ${{ needs.prepare-release.outputs.candidate_sha }}
+      release_tag: v${{ needs.release-gates.outputs.version }}
+      candidate_run_id: ${{ github.run_id }}
+      push_images: true
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

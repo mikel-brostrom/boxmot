@@ -8,7 +8,9 @@ repos:
         exclude: '.*vocab*.'
       - id: check-case-conflict # checks for files that would conflict in case-insensitive filesystems.
       - id: check-merge-conflict # checks for files that contain merge conflict strings.
-      - id: check-yaml # checks yaml files for parseable syntax.
+      - id: check-yaml # Ordinary YAML, including multi-document manifests.
+        args: [--allow-multiple-documents]
+        exclude: ^deploy/helm/boxmot/templates/
       - id: detect-private-key # detects the presence of private keys.
       - id: end-of-file-fixer # ensures that a file is either empty, or ends with one newline.
       - id: fix-byte-order-marker # removes utf-8 byte order marker.
@@ -17,9 +19,9 @@ repos:
       - id: trailing-whitespace # trims trailing whitespace.
 
 -   repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.4
+    rev: v0.16.5
     hooks:
-      - id: ruff
+      - id: ruff-check
         args: [ --fix ]
       - id: ruff-format
 
@@ -31,3 +33,13 @@ repos:
       args:
         - --license-filepath
         - assets/file_banner.txt
+
+# These formats must be assembled before validating their YAML.
+- repo: local
+  hooks:
+    - id: helm-contract
+      name: Render and validate Helm configurations
+      entry: uv run --no-sync python -m tests.ci.helm_contract
+      language: system
+      files: ^(deploy/helm/|tests/ci/helm_contract\.py$)
+      pass_filenames: false

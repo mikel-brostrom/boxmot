@@ -42,7 +42,7 @@ jobs:
           from pathlib import Path
           run = json.loads((Path(os.environ['RUNNER_TEMP']) / 'validation-run.json').read_text())
           assert run['conclusion'] == 'success' and run['status'] == 'completed', 'Validation run must have succeeded'
-          assert run['path'] == '.github/workflows/helm.yml', 'Only the Helm integration workflow supplies deployment evidence'
+          assert run['path'].split('@', 1)[0] == '.github/workflows/helm.yml', 'Only the Helm integration workflow supplies deployment evidence'
           assert run['event'] in ('workflow_dispatch', 'schedule'), 'Validation must include CPU inference'
           assert run['head_repository']['full_name'] == os.environ['GITHUB_REPOSITORY'], 'Fork evidence is not accepted'
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
