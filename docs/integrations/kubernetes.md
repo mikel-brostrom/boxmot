@@ -10,6 +10,31 @@ Helm is the supported deployment path for Minikube, AKS and EKS. Compose and
 Kustomize manifests have been retired. Existing installations keep their data;
 see [Migrate an existing deployment](#migrate-an-existing-deployment) before switching.
 
+## Architecture and data flow
+
+![BoxMOT Helm architecture: camera pod contents, shared model serving, PostgreSQL, persistent storage, and temporary maintenance pods](architecture.svg)
+
+[Open the full-size architecture diagram](architecture.svg).
+
+Each camera pod contains one container running capture, detection, tracking,
+attribute scheduling, and export. Capture uses a child process and one replaceable
+frame slot; inference consumes the latest available frame. ReID runs only when
+the selected tracker requires it. The asynchronous attribute worker is a thread
+inside this same container.
+
+1. The network camera supplies frames to the detector and tracker, which produce boxes and track IDs. The worker writes frame metadata directly to `tracks-*.jsonl` on its output volume.
+2. The worker samples eligible tracks, encodes crops, and persists bounded attribute jobs in PostgreSQL. Sampling and these database writes occur on the tracking path.
+3. The background attribute worker claims jobs and sends crops with a prompt/schema to shared vLLM. It validates and persists the returned attributes; vLLM does not connect to PostgreSQL. Attribute requests have their own cadence, independent of tracking FPS.
+4. The exporter reads durable outcome events from PostgreSQL, writes and synchronizes `attributes-*.jsonl`, then acknowledges the events. Consumers deduplicate replayed results by `event_id`. Temporary crop bytes are removed on completion or cancellation.
+5. Scheduled maintenance pods clean database history and camera output files. Output maintenance can export abandoned outcomes while holding camera ownership. Completed outcomes survive restarts; abandoned inference jobs are cancelled with explicit events.
+
+With **N active cameras**, bundled vLLM, and bundled PostgreSQL, there are
+**N + 2 steady application pods**, plus Job pods that run maintenance or migration;
+completed Job history may remain. External PostgreSQL and external model serving
+each remove one bundled pod. The chart creates no
+Prometheus installation or camera relay. Services, ConfigMaps, Secrets, and PVCs
+are separate Kubernetes resources, not additional pods.
+
 ## Requirements
 
 - Kubernetes, `kubectl`, Helm with OCI registry support, and a registry accessible to the nodes.
