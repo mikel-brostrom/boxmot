@@ -1,4 +1,5 @@
 # BoxMOT AGPL-3.0 license
+# Full license text: https://github.com/mikel-brostrom/boxmot/blob/master/LICENSE
 
 """Training-only Jigsaw Patch Module for CSL-TinyViT ReID models."""
 
