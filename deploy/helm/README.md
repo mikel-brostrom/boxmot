@@ -7,6 +7,9 @@ schema upgrades, camera ownership, outputs, and production preparation.
 
 The chart requires an explicit BoxMOT image digest. It does not contain camera
 URLs or database passwords; create the referenced Secrets separately.
+For Minikube, copy the root `.env.example` to ignored `.env` and follow the
+guide's [local Secret import](../../docs/integrations/kubernetes.md#start-on-minikube).
+The Minikube example selects individual keys from the resulting `boxmot-local` Secret.
 See the [validation record](VALIDATION.md) for the local install/upgrade/recovery
 results and remaining cloud/GPU checks.
 Model API keys can use `cameraDefaults.secretEnv` and `vllm.secretEnv`; configure

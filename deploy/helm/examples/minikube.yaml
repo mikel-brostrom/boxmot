@@ -1,9 +1,14 @@
 # Single-node development profile. Pass --set-string image="$CAMERA_IMAGE".
 # Release name "boxmot", namespace "boxmot-helm":
-# Secret attributes-database needs url and password, with matching credentials.
-# url must address boxmot-postgres:5432/boxmot; Secret camera-01 needs url.
+# Import the root .env into Secret boxmot-local; see docs/integrations/kubernetes.md.
+# DATABASE_URL must address boxmot-postgres:5432/boxmot and match POSTGRES_PASSWORD.
+database:
+  existingSecret: boxmot-local
+  urlKey: DATABASE_URL
+
 postgres:
   enabled: true
+  passwordKey: POSTGRES_PASSWORD
   persistence:
     size: 1Gi
     accessModes: [ReadWriteOnce]
@@ -37,4 +42,4 @@ maintenance:
 
 cameras:
   camera-01:
-    sourceSecret: {name: camera-01, key: url}
+    sourceSecret: {name: boxmot-local, key: CAMERA_01_URL}

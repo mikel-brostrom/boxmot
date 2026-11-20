@@ -139,18 +139,33 @@ kubectl create namespace boxmot-helm
 cp deploy/helm/examples/minikube.yaml environment.yaml
 ```
 
-Create the Secrets outside Helm. In a protected local directory, prepare files
-containing only the camera URL, PostgreSQL password, and PostgreSQL URL, without
-trailing newlines. For release `boxmot`, the bundled database URL is
-`postgresql://boxmot:PERCENT_ENCODED_PASSWORD@boxmot-postgres:5432/boxmot`; the
-password must match the separate password file. Use your secret manager in
-production, and remove local secret files after creation.
+The Minikube example reads its credentials from one Secret, `boxmot-local`.
+Create an ignored local `.env` from the root `.env.example`, preserving an
+existing file:
 
 ```bash
-kubectl -n boxmot-helm create secret generic attributes-database \
-  --from-file=url=/secure/postgres-url --from-file=password=/secure/postgres-password
-kubectl -n boxmot-helm create secret generic camera-01 \
-  --from-file=url=/secure/camera-url
+cp -n .env.example .env
+chmod 600 .env
+```
+
+Edit `CAMERA_01_URL`, `POSTGRES_PASSWORD`, and `DATABASE_URL` before importing
+them. Use a network camera URL reachable from the cluster. For release `boxmot`,
+the database URL is
+`postgresql://boxmot:PERCENT_ENCODED_PASSWORD@boxmot-postgres:5432/boxmot`;
+its password must match `POSTGRES_PASSWORD`. Use the current password if reusing
+an initialized PostgreSQL volume: changing the Secret does not change that
+database's password.
+
+Use plain `KEY=value` lines. `kubectl` reads values literally: omit shell quotes,
+`export`, variable substitutions, and inline comments. Helm does not read `.env`
+itself; this command imports it into the Secret. Each container receives only
+the keys it needs. In production, use a secret manager to supply the referenced
+Kubernetes Secrets.
+
+```bash
+kubectl -n boxmot-helm create secret generic boxmot-local \
+  --from-env-file=.env --dry-run=client -o yaml | \
+  kubectl -n boxmot-helm apply --server-side --field-manager=boxmot-local-env -f -
 helm lint deploy/helm/boxmot -f environment.yaml -f release-images.yaml
 helm template boxmot deploy/helm/boxmot --namespace boxmot-helm \
   -f environment.yaml -f release-images.yaml > /tmp/boxmot-helm.yaml
@@ -159,6 +174,11 @@ helm upgrade --install boxmot deploy/helm/boxmot --namespace boxmot-helm \
   -f environment.yaml -f release-images.yaml --wait --timeout 30m
 kubectl -n boxmot-helm rollout status deployment/boxmot-camera-01 --timeout=1800s
 ```
+
+After editing `.env`, repeat the Secret import. Existing pods retain their old
+environment until restarted; increment `secretRevision` in `environment.yaml`
+and run the Helm upgrade again. This is credential injection, not a database
+password-rotation procedure.
 
 An existing schema version 1 database needs the [explicit upgrade](#upgrade-the-schema-and-install)
 before camera clients start. A new database initializes automatically. The
@@ -182,7 +202,7 @@ second camera requires a Secret and another map entry:
 ```yaml
 cameras:
   camera-01:
-    sourceSecret: {name: camera-01, key: url}
+    sourceSecret: {name: boxmot-local, key: CAMERA_01_URL}
   loading-bay:
     sourceSecret: {name: loading-bay-camera, key: stream-url}
     config:
