@@ -6,8 +6,9 @@ generates one worker and output-maintenance job per camera, with optional vLLM
 and local PostgreSQL. It saves JSON metadata only. The finite `boxmot track`
 workflow remains available for files and previews.
 
-Use Helm for new deployments. The existing Kustomize examples remain available
-for installations already using them; see [Existing Kustomize deployments](#existing-kustomize-deployments).
+Helm is the supported deployment path for Minikube, AKS and EKS. Compose and
+Kustomize manifests have been retired. Existing installations keep their data;
+see [Migrate an existing deployment](#migrate-an-existing-deployment) before switching.
 
 ## Requirements
 
@@ -94,7 +95,9 @@ helm upgrade --install boxmot oci://ghcr.io/YOUR_OWNER/charts/boxmot \
 Do not assume a chart package exists until its release workflow has succeeded.
 The publishing workflow requires the tag to match `Chart.yaml` and a commit on
 the default branch; it refuses to replace an existing chart version. Increase
-the chart version when releasing template or default-value changes.
+the chart version when releasing template, default-value or application-version
+metadata changes. Package release preparation synchronizes `appVersion` with
+the package version; it leaves the chart version independently managed.
 The source-chart commands below work before publication. Registry credentials
 belong in the cluster's image-pull configuration, referenced with
 `imagePullSecrets` when necessary.
@@ -319,9 +322,37 @@ If Prometheus Operator and its `ServiceMonitor` CRD already exist, set
 `monitoring.serviceMonitor.enabled: true` to scrape bundled vLLM's `/metrics`.
 Configure `monitoring.serviceMonitor.labels` for your Prometheus selector, and
 allow the scraper through `additionalVllmIngress` when ingress policies are
-enabled. This provides serving metrics; camera readiness and end-to-end
-attribute age still need separate observation. Prometheus itself is not
-installed by this chart.
+enabled. Prometheus itself is not installed by this chart.
+
+Camera workers expose `/metrics` on the existing health port. Enable their
+`PodMonitor` and optional alert rules separately; match the labels selected by
+your Prometheus installation:
+
+```yaml
+monitoring:
+  podMonitor:
+    enabled: true
+    labels: {release: prometheus}
+  rules:
+    enabled: true
+    labels: {release: prometheus}
+    for: 5m
+    maxBacklogAgeSeconds: 300
+    maxDroppedFrameRatio: 0.5
+```
+
+This requires the `PodMonitor` and `PrometheusRule` CRDs. Rules report unavailable
+cameras, failed scrapes, aging attribute backlogs, high frame-drop ratios and
+failed attribute outcomes. Tune thresholds against your camera FPS and latency
+requirements. `boxmot_stream_frames_total` and
+`boxmot_stream_dropped_frames_total` are process counters; use `rate(...[5m])`
+to compare processed FPS with decoded frames discarded before tracking.
+`boxmot_stream_oldest_batch_age_seconds`, `pending_batches` and
+`queued_crop_bytes` describe backlog. `boxmot_stream_frame_processing_mean_seconds`
+covers the last 300 processed frames. Attribute outcome counters measure
+acknowledged exports, including replay from earlier sessions; use persisted
+event IDs for unique counts. They do not measure model request latency. Monitor
+vLLM latency and database/PVC growth separately.
 
 ## Prepare models
 
@@ -395,16 +426,33 @@ Version 1 clients reject version 2 and need their matching database backup
 restored before application rollback. Releases supporting the same schema can
 retain the database. Avoid automatic rollback during an explicit migration.
 
-## Existing Kustomize deployments
+## Migrate an existing deployment
 
-The existing `deploy/kubernetes` overlays remain usable while Helm parity and
-cluster behavior are validated. Their rendering and upgrade commands are in
-[the Kustomize README](https://github.com/mikel-brostrom/boxmot/blob/master/deploy/kubernetes/README.md).
-Do not run both installations against the same camera/database during a
-cutover. Validate Helm in an isolated namespace and database first; then stop
-old clients and maintenance, back up the database, and reference the intended
-existing claims and Secrets in Helm values. Helm does not automatically adopt
-resources created by Kustomize. Keep the previous configuration for recovery.
+The repository no longer ships Compose or Kustomize manifests, launchers or CI
+jobs. Dockerfiles remain for building the images Helm runs and for standalone
+finite tracking jobs. Removing source files does not stop any existing
+containers or delete Docker volumes, Kubernetes resources or database records.
+The historical [Kubernetes validation record](https://github.com/mikel-brostrom/boxmot/blob/master/deploy/kubernetes/VALIDATION.md)
+remains available as evidence for its recorded revision.
+
+1. Record the old source revision, camera IDs, image/model identities, database URL Secret, output/model locations and retention policy. Preserve the old manifests outside the new checkout for recovery.
+2. Validate the Helm release against a separate namespace and fresh database first. Use the recovery harness below; never use its disposable database for production data.
+3. Stop the old camera clients and suspend their maintenance schedules. Wait for active Jobs, workers and finite attribute clients to exit. Back up PostgreSQL and output files before cutover; verify the backup is restorable.
+4. For an existing Kubernetes database, reuse its URL Secret and set `postgres.enabled: false`. Reuse each output/model PVC through `existingClaim` in the **same namespace**. Helm does not adopt or move old resources. For a new namespace or cluster, restore the database and copy outputs to provisioned claims, preserving camera/session paths and UID/GID 10001 ownership.
+5. For Compose, restore its PostgreSQL backup into the target database, copy persistent output files from Docker volumes/bind mounts, and reference those new claims and Secrets. Docker named volumes cannot be mounted as Kubernetes PVCs. Model caches may be copied or downloaded again using the pinned revisions.
+6. Render the full Helm values with cameras and maintenance suspended. Run the explicit schema upgrade only if required, then enable the cameras. Confirm fresh sessions, completed attributes and exports before removing the old stopped workloads. Retain backups and old volumes until the cutover has been accepted.
+
+Do not run old and new workers for the same camera/database simultaneously.
+Keep database retention consistent across releases sharing that database. The
+new `stream-db maintain` performs only global database cleanup;
+`stream-outputs maintain --camera-id ID --output-dir /outputs --retention-days N`
+handles one camera's export reconciliation and file retention. Custom cron
+commands using the old combined flags must be updated.
+
+Chart 0.2.0 requires an application image containing `stream-outputs`, live
+`timestamp_source` selection, and the camera metrics endpoint. Build and test
+that image from the same checkout; an older digest with the same application
+version cannot supply these changes.
 
 ## Ownership and failure behavior
 
@@ -422,8 +470,15 @@ writers from appending to each other's files; a file segment from an obsolete
 owner can exist even though its database acknowledgment is fenced.
 
 Capture runs in a killable subprocess with one replaceable frame slot, bounded
-to 32 MiB by default (`max_frame_bytes`). Source indices and timestamps survive
-dropped frames. OpenCV's FFmpeg backend receives ten-second
+to 32 MiB by default (`max_frame_bytes`). Source indices and elapsed time survive dropped frames.
+`timestamp_source: capture` is the live default: monotonic time at decoder
+receipt, relative to the current connection. This avoids fictitious FPS/PTS
+reported by some MJPEG backends. It is arrival timing, not sensor exposure
+time. Use `timestamp_source: media` only when the source provides verified,
+strictly increasing presentation timestamps; missing, reset or invalid PTS
+causes a reconnect and fresh tracking session. Nominal camera FPS is never a
+fallback for live timestamps. Offline video timing is unchanged. Tracker
+`variable_dt` remains an explicit opt-in. OpenCV's FFmpeg backend receives ten-second
 [open/read timeouts](https://docs.opencv.org/4.11.0/d4/d15/group__videoio__flags__base.html).
 The supervisor replaces stuck processes and reconnects indefinitely with
 exponential backoff, jitter and a thirty-second cap. Every reconnection resets
@@ -447,8 +502,8 @@ Files live under `/outputs/<camera_id>/<session_id>/`, with separate
 of camera, session, generation and track ID. Attribute values appear in the
 attribute event segments instead of being repeated in every track frame.
 Capture wall time is exported as
-`captured_at_unix_s`; `timestamp_s` retains the source's media timing when
-available. No videos or image files are exported; crops are transient database
+`captured_at_unix_s`; `timestamp_s` follows the configured capture/media
+timestamp policy. No videos or image files are exported; crops are transient database
 queue payloads and disappear after completion or cancellation.
 
 Segments rotate before the next write after 64 MiB or one hour. Open segments
@@ -474,10 +529,11 @@ for deletion, not a hard disk quota: unacknowledged work is protected.
 PostgreSQL also needs space for queued crops, retained events, indexes and WAL.
 Monitor both database and PVC free space.
 
-`maintenance.retentionDays` and every camera's `config.retention_days` must
-match: output-maintenance also runs database cleanup. Agree on one policy for
-all clients sharing the database, or use separate databases for different
-retention requirements.
+`maintenance.retentionDays` controls global database history retention.
+Each camera's `config.retention_days` independently controls its files. The
+per-camera job never scans or deletes global database history. Agree on one
+database policy for all releases sharing the same database; use separate
+databases when different history retention is required.
 
 `<release>-db-gc` runs every five minutes. It abandons expired sessions
 and removes acknowledged history older than seven days, preserving active track
@@ -497,9 +553,10 @@ Tracking FPS and attribute requests per second are separate measurements: the
 attribute worker samples tracks and completes requests asynchronously. Camera
 readiness does not establish attribute generation latency or accuracy.
 
-The health JSON and thirty-second status logs include processed/dropped frames,
+The health JSON, Prometheus endpoint and thirty-second status logs include processed/dropped frames,
 reconnects, pending batches, queued crop bytes, oldest batch age, and mean frame
-time over a fixed 300-frame window. Streaming does not retain lifetime sets of
+time over a fixed 300-frame window. Queue aggregates refresh at most every
+five seconds after processed frames; scrapes do not query PostgreSQL. Streaming does not retain lifetime sets of
 track IDs or profiler samples. Supplied ByteTrack and BoT-SORT implementations
 bound removed-track archives; validate memory behavior separately for custom
 trackers.
@@ -520,7 +577,18 @@ a tested image from this checkout:
 
 ```bash
 uv run --no-sync python -m tests.e2e.helm_streaming --help
+uv run --no-sync python -m tests.e2e.helm_capacity --help
 ```
+
+The independent capacity scenario loops moving bundled video frames across
+multiple camera workers. It waits for real attributes from every camera,
+then measures processed FPS, dropped frames, completed attribute events and
+backlog over the selected interval. Increase from two to four cameras with
+identical image/resources to compare runs. See the
+[E2E guide](https://github.com/mikel-brostrom/boxmot/blob/master/tests/e2e/README.md)
+for commands, thresholds and recorded evidence. A short looping fixture is a
+repeatable load test; it does not establish real-camera accuracy or production
+capacity.
 
 On GPU hardware verify that requested devices are available and both models
 start. Cluster provisioning, managed database failover, network routes and the

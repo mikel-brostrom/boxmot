@@ -4,17 +4,23 @@ on:
   pull_request:
     paths:
       - 'deploy/helm/**'
-      - 'deploy/kubernetes/**'
       - 'boxmot/engine/streaming/**'
-      - 'boxmot/engine/config/streams.py'
+      - 'boxmot/engine/config/**'
+      - 'boxmot/engine/commands/stream.py'
+      - 'boxmot/engine/tracking/timestamps.py'
+      - 'boxmot/utils/config.py'
+      - 'boxmot/utils/__init__.py'
+      - 'boxmot/resources/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
       - 'boxmot/attributes/**'
       - 'boxmot/configs/attributes/**'
       - 'tests/ci/helm_contract.py'
       - 'tests/ci/deployment_release.py'
       - 'tests/unit/test_deployment_release.py'
       - 'tests/unit/test_helm_streaming_harness.py'
-      - 'tests/e2e/helm_streaming.py'
-      - 'tests/e2e/compose_attributes.py'
+      - 'tests/unit/test_helm_capacity.py'
+      - 'tests/e2e/**'
       - '.github/actions/setup-helm/**'
       - '.github/workflows/helm*.yml'
       - '.github/workflows/promote-images.yml'
@@ -22,17 +28,23 @@ on:
     branches: [master]
     paths:
       - 'deploy/helm/**'
-      - 'deploy/kubernetes/**'
       - 'boxmot/engine/streaming/**'
-      - 'boxmot/engine/config/streams.py'
+      - 'boxmot/engine/config/**'
+      - 'boxmot/engine/commands/stream.py'
+      - 'boxmot/engine/tracking/timestamps.py'
+      - 'boxmot/utils/config.py'
+      - 'boxmot/utils/__init__.py'
+      - 'boxmot/resources/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
       - 'boxmot/attributes/**'
       - 'boxmot/configs/attributes/**'
       - 'tests/ci/helm_contract.py'
       - 'tests/ci/deployment_release.py'
       - 'tests/unit/test_deployment_release.py'
       - 'tests/unit/test_helm_streaming_harness.py'
-      - 'tests/e2e/helm_streaming.py'
-      - 'tests/e2e/compose_attributes.py'
+      - 'tests/unit/test_helm_capacity.py'
+      - 'tests/e2e/**'
       - '.github/actions/setup-helm/**'
       - '.github/workflows/helm*.yml'
       - '.github/workflows/promote-images.yml'
@@ -44,6 +56,17 @@ on:
         description: 'Published CPU BoxMOT repository@sha256:digest; defaults to BOXMOT_HELM_IMAGE variable'
         required: false
         type: string
+      scenario:
+        description: 'Recovery gate or independent moving-video capacity measurement'
+        required: true
+        type: choice
+        default: recovery
+        options: [recovery, capacity]
+      cameras:
+        description: 'Concurrent cameras for the capacity scenario (requires sufficient cluster resources)'
+        required: false
+        type: number
+        default: 2
       vllm_image:
         description: 'CPU vLLM repository@sha256:digest; defaults to the validated CPU image'
         required: false
@@ -67,11 +90,11 @@ jobs:
           python-version: '3.11'
       - uses: ./.github/actions/setup-helm
       - name: Install chart validation dependencies
-        run: python -m pip install 'PyYAML==6.0.2' 'pytest==8.3.5'
+        run: python -m pip install 'PyYAML==6.0.2' 'pytest==8.3.5' 'platformdirs==4.9.4'
       - name: Lint and render CPU, GPU, external service, cloud and multi-camera configurations
         run: python -m tests.ci.helm_contract
       - name: Check publication, promotion and isolated-cluster safeguards
-        run: python -m pytest -q tests/unit/test_deployment_release.py tests/unit/test_helm_streaming_harness.py
+        run: python -m pytest -q tests/unit/test_deployment_release.py tests/unit/test_helm_streaming_harness.py tests/unit/test_helm_capacity.py
       - name: Report scheduled inference configuration
         if: github.event_name == 'schedule' && vars.BOXMOT_HELM_IMAGE == ''
         run: echo '::notice::Set BOXMOT_HELM_IMAGE to a published digest and BOXMOT_HELM_RUNNER to enable weekly CPU inference.'
@@ -129,12 +152,25 @@ jobs:
           kind create cluster --name "$KIND_CLUSTER" --wait 120s \
             --image kindest/node:v1.34.0@sha256:7416a61b42b1662ca6ca89f02028ac133a309a2a30ba309614e8ec94d976dc5a
       - name: Exercise real tracking, attributes, upgrade and recovery
+        if: inputs.scenario != 'capacity'
         timeout-minutes: 120
         run: |
           python -m tests.e2e.helm_streaming \
             --context "kind-$KIND_CLUSTER" \
             --image "$CAMERA_IMAGE" \
             --vllm-image "$VLLM_IMAGE" \
+            --output "$EVIDENCE_DIRECTORY"
+      - name: Measure moving-video multi-camera capacity
+        if: inputs.scenario == 'capacity'
+        timeout-minutes: 60
+        env:
+          CAMERA_COUNT: ${{ inputs.cameras }}
+        run: |
+          python -m tests.e2e.helm_capacity \
+            --context "kind-$KIND_CLUSTER" \
+            --image "$CAMERA_IMAGE" \
+            --vllm-image "$VLLM_IMAGE" \
+            --cameras "$CAMERA_COUNT" --duration 600 \
             --output "$EVIDENCE_DIRECTORY"
       - name: Retain test evidence and immutable deployment identities
         if: always()
@@ -145,6 +181,10 @@ jobs:
             ${{ env.EVIDENCE_DIRECTORY }}/result.json
             ${{ env.EVIDENCE_DIRECTORY }}/deployment-images.json
             ${{ env.EVIDENCE_DIRECTORY }}/verification.json
+            ${{ env.EVIDENCE_DIRECTORY }}/capacity.json
+            ${{ env.EVIDENCE_DIRECTORY }}/samples.jsonl
+            ${{ env.EVIDENCE_DIRECTORY }}/fixture.json
+            ${{ env.EVIDENCE_DIRECTORY }}/values.json
             ${{ env.EVIDENCE_DIRECTORY }}/*.log
           if-no-files-found: warn
           retention-days: 30

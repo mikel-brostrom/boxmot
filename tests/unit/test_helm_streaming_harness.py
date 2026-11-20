@@ -10,7 +10,8 @@ from typing import Any
 
 import pytest
 
-from tests.e2e.helm_streaming import OWNER_LABEL, HelmTest
+from tests.e2e.helm_streaming import HelmTest
+from tests.e2e.support import OWNER_LABEL
 
 
 @pytest.fixture
@@ -47,7 +48,7 @@ def test_diagnostic_timeouts_do_not_prevent_owned_namespace_cleanup(
         return subprocess.CompletedProcess(arguments, 0, output)
 
     monkeypatch.setattr(harness, "kubectl", kubectl)
-    monkeypatch.setattr("tests.e2e.helm_streaming.subprocess.check_output", lambda *_args, **_kwargs: "d" * 40)
+    monkeypatch.setattr("tests.e2e.support.subprocess.check_output", lambda *_args, **_kwargs: "d" * 40)
     harness.finish(None)
 
     result = json.loads((harness.directory / "result.json").read_text())
@@ -87,6 +88,43 @@ def test_failed_run_does_not_emit_promotable_image_evidence(
 
     assert not (harness.directory / "deployment-images.json").exists()
     assert json.loads((harness.directory / "result.json").read_text())["error"] == "Fixture validation failed"
+
+
+def test_unexecuted_run_does_not_emit_promotable_image_evidence(harness: HelmTest) -> None:
+    harness.finish(None)
+
+    assert not (harness.directory / "deployment-images.json").exists()
+    assert json.loads((harness.directory / "result.json").read_text())["completed"] is False
+
+
+def test_capacity_success_never_emits_promotable_image_evidence(harness: HelmTest, monkeypatch) -> None:
+    from tests.e2e.helm_capacity import CapacityTest
+
+    test = CapacityTest(argparse.Namespace(**{**vars(harness.args), "output": str(harness.directory / "capacity")}))
+    test.owned = True
+    test.scenario_completed = True
+    monkeypatch.setattr(test, "kubectl", lambda *args, **kwargs: subprocess.CompletedProcess(
+        args, 0, json.dumps({"metadata": {"labels": {OWNER_LABEL: test.owner}}}),
+    ))
+
+    test.finish(None)
+
+    assert not (test.directory / "deployment-images.json").exists()
+    result = json.loads((test.directory / "result.json").read_text())
+    assert result["scenario"] == "capacity" and result["completed"] is True
+
+
+def test_owned_manifests_use_server_side_apply_without_recording_secret_input(harness: HelmTest, monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(harness, "kubectl", lambda *args, **kwargs: calls.append((args, kwargs)))
+    fixture = {"kind": "ConfigMap", "binaryData": {"frame.jpg": "a" * 300_000}}
+
+    harness.apply(fixture)
+
+    arguments, keywords = calls[0]
+    assert "--server-side" in arguments
+    assert "a" * 100 not in " ".join(arguments)
+    assert json.loads(keywords["input_text"])["items"] == [fixture]
 
 
 def test_existing_namespace_is_never_adopted_or_modified(

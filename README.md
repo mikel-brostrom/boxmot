@@ -346,11 +346,11 @@ Add clothing, footwear, and pose descriptions to person tracks with
 Display attributes alongside track IDs
 and export structured JSON results.
 Every attribute run requires PostgreSQL for its queue and retained results;
-the Compose workflow starts the database automatically.
+the Helm chart can start a local database or connect to managed PostgreSQL.
 
 See the [Track Attributes guide](docs/config/attributes.md) for setup,
 configuration, and examples. To run detection, ReID, and the VLM on NVIDIA GPUs,
-use the [GPU Compose setup](docs/integrations/docker.md#gpu-detection-reid-and-vlm-inference).
+use the [Helm GPU deployment settings](docs/integrations/kubernetes.md#storage-scheduling-and-cloud-deployment).
 
 ## License
 

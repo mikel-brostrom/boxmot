@@ -28,19 +28,21 @@ uv run --no-sync pytest tests/unit/native
 
 ## CI smoke tests
 
-### Docker Compose
+### Helm and Docker images
 
-Check the assembled CPU, GPU and Ollama stacks, each with and without the
-webcam overlay, using Docker Compose without starting containers:
+Check chart rendering and CPU/GPU, multi-camera, external-service and invalid
+configuration contracts without connecting to a Kubernetes cluster:
 
 ```bash
-uv run --no-sync python -m tests.ci.compose_contract
+uv run --no-sync python -m tests.ci.helm_contract
 ```
 
-The `Compose integration` workflow runs these checks on relevant PRs. Its
-weekly/manual CPU job also runs actual inference and streaming recovery with
-the [end-to-end harness](https://github.com/mikel-brostrom/boxmot/blob/master/tests/e2e/README.md).
-GPU execution requires a suitably configured host.
+The Helm workflow runs these checks on relevant PRs. The
+[end-to-end harness](https://github.com/mikel-brostrom/boxmot/blob/master/tests/e2e/README.md)
+exercises real tracking and attribute inference, installation, upgrades,
+recovery, exports and retained storage in an isolated namespace. GPU execution
+requires a suitably configured host. Docker image CI separately builds and
+smoke-tests the CPU CLI and HTTP service targets before publication.
 
 ### Attribute database contracts
 
@@ -49,15 +51,28 @@ extra in addition to your selected CPU/CUDA profile and test dependencies, then
 start the database and set the test connection URL:
 
 ```bash
-docker compose -f docker/compose.attributes.yaml up -d --wait postgres
-export BOXMOT_TEST_POSTGRES_URL='postgresql://boxmot:boxmot-local@127.0.0.1:5432/boxmot'
+docker run --detach --name boxmot-test-postgres \
+  --publish 127.0.0.1:55432:5432 \
+  --env POSTGRES_USER=boxmot --env POSTGRES_PASSWORD=boxmot-test \
+  --env POSTGRES_DB=boxmot_test postgres:17
+
+docker exec boxmot-test-postgres pg_isready -U boxmot -d boxmot_test
+export BOXMOT_TEST_POSTGRES_URL='postgresql://boxmot:boxmot-test@127.0.0.1:55432/boxmot_test'
+export BOXMOT_REQUIRE_POSTGRES_TESTS=1
 uv run --no-sync python -m pytest tests/unit/attributes tests/unit/engine/test_attributes.py -q
 ```
 
-Use a development database. Fixtures remove only the runs created by each test,
-so parallel pytest workers can share it. PostgreSQL-dependent tests skip when
-`BOXMOT_TEST_POSTGRES_URL` is unset; CI supplies a PostgreSQL service and sets
-the variable. Config, crop, and HTTP transport tests do not require a database.
+Wait for `pg_isready` to report that the database accepts connections; repeat
+it while initialization is in progress. Use a development database. Fixtures
+remove only runs created by each test, so parallel pytest workers can share it.
+When finished, remove this disposable test container and its anonymous data
+volume with `docker rm --force --volumes boxmot-test-postgres`.
+
+PostgreSQL-dependent tests normally skip when `BOXMOT_TEST_POSTGRES_URL` is unset.
+`BOXMOT_REQUIRE_POSTGRES_TESTS=1` makes a missing URL or missing attribute client
+dependencies fail at startup. PR and release validation set it with their
+PostgreSQL service so required database coverage cannot silently disappear.
+Config, crop, and HTTP transport tests do not require a database.
 
 ### Python API
 

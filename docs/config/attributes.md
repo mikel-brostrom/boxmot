@@ -12,8 +12,7 @@ For continuous network cameras, use the [Kubernetes streaming workflow](../integ
 It adds ownership leases, bounded queues, durable event replay and seven-day
 retention. Existing attribute databases require an explicit `boxmot stream-db upgrade`
 before running clients from this release. Follow the backup, stop-client and
-upgrade procedure for [Compose](../integrations/docker.md#upgrade-an-existing-compose-database)
-or [Kubernetes](../integrations/kubernetes.md#upgrade-the-schema-and-install).
+upgrade procedure for [Helm](../integrations/kubernetes.md#upgrade-the-schema-and-install).
 
 ## Attribute extraction options
 
@@ -23,7 +22,7 @@ Choose a model service and pass its matching profile to `--attributes`:
 | --- | --- | --- | --- |
 | [Ollama](#run-with-ollama) | `person-appearance-ollama` | `qwen3.5:9b` | `http://localhost:11434` |
 | [vLLM on GPU](#run-with-vllm) | `person-appearance-vllm` | `Qwen/Qwen3.5-9B` | `http://localhost:8000` |
-| [vLLM on x86-64 CPU (Docker)](#vllm-on-x86-64-cpu) | `person-appearance-vllm-cpu` | `Qwen/Qwen3.5-0.8B` | `http://127.0.0.1:8001` |
+| [vLLM on x86-64 CPU (Helm)](#vllm-on-x86-64-cpu) | `person-appearance-vllm-cpu` | `Qwen/Qwen3.5-0.8B` | `http://127.0.0.1:8001` |
 
 All three profiles are included in `boxmot/configs/attributes/`.
 Attribute profiles select the model service; use `--device` separately to select
@@ -88,16 +87,30 @@ if this has already happened.
 
 Attribute extraction requires a PostgreSQL connection. Set
 `BOXMOT_ATTRIBUTES_DATABASE_URL` in the environment that runs BoxMOT; there is
-no implicit database URL. For a local development database, the repository's
-Compose service uses the [official PostgreSQL 17 image](https://hub.docker.com/_/postgres):
+no implicit database URL. For a local development database, run the
+[official PostgreSQL 17 image](https://hub.docker.com/_/postgres):
 
 ```bash
-docker compose -f docker/compose.attributes.yaml up -d --wait postgres
+docker run --detach --name boxmot-postgres \
+  --publish 127.0.0.1:5432:5432 \
+  --env POSTGRES_USER=boxmot --env POSTGRES_PASSWORD=boxmot-local \
+  --env POSTGRES_DB=boxmot \
+  --volume boxmot-postgres-data:/var/lib/postgresql/data \
+  --health-cmd='pg_isready -U boxmot -d boxmot' \
+  --health-interval=5s --health-timeout=3s --health-retries=20 postgres:17
+
+docker exec boxmot-postgres pg_isready -U boxmot -d boxmot
 export BOXMOT_ATTRIBUTES_DATABASE_URL='postgresql://boxmot:boxmot-local@127.0.0.1:5432/boxmot'
 ```
 
-These credentials are local development defaults. The database is published only
-on the host's loopback address and persists in the `postgres-data` named volume.
+Wait for `pg_isready` to report that the server accepts connections before
+starting BoxMOT; repeat it while the new database initializes. These credentials
+are for local development. The database is published only on the host's loopback
+address and persists in the `boxmot-postgres-data` named volume. Stop it with
+`docker stop boxmot-postgres` and restart with `docker start boxmot-postgres`.
+Removing the container leaves the named volume intact. Environment credentials
+initialize an empty volume only; changing them does not update existing users.
+
 For another database, set the URL to its host, database, and credentials. The
 database user must be able to create and use the `boxmot_attributes` schema and
 its tables. Percent-encode reserved characters in URL credentials.
@@ -115,10 +128,11 @@ history are isolated by run ID within `boxmot_attributes`. Completed jobs releas
 their crop data; latest values and history remain after a clean close. A new
 session creates a new run ID and does not resume an earlier run's pending work.
 
-Compose supplies a URL using `postgres:5432` to its BoxMOT container. Host
-processes use `127.0.0.1` and the published port instead. See the
-[database settings](../integrations/docker.md#settings-and-logs) for port and
-credential overrides, and update the host URL to match any overrides.
+Host processes use the published loopback port above. Kubernetes clients use
+the database service address from their Secret; see the
+[Helm database setup](../integrations/kubernetes.md#start-on-minikube).
+A container's `127.0.0.1` does not address its host or another container.
+Use the database hostname reachable from the process running BoxMOT.
 
 ## Run with Ollama
 
@@ -179,96 +193,52 @@ boxmot track --tracker edgetam --source video.mp4 \
   --attributes person-appearance-ollama --save --save-json
 ```
 
-## Docker Compose
+## vLLM on x86-64 CPU
 
-The repository includes
-[`docker/compose.attributes.yaml`](https://github.com/mikel-brostrom/boxmot/blob/master/docker/compose.attributes.yaml)
-for PostgreSQL and CPU model servers. Install
-[Docker Compose](https://docs.docker.com/compose/install/), then run the commands
-below from the repository root. Keep BoxMOT in your host environment for webcam
-access and `--show` when using these server-only commands. To run BoxMOT in a
-container with Ollama or vLLM CPU, follow
-[Choose an attribute provider](../integrations/docker.md#choose-an-attribute-provider).
-The [full Docker Compose workflow](../integrations/docker.md#tracking-and-vllm-with-compose)
-also covers a Linux webcam preview with vLLM. For GPU detection, ReID, and VLM
-inference, add the [GPU Compose override](../integrations/docker.md#gpu-detection-reid-and-vlm-inference).
-Start PostgreSQL and one model backend by their service names. The commands
-below use the local development database defaults from
-[Configure PostgreSQL](#configure-postgresql).
-
-### vLLM on x86-64 CPU
-
-Stop any previously started server using host port `8001` before starting Compose:
+The [Helm deployment](../integrations/kubernetes.md) provides the tested CPU
+vLLM configuration, pinned serving image and model revision, persistent cache,
+and resource limits. Install it in Minikube or your Kubernetes environment.
+To use that model server from a host-side BoxMOT job, forward its service in a
+separate terminal (replace the release and namespace names if different):
 
 ```bash
-docker compose -f docker/compose.attributes.yaml up -d \
-  --wait --wait-timeout 1800 postgres vllm-cpu
-export BOXMOT_ATTRIBUTES_DATABASE_URL='postgresql://boxmot:boxmot-local@127.0.0.1:5432/boxmot'
+kubectl --namespace boxmot-helm port-forward service/boxmot-vllm 8001:8000
+```
+
+Complete [PostgreSQL setup](#configure-postgresql) for the host client, then run:
+
+```bash
+curl --fail http://127.0.0.1:8001/health
+curl --fail http://127.0.0.1:8001/v1/models
 boxmot track --source 0 --attributes person-appearance-vllm-cpu \
   --show --save --save-json
 ```
 
-This serves `Qwen/Qwen3.5-0.8B` at `http://127.0.0.1:8001`. The matching
+The default server serves `Qwen/Qwen3.5-0.8B`. Its matching
 `person-appearance-vllm-cpu` profile sends the first eligible crop immediately,
 limits its longest side to 640 pixels, and allows 600 seconds for a response.
 Single crops are sent without padding or upscaling into a storyboard. Attributes
-appear after the first analysis completes; the health check does not run image
-inference or guarantee that its first-request initialization has finished.
+appear after the first analysis completes; server health does not prove that
+first-request model compilation has finished.
 
-The Compose server limits its caches and reserves CPU cores for tracking. Keep
-enough available host RAM for both processes: sustained swapping can stretch
-inference into minutes. See [CPU resource use](../integrations/docker.md#cpu-resource-use)
-for the defaults and diagnostic commands.
+Keep sufficient CPU and RAM for model serving and tracking. The bundled server
+is shared by every configured camera and any host clients, so additional jobs
+increase its queue. See the [deployment validation record](https://github.com/mikel-brostrom/boxmot/blob/master/deploy/helm/VALIDATION.md)
+for measured inference times and test limits. CPU serving does not change the
+client's `--device` setting.
 
-The server stores its pinned model snapshot in a dedicated `vllm-models` named
-volume. It does not write into your personal Hugging Face cache. For existing
-downloads, see [prefilling the model cache](../integrations/docker.md#pinned-models-and-cache-ownership).
-
-### Ollama on CPU
-
-Use an available host port `11434`, start Ollama, and download its model before
-running BoxMOT:
+The chart owns its model-cache PVC and does not mount the host's personal
+Hugging Face cache. Inspect initialization through Kubernetes:
 
 ```bash
-docker compose -f docker/compose.attributes.yaml up -d --wait postgres ollama
-docker compose -f docker/compose.attributes.yaml exec ollama ollama pull qwen3.5:9b
-export BOXMOT_ATTRIBUTES_DATABASE_URL='postgresql://boxmot:boxmot-local@127.0.0.1:5432/boxmot'
-boxmot track --source 0 --attributes person-appearance-ollama --show --save --save-json
+kubectl --namespace boxmot-helm get pods
+kubectl --namespace boxmot-helm logs deployment/boxmot-vllm --tail=100
 ```
 
-Ollama stores models in the persistent `ollama-models` named volume. Its health
-check confirms that the server responds; the separate `pull` command makes the
-model available. This uses the 9B Ollama profile; choose a custom profile and
-pull its matching model if you need a smaller model.
-For a containerized client that verifies the full model digest before tracking,
-use the [Ollama Compose overlay](../integrations/docker.md#ollama).
-
-### Logs, settings, and shutdown
-
-Downloads and initialization can take several minutes. If `--wait` times out,
-the container continues running; inspect its status and startup log:
-
-```bash
-docker compose -f docker/compose.attributes.yaml ps -a
-docker compose -f docker/compose.attributes.yaml logs --tail 100 -f vllm-cpu
-```
-
-Use `ollama` or `postgres` instead of `vllm-cpu` for their logs. Environment variables
-`VLLM_PORT` and `OLLAMA_PORT` override the host ports. `VLLM_CPU_IMAGE` selects
-an alternative CPU image; `VLLM_MODEL_REVISION` selects its model snapshot.
-If you change the server's model or host port, use a custom attribute YAML with
-matching `model` and `host` values. When using `sudo`, pass these variables with
-`sudo env NAME=value docker ...`.
-
-Stop and remove the Compose containers with:
-
-```bash
-docker compose -f docker/compose.attributes.yaml --profile '*' down
-```
-
-This preserves the vLLM and Ollama model volumes and PostgreSQL data
-volume. `down -v` also deletes the local database and its retained attribute
-history, as well as both model caches.
+Use the [Ollama setup](#run-with-ollama) for a separately managed Ollama server.
+Model-server changes need matching `model` and `host` fields in a custom
+attribute profile. Keep image digests and model revisions with deployment
+values, and rerun real inference before promoting an update.
 
 ## Customize a profile
 

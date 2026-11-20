@@ -316,5 +316,5 @@ TLS, request-size limits, and rate limiting at the ingress or API gateway.
 
 Use the CLI image for materialization and evaluation. Keep datasets, builds,
 and models on host volumes so they persist between runs; the
-[Docker batch-job guide](../integrations/docker.md#reproducible-batch-jobs)
+[Docker batch-job guide](../integrations/docker.md#batch-materialization-and-evaluation)
 provides the mount paths and commands.

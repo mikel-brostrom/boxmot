@@ -5,6 +5,85 @@ Minikube installation, configuration upgrade, and recovery tests with both
 shared and chart-managed CPU vLLM. No chart or image was published, and no cloud
 deployment was performed.
 
+## Repository cleanup and chart 0.2.0 source validation
+
+The later repository review makes Helm the sole supported deployment path and
+adds live capture timestamps, independent maintenance commands, camera metrics,
+a moving-video capacity scenario, passive library logging, writable installed
+model caches, ReID command/configuration separation, and tested-image release
+promotion. Chart 0.2.0 needs a freshly built application image with these
+changes. The earlier live results below apply to chart 0.1.0 and its recorded
+image; they do not validate this new image or the capacity scenario.
+
+Focused source checks were run with Python 3.11 using
+`UV_CACHE_DIR=/tmp/boxmot-review-uv uv run --no-sync python -m pytest -q`:
+
+| Selection | Result |
+| --- | --- |
+| `tests/unit/configs/test_configs.py`, `tests/unit/reid/training/test_reid_training_components.py`, `test_reid_training.py`, `test_reid_hpgrd_integration.py`, `tests/unit/test_architecture_v24.py` | 454 passed and 3 skipped initially; one extracted constant import was fixed, then its failed saved-hparams test passed |
+| `tests/unit/reid/training/test_config_boundary.py` | 1 passed; fresh interpreter imports training settings without engine modules |
+| `tests/unit/resources/test_paths.py`, `tests/unit/utils/test_logging.py`, `tests/unit/engine/test_ui_logging.py`, `tests/unit/reid/exporters/test_preparation.py`, `tests/unit/reid/core/test_runtime_devices.py`, `tests/unit/configs/test_configs.py`, `tests/unit/engine/reid/test_reid_export.py`, `tests/unit/engine/eval/test_eagermot_parallel.py` | 70 passed; EagerMot parallel module skipped because `pycocotools.mask` is unavailable |
+| `tests/unit/segmentors/test_mask_propagation_factory.py`, `test_edgetam_weights.py`, `tests/unit/reid/test_factory.py`, `tests/unit/engine/test_eval_mask_guidance_cli.py` | 100 initially passed; 51 stale monkeypatch references were corrected and the failed selection passed with `--lf` |
+| `tests/unit/engine/streaming/test_capture.py`, `test_timestamps.py`, `test_health_config.py`, `test_outputs.py`, `test_helm_configs.py`, `test_runtime.py`, `tests/unit/attributes/test_streams.py`, `tests/unit/engine/test_sources_v24.py` | 89 passed across two runs; socket/DB checks retried with local network access against disposable PostgreSQL |
+| `tests/unit/test_helm_capacity.py`, `tests/unit/test_helm_streaming_harness.py` | 22 passed across runs, including real loopback MJPEG and backpressure tests; loopback required sandbox escalation |
+| `tests/unit/docs`, `tests/unit/test_deployment_release.py` | 63 passed before the final explicit recovery-evidence guard |
+
+Release and workflow checks also passed:
+
+```bash
+uv run --no-sync python -m pytest -q \
+  tests/unit/test_release_version.py tests/unit/test_publish_workflow.py \
+  tests/unit/test_deployment_release.py tests/unit/test_ci_release_guards.py
+```
+
+This final selection passed 73 tests. Earlier Docker artifact contracts passed
+21 checks, and the boundary-job selection plus related Docker checks passed
+286. Required-PostgreSQL spool checks passed six tests against a disposable
+database. An isolated Python 3.10 archive round trip passed; Python 3.13 is
+covered by the new CI job rather than this local environment. Image archives
+were not published to a registry during validation.
+
+The targeted reruns above replaced failed checks after their fixes; they are
+not claims that an interrupted or initially failing suite passed in full.
+Three ReID tests for the absent `vit_tiny` backbones and the unavailable
+EagerMot dependency remain skips.
+No full regression suite was run for the review cleanup.
+
+Helm strict lint/render checks load generated camera YAML with the actual
+`StreamConfig`, tracker-argument normalization and attribute profile loader:
+
+```bash
+PATH=/tmp/boxmot-helm-3.19.2/linux-amd64:$PATH \
+UV_CACHE_DIR=/tmp/boxmot-review-uv uv run --no-sync python -m tests.ci.helm_contract
+```
+
+The four-camera moving fixture was prepared and rendered without cluster access:
+
+```bash
+PATH=/tmp/boxmot-helm-3.19.2/linux-amd64:$PATH \
+UV_CACHE_DIR=/tmp/boxmot-review-uv uv run --no-sync python -m tests.e2e.helm_capacity \
+  --context unused \
+  --image boxmot/boxmot@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+  --cameras 4 --prepare-only --output /tmp/boxmot-capacity-prepare-20261120
+```
+
+That synthetic digest was used only for rendering, never deployment. Generated
+frames remain under `/tmp`, outside the repository. The new harness still
+requires a live run with a newly built digest before reporting capacity.
+
+CLI help checks passed for `track`, `train-reid`, `stream-db maintain`, and
+`stream-outputs maintain`. Changed Python code passed undefined-name checks;
+new modules and workflow tooling passed Ruff. Workflow YAML passed actionlint.
+The first strict documentation build found an obsolete Docker batch-job anchor;
+that link was corrected and `uv run --no-sync python -m mkdocs build --strict`
+then passed in 71.82 seconds.
+
+No live Minikube resources were changed during this cleanup. GPU execution,
+Prometheus Operator scraping/alert evaluation, hosted Docker publication,
+Python 3.13 execution, cloud storage/identity, and representative 24-hour soak
+remain CI or target-hardware validation. The temporary PostgreSQL test container
+and its data were removed after validation.
+
 ## Bundled CPU test
 
 A second test used the chart's own CPU vLLM and PostgreSQL Deployments in
