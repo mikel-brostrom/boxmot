@@ -53,7 +53,8 @@ cached embeddings; the live API's image-to-ReID fallback does not run during rep
 
 The nine Python box trackers can additionally run EdgeTAM mask propagation
 during replay with `--edgetam`. Guidance is off by default; the flag resolves
-the default `edgetam.pt` checkpoint into `./models`. Select another checkpoint
+the default `edgetam.pt` checkpoint into the
+[model cache](../python/index.md#model-files-and-logging). Select another checkpoint
 with `--mask-guidance-weights`. Weights alone do not enable guidance, and
 `--no-edgetam` disables it even when a path is supplied. The
 [temporal mask guide](../tasks/masks.md#use-temporal-masks-in-association)

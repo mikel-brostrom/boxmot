@@ -13,6 +13,7 @@ from click.testing import CliRunner
 
 from boxmot.engine.cli import boxmot
 from boxmot.engine.commands.reid import train as train_command
+from boxmot.engine.config.reid_presets import load_training_recipe
 from boxmot.reid.backbones.families.csl_tinyvit.deployment import (
     FoldedBNNeck,
     optimize_csl_tinyvit_for_inference,
@@ -26,7 +27,6 @@ from boxmot.reid.backbones.mobilenetv4 import (
 )
 from boxmot.reid.core.registry import ReIDModelRegistry
 from boxmot.reid.exporters.backends.base import as_inference_export_model
-from boxmot.reid.training.presets import load_training_recipe
 from boxmot.reid.training.trainer import ReIDTrainer
 
 

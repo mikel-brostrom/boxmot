@@ -7,8 +7,8 @@ from click.testing import CliRunner
 
 from boxmot.engine.cli import boxmot
 from boxmot.engine.commands.reid import train as train_command
+from boxmot.engine.config.reid_presets import load_training_recipe
 from boxmot.reid.backbones.families.csl_tinyvit import csl_tinyvit_23m
-from boxmot.reid.training.presets import load_training_recipe
 
 
 def _model(*, anatomical_auxiliary: bool):

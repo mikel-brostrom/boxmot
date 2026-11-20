@@ -17,7 +17,7 @@ from boxmot.reid.backbones.anatomical_registry import (
 from boxmot.reid.backbones.families.csl_tinyvit.multilevel_suppression import (
     MULTILEVEL_SUPPRESSION_IMPLEMENTATION_VERSION,
 )
-from boxmot.reid.training.config import load_train_hparams
+from boxmot.reid.training.hparams import load_train_hparams
 from boxmot.reid.training.losses import (
     CenterLoss,
 )

@@ -10,7 +10,6 @@ from typing import Any, Mapping
 import yaml
 
 from boxmot.resources.paths import resolve_model_path
-from boxmot.utils import WEIGHTS
 
 EXPORT_DEFAULTS_PATH = Path(__file__).resolve().parent / "defaults.yaml"
 
@@ -91,7 +90,7 @@ def load_export_defaults() -> ExportModeDefaults:
     return ExportModeDefaults.from_mapping(payload)
 
 
-def resolve_export_weights(weights: str | Path, default_dir: Path = WEIGHTS) -> Path:
+def resolve_export_weights(weights: str | Path, default_dir: Path | None = None) -> Path:
     """Resolve a ReID export checkpoint while preserving explicit paths."""
 
     path = Path(weights)

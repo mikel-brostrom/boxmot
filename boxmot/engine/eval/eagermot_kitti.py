@@ -538,10 +538,10 @@ def _replay_kitti_sequence(
 
 def _initialize_kitti_worker(progress_queue: Any | None, log_level: int, logs_disabled: bool) -> None:
     """Use one CPU thread per child and let the parent own logging and progress."""
-    from boxmot.utils import configure_logging
+    from boxmot.engine.ui.logging import configure_engine_logging
 
     _initialize_replay_worker(progress_queue)
-    configure_logging(main_only=False)
+    configure_engine_logging(main_only=False)
     LOGGER.setLevel(log_level)
     LOGGER.disabled = logs_disabled
     torch.set_num_threads(1)

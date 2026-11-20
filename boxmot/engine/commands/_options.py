@@ -571,7 +571,7 @@ def mask_guidance_weights_option(func: Callable) -> Callable:
         default=None,
         help=(
             "Checkpoint or exported TFLite bundle directory used with --edgetam. "
-            "Selecting weights alone does not enable guidance; edgetam.pt downloads into ./models. "
+            "Selecting weights alone does not enable guidance; edgetam.pt uses the default model cache. "
             "TFLite guidance runs on CPU. Python AABB box trackers with IoU only."
         ),
     )(func)

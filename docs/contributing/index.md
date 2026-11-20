@@ -49,8 +49,14 @@ generic `misc` module.
 The engine root contains `cli.py` and its package initializer. Shared workflow
 configuration lives in `boxmot/engine/config/`: `runtime.py` owns mode defaults
 and argument normalization, `experiments.py` resolves authored experiments,
-and `trackers.py` applies workflow-specific tracker overrides. Import directly
-from these modules; the configuration namespace stays lightweight.
+and `trackers.py` applies workflow-specific tracker overrides. ReID command
+argument mapping belongs in `reid.py`; recipe/default/override precedence lives
+in `reid_presets.py`. Import directly from these modules; the configuration
+namespace stays lightweight.
+
+Reusable ReID training settings remain under `boxmot/reid/training/config.py`.
+Saved hyperparameter loading and normalization live in `training/hparams.py`.
+These domain modules do not import command or engine configuration adapters.
 
 Dataset acquisition belongs in `engine/materialization/resources.py` beside
 catalog and build orchestration. Capture timestamps belong in

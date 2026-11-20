@@ -8,6 +8,7 @@ import pytest
 import torch
 from torch import nn
 
+from boxmot.engine.config.reid_presets import load_training_recipe
 from boxmot.reid.backbones import build_backbone, get_backbone_spec
 from boxmot.reid.backbones.hi_afa import (
     DropBlock2d,
@@ -19,7 +20,6 @@ from boxmot.reid.backbones.hi_afa import (
 from boxmot.reid.core.registry import ReIDModelRegistry
 from boxmot.reid.exporters.model_setup import default_export_img_size
 from boxmot.reid.training.losses import MultiSimilarityLoss
-from boxmot.reid.training.presets import load_training_recipe
 from boxmot.reid.training.trainer import ModelBundle, ReIDTrainer
 
 

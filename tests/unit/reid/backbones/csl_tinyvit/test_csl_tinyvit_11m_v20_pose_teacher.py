@@ -7,13 +7,14 @@ from click.testing import CliRunner
 
 from boxmot.engine.cli import boxmot
 from boxmot.engine.commands.reid import train as train_command
+from boxmot.engine.config.reid import trainer_kwargs_from_args
+from boxmot.engine.config.reid_presets import build_training_namespace, load_training_recipe
 from boxmot.reid.backbones.families.csl_tinyvit.deployment import (
     optimize_csl_tinyvit_for_inference,
 )
 from boxmot.reid.core.registry import ReIDModelRegistry
-from boxmot.reid.training.config import ReIDTrainConfig, trainer_kwargs_from_args
+from boxmot.reid.training.config import ReIDTrainConfig
 from boxmot.reid.training.model_options import build_reid_model_kwargs
-from boxmot.reid.training.presets import build_training_namespace, load_training_recipe
 from boxmot.reid.training.trainer import ReIDTrainer
 
 RECIPE_NAME = "csl_tinyvit_11m_v20_pose_teacher"

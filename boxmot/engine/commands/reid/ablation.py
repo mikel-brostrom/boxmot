@@ -20,10 +20,11 @@ def resolve_ablation_spec(arguments: Sequence[str]) -> AblationSpec:
 
     from boxmot.engine.commands._support import _explicit_cli_keys
     from boxmot.engine.commands.reid.train import train_reid
+    from boxmot.engine.config.reid import trainer_kwargs_from_args
+    from boxmot.engine.config.reid_presets import build_training_namespace
     from boxmot.reid.datasets.resolution import resolve_reid_train_data
     from boxmot.reid.training.ablation_runs import build_ablation_spec
-    from boxmot.reid.training.config import ReIDTrainConfig, trainer_kwargs_from_args
-    from boxmot.reid.training.presets import build_training_namespace
+    from boxmot.reid.training.config import ReIDTrainConfig
 
     context = train_reid.make_context("train-reid", _strip_remainder_separator(arguments))
     namespace = build_training_namespace(

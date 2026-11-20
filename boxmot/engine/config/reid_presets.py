@@ -1,4 +1,4 @@
-"""Promoted model-to-recipe selections for ReID training."""
+"""Resolve ReID command defaults, recipes, config files, and explicit overrides."""
 
 from __future__ import annotations
 
@@ -7,11 +7,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Iterable, Mapping
 
-from boxmot.reid.training.config import ReIDTrainConfig, train_hparams_to_args
+from boxmot.engine.config.reid import train_hparams_to_args
+from boxmot.reid import training
+from boxmot.reid.training.config import ReIDTrainConfig
 from boxmot.utils.config import load_yaml_mapping
 
-TRAIN_DEFAULTS_PATH = Path(__file__).resolve().parent / "configs" / "defaults.yaml"
-TRAINING_RECIPES_DIR = Path(__file__).resolve().parent / "configs" / "recipes"
+TRAIN_DEFAULTS_PATH = Path(training.__file__).resolve().parent / "configs" / "defaults.yaml"
+TRAINING_RECIPES_DIR = Path(training.__file__).resolve().parent / "configs" / "recipes"
 
 _FIELD_ALIASES = {
     "dataset_name": "dataset",

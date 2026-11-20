@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from boxmot.datasets.config import ConfigurationError, dataset_modalities, load_dataset_config
+from boxmot.engine.config.reid_presets import build_training_namespace, load_training_recipe
 from boxmot.engine.config.runtime import (
     BOXMOT_DEFAULTS,
     DEFAULT_DETECTOR,
@@ -17,7 +18,6 @@ from boxmot.reid.exporters.config import (
     load_export_defaults,
     resolve_export_weights,
 )
-from boxmot.reid.training.presets import build_training_namespace, load_training_recipe
 from boxmot.utils import WEIGHTS
 
 
