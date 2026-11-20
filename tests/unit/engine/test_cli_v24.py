@@ -14,6 +14,7 @@ from boxmot.engine.config.experiments import EXPERIMENT_CONFIGS_DIR, resolve_exp
 EXPECTED_COMMAND_ORDER = (
     "stream",
     "stream-db",
+    "stream-outputs",
     "ui",
     "track",
     "materialize",
