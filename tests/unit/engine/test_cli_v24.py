@@ -12,6 +12,9 @@ from boxmot.engine.cli import boxmot
 from boxmot.engine.config.experiments import EXPERIMENT_CONFIGS_DIR, resolve_experiment_path
 
 EXPECTED_COMMAND_ORDER = (
+    "stream",
+    "stream-db",
+    "stream-outputs",
     "ui",
     "track",
     "materialize",
@@ -55,6 +58,19 @@ def test_track_defaults_to_detector_geometry(monkeypatch: pytest.MonkeyPatch, de
     assert result.exit_code == 0, result.output
     assert captured["args"].geometry == "auto"
     assert BOXMOT_DEFAULTS.track.geometry == build_mode_namespace("track", {}).geometry == "auto"
+
+
+@pytest.mark.parametrize("overwrite", [False, True])
+def test_track_output_reuse_requires_explicit_option(monkeypatch: pytest.MonkeyPatch, overwrite: bool) -> None:
+    """Preservation is the default and explicit reuse reaches the tracking workflow."""
+    from boxmot.engine.commands import _support
+
+    captured = {}
+    monkeypatch.setattr(_support, "_run_engine_workflow", lambda module, args: captured.setdefault("args", args))
+    result = CliRunner().invoke(boxmot, ["track", *(["--exist-ok"] if overwrite else [])])
+
+    assert result.exit_code == 0, result.output
+    assert captured["args"].exist_ok is overwrite
 
 
 def test_v24_command_set_is_exact() -> None:

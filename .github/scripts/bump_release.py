@@ -11,7 +11,8 @@ from pathlib import Path
 
 import tomllib
 
-VERSION_FILES = frozenset({"pyproject.toml", "boxmot/__init__.py", "uv.lock"})
+CHART_METADATA = "deploy/helm/boxmot/Chart.yaml"
+VERSION_FILES = frozenset({"pyproject.toml", "boxmot/__init__.py", "uv.lock", CHART_METADATA})
 BUMP_TYPES = ("major", "minor", "patch")
 _STABLE_VERSION = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 
@@ -48,8 +49,24 @@ def _version_assignment(source: str) -> ast.Constant:
     return assignment.value
 
 
-def _versions(root: Path) -> tuple[str, str, str]:
-    """Read the project, runtime, and local editable lock-record versions."""
+def _chart_app_version(source: str) -> tuple[re.Match[str], str]:
+    """Read one literal appVersion without adding YAML dependencies to release prep."""
+    assignments = list(
+        re.finditer(
+            r"""(?m)^appVersion:[ \t]*(?P<value>"[^"\r\n]*"|'[^'\r\n]*'|[^#\r\n]+?)[ \t]*(?:#[^\r\n]*)?$""",
+            source,
+        )
+    )
+    if len(assignments) != 1 or len(re.findall(r"(?m)^appVersion[ \t]*:", source)) != 1:
+        raise ValueError("Chart.yaml must contain exactly one literal appVersion assignment.")
+    value = assignments[0]["value"].strip()
+    if value.startswith(('"', "'")):
+        value = value[1:-1]
+    return assignments[0], value
+
+
+def _versions(root: Path) -> tuple[str, str, str, str]:
+    """Read synchronized project, runtime, lock-record, and chart app versions."""
     project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]
     if project.get("name") != "boxmot":
         raise ValueError("The release project must be named boxmot.")
@@ -58,17 +75,18 @@ def _versions(root: Path) -> tuple[str, str, str]:
     packages = [package for package in lock.get("package", []) if package.get("name") == "boxmot"]
     if len(packages) != 1 or packages[0].get("source") != {"editable": "."}:
         raise ValueError("uv.lock must contain exactly one local editable boxmot package.")
-    versions = (project.get("version"), runtime, packages[0].get("version"))
-    for name, version in zip(("project", "runtime", "lock"), versions, strict=True):
+    chart_app = _chart_app_version((root / CHART_METADATA).read_text(encoding="utf-8"))[1]
+    versions = (project.get("version"), runtime, packages[0].get("version"), chart_app)
+    for name, version in zip(("project", "runtime", "lock", "chart app"), versions, strict=True):
         if not isinstance(version, str) or _STABLE_VERSION.fullmatch(version) is None:
             raise ValueError(f"The {name} version must use stable major.minor.patch format, got {version!r}.")
     if len(set(versions)) != 1:
-        raise ValueError(f"Project, runtime, and lock versions must agree, got {versions!r}.")
+        raise ValueError(f"Project, runtime, lock, and chart app versions must agree, got {versions!r}.")
     return versions
 
 
 def bump_release(root: Path, bump_type: str) -> tuple[str, str]:
-    """Bump a clean candidate checkout and validate its three version-bearing files."""
+    """Bump a clean candidate checkout and validate its application version metadata."""
     root = Path(root).resolve()
     if bump_type not in BUMP_TYPES:
         raise ValueError(f"Unknown release bump {bump_type!r}; expected one of {BUMP_TYPES!r}.")
@@ -91,6 +109,12 @@ def bump_release(root: Path, bump_type: str) -> tuple[str, str]:
     start = sum(map(len, lines[: value.lineno - 1])) + value.col_offset
     end = sum(map(len, lines[: value.end_lineno - 1])) + value.end_col_offset
     path.write_bytes(source[:start] + f'"{new_version}"'.encode("utf-8") + source[end:])
+
+    chart = root / CHART_METADATA
+    chart_source = chart.read_text(encoding="utf-8")
+    assignment, _old_app_version = _chart_app_version(chart_source)
+    start, end = assignment.span("value")
+    chart.write_text(chart_source[:start] + f'"{new_version}"' + chart_source[end:], encoding="utf-8")
 
     actual_version = _versions(root)[0]
     if actual_version != new_version:

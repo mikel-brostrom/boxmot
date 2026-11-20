@@ -83,8 +83,10 @@ PyTorch extra and mask-guidance group on later syncs. The group pins
 [facebookresearch/EdgeTAM](https://github.com/facebookresearch/EdgeTAM/tree/7711e012a30a2402c4eaab637bdb00a521302c91)
 and downloads its source archive, avoiding a Git clone and repository history.
 `--edgetam` enables guidance using the default `edgetam.pt` checkpoint. It
-downloads the official full checkpoint into `./models/edgetam.pt`, verifies
-its published SHA-256, and reuses it thereafter. Use
+downloads the official full checkpoint into the
+[model cache](../python/index.md#model-files-and-logging), verifies its published
+SHA-256, and reuses it thereafter. In a source checkout the path is
+`./models/edgetam.pt`. Use
 `--mask-guidance-weights` to select a different checkpoint.
 An explicit existing checkpoint path is also accepted. The complete checkpoint
 provides backbone weights, so a separate pretrained RepViT download is unnecessary.

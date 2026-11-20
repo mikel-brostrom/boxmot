@@ -1,0 +1,54 @@
+{{- if .Values.monitoring.rules.enabled }}
+{{- $selector := printf "namespace=%q,boxmot_release=%q" .Release.Namespace .Release.Name }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "boxmot.fullname" . }}-cameras
+  labels:
+    {{- include "boxmot.labels" (dict "root" . "component" "monitoring") | nindent 4 }}
+    {{- with .Values.monitoring.rules.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: {{ include "boxmot.fullname" . }}.cameras
+      rules:
+        - alert: BoxmotCameraUnavailable
+          expr: boxmot_stream_ready{ {{- $selector -}} } == 0
+          for: {{ .Values.monitoring.rules.for }}
+          labels: {severity: warning}
+          annotations:
+            summary: 'Camera {{ "{{ $labels.camera }}" }} is not ready'
+            description: Check the camera route and credentials, worker logs, and PostgreSQL ownership before restarting the worker.
+        - alert: BoxmotCameraScrapeFailed
+          expr: up{ {{- $selector -}} } == 0
+          for: {{ .Values.monitoring.rules.for }}
+          labels: {severity: warning}
+          annotations:
+            summary: 'Camera {{ "{{ $labels.camera }}" }} metrics are unreachable'
+            description: Check worker pod status, the health port, and monitoring network access.
+        - alert: BoxmotAttributeBacklogOld
+          expr: boxmot_stream_oldest_batch_age_seconds{ {{- $selector -}} } > {{ .Values.monitoring.rules.maxBacklogAgeSeconds }}
+          for: {{ .Values.monitoring.rules.for }}
+          labels: {severity: warning}
+          annotations:
+            summary: 'Camera {{ "{{ $labels.camera }}" }} attribute backlog is aging'
+            description: Check vLLM availability and latency, then reduce attribute sampling or add model-serving capacity.
+        - alert: BoxmotCameraFrameDropsHigh
+          expr: >-
+            rate(boxmot_stream_dropped_frames_total{ {{- $selector -}} }[5m])
+            / clamp_min(rate(boxmot_stream_dropped_frames_total{ {{- $selector -}} }[5m])
+            + rate(boxmot_stream_frames_total{ {{- $selector -}} }[5m]), 0.001)
+            > {{ .Values.monitoring.rules.maxDroppedFrameRatio }}
+          for: {{ .Values.monitoring.rules.for }}
+          labels: {severity: warning}
+          annotations:
+            summary: 'Camera {{ "{{ $labels.camera }}" }} drops many decoded frames'
+            description: Compare worker CPU/GPU limits and processing time with camera FPS; reduce resolution or FPS or increase worker capacity.
+        - alert: BoxmotAttributeFailures
+          expr: increase(boxmot_stream_attribute_events_exported_total{ {{- $selector -}},status="failed"}[10m]) > 0
+          labels: {severity: warning}
+          annotations:
+            summary: 'Camera {{ "{{ $labels.camera }}" }} exported failed attribute outcomes'
+            description: Inspect attribute event errors and model-server logs; recovered outcomes may refer to an earlier session.
+{{- end }}

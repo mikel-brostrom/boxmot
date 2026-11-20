@@ -181,6 +181,7 @@ nav:
   - Integrations:
       - Overview: integrations/index.md
       - Docker: integrations/docker.md
+      - Continuous Cameras on Kubernetes: integrations/kubernetes.md
       - Tracker Service: guides/deployment.md
       - Native C++: native/index.md
   - Reference:

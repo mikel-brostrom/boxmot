@@ -3,6 +3,8 @@
 .venv
 .cache/
 .cmake/
+.env
+.env.*
 
 **/__pycache__/
 **/*.py[cod]
@@ -33,3 +35,20 @@ Duke*/
 Market-1501*/
 datasets/
 data/
+
+# Native outputs come only from the native-cli-builder stage, never the host.
+boxmot/native/cpp/**/*.so
+boxmot/native/cpp/**/*.dylib
+boxmot/native/cpp/**/*.dll
+boxmot/native/cpp/**/*.pyd
+boxmot/native/cpp/**/*.a
+boxmot/native/cpp/**/*_replay
+boxmot/native/cpp/**/*_replay.exe
+**/CMakeCache.txt
+**/CMakeFiles/
+**/cmake_install.cmake
+**/CMakeInit.txt
+**/.ninja_deps
+**/.ninja_log
+**/build.ninja
+.skbuild-info.json

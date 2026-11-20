@@ -85,9 +85,11 @@ For a file or directory source, request an output explicitly:
 | `--save-txt` | `tracks.txt`, AABB MOT-style rows. OBB output is rejected. |
 | `--save-json` | `tracks.jsonl`, one object per frame with sample/sequence identity, timestamp, and track geometry, IDs, scores, classes, and detection indices. |
 
-The default directory is `runs/exp`. Live tracking reuses this directory and
-replaces selected output files; choose a distinct `--project` to retain an
-earlier run. The live CLI does not expose a `--name` option. `--fps` changes
+The first output directory is `runs/exp`. Later runs reserve `exp2`, `exp3`,
+and so on, keeping each run's video, tracks, and attributes together. Use
+`--exist-ok` to deliberately reuse `runs/exp` and overwrite selected outputs.
+`--project` changes the parent directory; the live CLI does not expose a
+`--name` option. `--fps` changes
 saved-video playback speed without changing input frames
 or tracker timestamps. JSON Lines supports AABB and OBB geometry, including
 frames with no tracks, but does not serialize mask arrays or embeddings.

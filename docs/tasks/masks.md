@@ -177,7 +177,8 @@ Replace `BUILD_ID` with a build materialized from that experiment. Its source
 images must remain available because temporal guidance needs current pixels.
 
 Guidance is off by default in `track`, `eval`, and `tune`. `--edgetam` uses the
-default `edgetam.pt` checkpoint, resolved into `./models`; use
+default `edgetam.pt` checkpoint, resolved into the
+[model cache](../python/index.md#model-files-and-logging); use
 `--mask-guidance-weights PATH` to select another checkpoint. Checkpoint and cap
 options alone do not enable guidance. `--no-edgetam` keeps it disabled even when a
 checkpoint path is supplied.

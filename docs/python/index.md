@@ -15,6 +15,26 @@ For complete workflows with sources, saved outputs, and benchmark runs, use the
 workflows with keyword arguments and apply defaults internally. The examples
 below show how to compose individual components in your application.
 
+## Model files and logging
+
+Bare model filenames first resolve existing files in the working directory.
+Otherwise, a source checkout uses its `models/` directory; an installed package
+uses the platform's per-user BoxMOT cache, such as
+`~/.cache/boxmot/models/` on Linux. Explicit absolute paths and relative paths
+with a directory component are preserved. Path resolution creates no folders;
+downloads create their destination when needed.
+
+Library imports preserve your application's logging configuration. Configure
+the `boxmot` logger or the root logger to receive diagnostic messages:
+
+```python
+import logging
+
+logging.basicConfig(level=logging.INFO)
+```
+
+The `boxmot` command configures its own Rich terminal output when invoked.
+
 ## Canonical values
 
 Component boundaries use CPU-contiguous Torch tensors. Constructors validate

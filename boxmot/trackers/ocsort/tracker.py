@@ -1,4 +1,5 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
+# Full license text: https://github.com/mikel-brostrom/boxmot/blob/master/LICENSE
 
 """
 This script is adopted from the SORT script by Alex Bewley alex@bewley.ai

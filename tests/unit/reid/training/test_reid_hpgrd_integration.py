@@ -4,12 +4,13 @@ import pytest
 import torch
 from PIL import Image
 
+from boxmot.engine.config.reid import trainer_kwargs_from_args
+from boxmot.engine.config.reid_presets import build_training_namespace
 from boxmot.reid.datasets.base import ReIDSample
 from boxmot.reid.datasets.torch_dataset import ReIDImageDataset
 from boxmot.reid.training.checkpoint import CheckpointManager, _is_train_only_model_key
-from boxmot.reid.training.config import ReIDTrainConfig, trainer_kwargs_from_args
+from boxmot.reid.training.config import ReIDTrainConfig
 from boxmot.reid.training.losses import CenterLoss
-from boxmot.reid.training.presets import build_training_namespace
 from boxmot.reid.training.trainer import ReIDTrainer
 from boxmot.reid.training.trainer_components.global_ap import IdentityGlobalAP
 from boxmot.reid.training.trainer_components.hpgrd_integration import (

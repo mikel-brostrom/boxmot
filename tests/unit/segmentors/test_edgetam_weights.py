@@ -16,7 +16,7 @@ def model_directory(tmp_path, monkeypatch):
     """Isolate model discovery from the repository's real weights."""
     monkeypatch.chdir(tmp_path)
     directory = tmp_path / "models"
-    monkeypatch.setattr(paths, "_default_weights_directory", lambda: directory)
+    monkeypatch.setattr(paths, "default_weights_directory", lambda: directory)
     return directory
 
 

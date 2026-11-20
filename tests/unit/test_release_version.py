@@ -63,6 +63,9 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     (root / "boxmot/__init__.py").write_text(
         '"""Fixture package."""\n__version__ = "1.2.3"\nUNCHANGED = "1.2.3"\n', encoding="utf-8"
     )
+    chart = root / release_version.CHART_METADATA
+    chart.parent.mkdir(parents=True)
+    chart.write_text('apiVersion: v2\nname: boxmot\nversion: 0.2.0\nappVersion: "1.2.3"\n', encoding="utf-8")
     (root / "README.md").write_text("Release fixture.\n", encoding="utf-8")
     _run(root, "uv", "lock")
     _run(root, "git", "init")
@@ -85,6 +88,9 @@ def test_bumps_project_runtime_and_lock_without_syncing(project: Path, kind: str
     assert (project / "boxmot/__init__.py").read_text(encoding="utf-8") == before.replace(
         '__version__ = "1.2.3"', f'__version__ = "{expected}"'
     )
+    assert (project / release_version.CHART_METADATA).read_text() == (
+        f'apiVersion: v2\nname: boxmot\nversion: 0.2.0\nappVersion: "{expected}"\n'
+    )
     assert set(_run(project, "git", "diff", "--name-only").stdout.splitlines()) == release_version.VERSION_FILES
 
 
@@ -100,7 +106,7 @@ def test_replaces_only_ast_value_with_unicode_and_inline_comment(project: Path) 
     )
 
 
-@pytest.mark.parametrize("filename", ("pyproject.toml", "boxmot/__init__.py", "uv.lock"))
+@pytest.mark.parametrize("filename", sorted(release_version.VERSION_FILES))
 def test_rejects_disagreeing_versions_before_running_uv(project: Path, filename: str) -> None:
     path = project / filename
     path.write_text(path.read_text(encoding="utf-8").replace('"1.2.3"', '"1.2.2"'), encoding="utf-8")
@@ -199,3 +205,17 @@ def test_cli_emits_versions_for_github_actions(project: Path, tmp_path: Path) ->
     )
     assert output.read_text(encoding="utf-8") == "old_version=1.2.3\nversion=1.3.0\n"
     assert "Prepared BoxMOT 1.2.3 -> 1.3.0" in result.stdout
+
+
+@pytest.mark.parametrize("source", ['appVersion: "1.2.3"\nappVersion:\n', "version: 0.2.0\n"])
+def test_chart_application_version_requires_one_unambiguous_literal(source: str) -> None:
+    with pytest.raises(ValueError, match="exactly one literal appVersion"):
+        release_version._chart_app_version(source)
+
+
+def test_chart_application_version_preserves_comments_and_independent_version(project: Path) -> None:
+    chart = project / release_version.CHART_METADATA
+    chart.write_text('version: 0.2.0\nappVersion: "1.2.3"  # validated runtime\n')
+    _commit(project)
+    release_version.bump_release(project, "patch")
+    assert chart.read_text() == 'version: 0.2.0\nappVersion: "1.2.4"  # validated runtime\n'

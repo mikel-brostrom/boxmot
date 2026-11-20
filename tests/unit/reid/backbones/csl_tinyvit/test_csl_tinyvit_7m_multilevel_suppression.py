@@ -11,8 +11,9 @@ from click.testing import CliRunner
 
 from boxmot.engine.cli import boxmot
 from boxmot.engine.commands.reid import train as train_command
-from boxmot.reid.training.config import ReIDTrainConfig, trainer_kwargs_from_args
-from boxmot.reid.training.presets import TRAINING_RECIPES_DIR, list_training_recipes, load_training_recipe
+from boxmot.engine.config.reid import trainer_kwargs_from_args
+from boxmot.engine.config.reid_presets import TRAINING_RECIPES_DIR, list_training_recipes, load_training_recipe
+from boxmot.reid.training.config import ReIDTrainConfig
 
 RECIPE_NAME = "csl_tinyvit_7m_multilevel_suppression"
 

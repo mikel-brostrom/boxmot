@@ -64,7 +64,7 @@ def test_unresolved_checkpoint_keeps_device_without_loading_tflite(
     """Tuning may choose a device before official weights have been downloaded."""
     monkeypatch.chdir(tmp_path)
     model_directory = tmp_path / "models"
-    monkeypatch.setattr(paths, "_default_weights_directory", lambda: model_directory)
+    monkeypatch.setattr(paths, "default_weights_directory", lambda: model_directory)
 
     assert factory_without_tflite.mask_propagation_device("edgetam.pt", "mps") == "mps"
     assert not model_directory.exists()
@@ -82,7 +82,7 @@ def test_bundle_directory_selects_cpu_without_importing_exporter(
 
     monkeypatch.chdir(tmp_path)
     model_directory = tmp_path / "models"
-    monkeypatch.setattr(paths, "_default_weights_directory", lambda: model_directory)
+    monkeypatch.setattr(paths, "default_weights_directory", lambda: model_directory)
     bundle = model_directory / "bundle"
     bundle.mkdir(parents=True)
     checkpoint = bundle if authored == "absolute" else Path(authored)

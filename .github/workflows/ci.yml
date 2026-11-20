@@ -705,6 +705,34 @@ jobs:
           # profile-selected lockfile and pulling CUDA wheels back in.
           .venv/bin/python -m pytest -p no:cacheprovider -q -s --durations=5 tests/ci/python_api_smoke.py
 
+  python_contracts:
+    name: Python ${{ matrix.python-version }} contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.13']
+    env:
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-ci-python
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install CPU contract dependencies
+        run: uv sync --locked --no-default-groups --extra cpu --group test
+      - name: Check public structures, tracker configuration, and CLI imports
+        run: |
+          uv run --no-sync python -m pytest -q \
+            tests/unit/structures \
+            tests/unit/trackers/test_algorithm_configs.py \
+            tests/unit/trackers/test_tracker_registry.py \
+            tests/unit/test_release_typing.py
+          uv run --no-sync python -m boxmot.engine.cli track --help
+
   tests:
     runs-on: ubuntu-latest
     services:
@@ -735,6 +763,7 @@ jobs:
       # Python 3.12 line coverage can use the lower-overhead monitoring core.
       COVERAGE_CORE: sysmon
       BOXMOT_TEST_POSTGRES_URL: postgresql://boxmot:boxmot@localhost:5432/boxmot_test
+      BOXMOT_REQUIRE_POSTGRES_TESTS: "1"
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -848,6 +877,7 @@ jobs:
       - tune
       - export
       - python_api
+      - python_contracts
       - tests
       - pose
       - seg
@@ -868,6 +898,7 @@ jobs:
             "tune=${{ needs.tune.result }}"
             "export=${{ needs.export.result }}"
             "python_api=${{ needs.python_api.result }}"
+            "python_contracts=${{ needs.python_contracts.result }}"
             "tests=${{ needs.tests.result }}"
             "pose=${{ needs.pose.result }}"
             "seg=${{ needs.seg.result }}"

@@ -168,6 +168,7 @@ class RuntimeProfiler:
     def __init__(self, *, clock: Callable[[], float] = time.perf_counter) -> None:
         self._clock = clock
         self._samples: dict[str, _SampleProfile] = {}
+        self._released_totals: dict[str, float] = {key: 0.0 for key in RUNTIME_STAGE_KEYS}
         self._active_sample_ids: ContextVar[tuple[str, ...]] = ContextVar(
             f"boxmot_runtime_samples_{id(self)}",
             default=(),
@@ -343,7 +344,18 @@ class RuntimeProfiler:
     def totals_ms(self) -> dict[str, float]:
         """Aggregate every attempted sample, including an interrupted sample."""
 
-        return {key: sum(sample.values[key] for sample in self._samples.values()) for key in RUNTIME_STAGE_KEYS}
+        return {
+            key: self._released_totals[key] + sum(sample.values[key] for sample in self._samples.values())
+            for key in RUNTIME_STAGE_KEYS
+        }
+
+    def release_sample(self, sample_id: str) -> dict[str, float]:
+        """Retain aggregates while releasing one completed stream sample."""
+        values = self.sample_timings_ms(sample_id)
+        if self._samples.pop(sample_id, None) is not None:
+            for key, value in values.items():
+                self._released_totals[key] += value
+        return values
 
 
 class ProfiledDetector:

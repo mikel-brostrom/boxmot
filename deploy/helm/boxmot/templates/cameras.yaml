@@ -1,0 +1,119 @@
+{{- range $camera, $overrides := .Values.cameras }}
+{{- $settings := mergeOverwrite (deepCopy $.Values.cameraDefaults) $overrides }}
+{{- $name := printf "%s-%s" (include "boxmot.fullname" $) $camera }}
+{{- $ctx := dict "root" $ "settings" $settings "name" $name "component" "camera" "camera" $camera }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-config
+  labels:
+    {{- include "boxmot.labels" $ctx | nindent 4 }}
+data:
+  stream.yaml: |
+    {{- include "boxmot.streamConfig" $ctx | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "boxmot.labels" $ctx | nindent 4 }}
+spec:
+  replicas: {{ ternary 0 1 $settings.suspend }}
+  strategy: {type: Recreate}
+  selector:
+    matchLabels:
+      {{- include "boxmot.selectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "boxmot.selectorLabels" $ctx | nindent 8 }}
+        {{- with $settings.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ include "boxmot.streamConfig" $ctx | sha256sum }}
+        boxmot.io/secret-revision: {{ $.Values.secretRevision | quote }}
+        boxmot.io/camera-secret-revision: {{ $settings.secretRevision | quote }}
+        {{- with $settings.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- include "boxmot.podSettings" $ctx | nindent 6 }}
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        runAsNonRoot: true
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: camera
+          image: {{ $.Values.image | quote }}
+          imagePullPolicy: {{ $.Values.imagePullPolicy }}
+          command: [boxmot, stream, --config, /etc/boxmot/stream.yaml]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          env:
+            - name: BOXMOT_CAMERA_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $settings.sourceSecret.name | quote }}
+                  key: {{ $settings.sourceSecret.key | quote }}
+            {{- include "boxmot.databaseEnv" $ | nindent 12 }}
+            - {name: USER, value: boxmot}
+            - {name: HOME, value: /opt/boxmot/models/.home}
+            - {name: XDG_CACHE_HOME, value: /opt/boxmot/models/.cache}
+            - {name: YOLO_CONFIG_DIR, value: /opt/boxmot/models}
+            - {name: MPLCONFIGDIR, value: /opt/boxmot/models/.cache/matplotlib}
+            - {name: TORCHINDUCTOR_CACHE_DIR, value: /opt/boxmot/models/.cache/torchinductor}
+            {{- range $key, $value := $settings.env }}
+            {{- if not (kindIs "invalid" $value) }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- end }}
+            {{- range $key, $reference := $settings.secretEnv }}
+            {{- if not (kindIs "invalid" $reference) }}
+            - name: {{ $key }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $reference.name | quote }}
+                  key: {{ $reference.key | quote }}
+            {{- end }}
+            {{- end }}
+          ports:
+            - {name: health, containerPort: 8080}
+          startupProbe:
+            httpGet: {path: /startupz, port: health}
+            periodSeconds: 10
+            failureThreshold: 180
+          readinessProbe:
+            httpGet: {path: /readyz, port: health}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /healthz, port: health}
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            {{- toYaml $settings.resources | nindent 12 }}
+          volumeMounts:
+            - {name: config, mountPath: /etc/boxmot, readOnly: true}
+            - {name: outputs, mountPath: /outputs}
+            - {name: models, mountPath: /opt/boxmot/models}
+      volumes:
+        - name: config
+          configMap: {name: {{ $name }}-config}
+        - name: outputs
+          persistentVolumeClaim:
+            claimName: {{ include "boxmot.claimName" (dict "name" (printf "%s-outputs" $name) "persistence" $settings.outputs) }}
+        - name: models
+          persistentVolumeClaim:
+            claimName: {{ include "boxmot.claimName" (dict "name" (printf "%s-models" $name) "persistence" $settings.models) }}
+{{ include "boxmot.pvc" (merge (dict "name" (printf "%s-outputs" $name) "persistence" $settings.outputs) $ctx) }}
+{{ include "boxmot.pvc" (merge (dict "name" (printf "%s-models" $name) "persistence" $settings.models) $ctx) }}
+{{ include "boxmot.serviceAccount" $ctx }}
+{{- end }}

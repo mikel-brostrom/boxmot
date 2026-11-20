@@ -9,13 +9,14 @@ from click.testing import CliRunner
 
 from boxmot.engine.cli import boxmot
 from boxmot.engine.commands.reid import train as train_command
+from boxmot.engine.config.reid import trainer_kwargs_from_args
 from boxmot.reid.backbones.families.csl_tinyvit import (
     MonotonicCanonicalPartTransport,
     csl_tinyvit_7m,
     csl_tinyvit_11m,
 )
 from boxmot.reid.core.registry import ReIDModelRegistry
-from boxmot.reid.training.config import ReIDTrainConfig, trainer_kwargs_from_args
+from boxmot.reid.training.config import ReIDTrainConfig
 from boxmot.reid.training.resume import contract_differences
 from boxmot.reid.training.trainer import ReIDTrainer
 

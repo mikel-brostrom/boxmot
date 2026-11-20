@@ -179,7 +179,7 @@ class CompositeSink(_BaseSink):
             raise errors[0]
 
 
-def _json_tracks(result: PipelineResult) -> list[dict[str, object]]:
+def _json_tracks(result: PipelineResult, *, include_attributes: bool = True) -> list[dict[str, object]]:
     tracks = result.tracks
     geometry = tracks.geometry.values.tolist()
     rows: list[dict[str, object]] = []
@@ -194,7 +194,7 @@ def _json_tracks(result: PipelineResult) -> list[dict[str, object]]:
                 "detection_index": int(tracks.detection_indices[index]),
             }
         )
-        attribute = result.attributes.get(int(tracks.track_ids[index]))
+        attribute = result.attributes.get(int(tracks.track_ids[index])) if include_attributes else None
         if attribute is not None:
             rows[-1]["attributes"] = attribute.to_dict()
     return rows

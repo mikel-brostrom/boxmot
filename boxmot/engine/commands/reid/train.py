@@ -8,12 +8,9 @@ import click
 
 from boxmot.engine.commands._options import _click_imgsz_default, _parse_imgsz, _parse_int_tuple
 from boxmot.engine.commands._support import _explicit_cli_keys, _run_engine_workflow
+from boxmot.engine.config.reid_presets import build_training_namespace, list_training_recipes
 from boxmot.reid.backbones.head_registry import TRAIN_HEAD_TYPES
 from boxmot.reid.backbones.option_registry import selector_choices
-from boxmot.reid.training.presets import (
-    build_training_namespace,
-    list_training_recipes,
-)
 
 TRAIN_DEFAULTS = build_training_namespace({}, explicit_keys=set())
 _PREPROCESS_CHOICES = ("resize", "resize_pad")
@@ -1132,7 +1129,9 @@ def main(args: Any = None, **options: Any) -> Any:
 
         args = resolve_reid_train_data(build_training_namespace(options, explicit_keys=options))
 
-    from boxmot.reid.training.config import ReIDTrainConfig, load_train_hparams, trainer_kwargs_from_args
+    from boxmot.engine.config.reid import trainer_kwargs_from_args
+    from boxmot.reid.training.config import ReIDTrainConfig
+    from boxmot.reid.training.hparams import load_train_hparams
     from boxmot.reid.training.trainer import ReIDTrainer
     from boxmot.utils import logger as LOGGER
 

@@ -14,10 +14,8 @@ from typing import Any
 
 import torch
 
-from boxmot.reid.training.config import (
-    ReIDTrainConfig,
-    flatten_train_hparams,
-)
+from boxmot.reid.training.config import ReIDTrainConfig
+from boxmot.reid.training.hparams import flatten_train_hparams
 from boxmot.reid.training.resume import (
     build_resume_contract,
     contract_differences,

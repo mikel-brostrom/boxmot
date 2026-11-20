@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 import torch
 
+from boxmot.engine.config.reid_presets import load_training_config
 from boxmot.reid.backbones.anatomical_registry import (
     ANATOMICAL_TARGET_TYPES,
     DEFAULT_ANATOMICAL_TARGET_TYPE,
@@ -34,15 +35,12 @@ from boxmot.reid.training.ablation import (
     validate_addon_registry,
 )
 from boxmot.reid.training.augmentations import validate_augmentation_config
-from boxmot.reid.training.config import (
-    AugmentationConfig,
-    flatten_train_hparams,
-)
+from boxmot.reid.training.config import AugmentationConfig
+from boxmot.reid.training.hparams import flatten_train_hparams
 from boxmot.reid.training.model_options import (
     REID_MODEL_OPTION_GROUPS,
     build_reid_model_kwargs,
 )
-from boxmot.reid.training.presets import load_training_config
 from boxmot.reid.training.resume import contract_differences
 
 

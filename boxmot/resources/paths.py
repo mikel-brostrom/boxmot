@@ -4,15 +4,29 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from platformdirs import user_cache_path
 
-def _default_weights_directory() -> Path:
-    """Return the repository or installed-package model directory."""
 
-    root = Path(__file__).resolve().parents[2]
-    local_root = Path.cwd()
-    if (local_root / "pyproject.toml").is_file() and (local_root / "boxmot").is_dir():
-        root = local_root
-    return root / "models"
+def repository_root() -> Path | None:
+    """Find a source checkout, preferring one explicitly selected by the cwd."""
+
+    for root in (Path.cwd(), Path(__file__).resolve().parents[2]):
+        if (root / "pyproject.toml").is_file() and (root / "boxmot").is_dir():
+            return root
+    return None
+
+
+def default_weights_directory() -> Path:
+    """Use checkout-local models or a writable per-user installed-model cache.
+
+    Resolution does not create directories. Downloaders create the destination
+    only when an artifact needs to be downloaded.
+    """
+
+    root = repository_root()
+    if root is not None:
+        return root / "models"
+    return user_cache_path("boxmot") / "models"
 
 
 def resolve_model_path(
@@ -27,7 +41,7 @@ def resolve_model_path(
     """
 
     path = Path(model_path)
-    fallback_directory = _default_weights_directory() if default_dir is None else Path(default_dir)
+    fallback_directory = default_weights_directory() if default_dir is None else Path(default_dir)
     candidates = [path]
     if not path.is_absolute() and path.parent == Path("."):
         candidates.append(fallback_directory / path.name)
@@ -48,4 +62,4 @@ def resolve_model_path(
     return candidates[-1]
 
 
-__all__ = ("resolve_model_path",)
+__all__ = ("default_weights_directory", "repository_root", "resolve_model_path")

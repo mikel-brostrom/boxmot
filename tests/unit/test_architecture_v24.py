@@ -297,6 +297,7 @@ ENGINE_COMMAND_LAYOUT = (
     "engine/commands/install.py",
     "engine/commands/materialize.py",
     "engine/commands/research.py",
+    "engine/commands/stream.py",
     "engine/commands/track.py",
     "engine/commands/tune.py",
     "engine/commands/ui.py",

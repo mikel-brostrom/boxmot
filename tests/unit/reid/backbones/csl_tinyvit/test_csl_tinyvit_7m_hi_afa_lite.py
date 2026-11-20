@@ -8,10 +8,11 @@ from click.testing import CliRunner
 
 from boxmot.engine.cli import boxmot
 from boxmot.engine.commands.reid import train as train_command
+from boxmot.engine.config.reid import trainer_kwargs_from_args
+from boxmot.engine.config.reid_presets import load_training_recipe
 from boxmot.reid.backbones.families.csl_tinyvit import csl_tinyvit_7m
 from boxmot.reid.training.ablation import resolve_csl_tinyvit_ablation
-from boxmot.reid.training.config import ReIDTrainConfig, trainer_kwargs_from_args
-from boxmot.reid.training.presets import load_training_recipe
+from boxmot.reid.training.config import ReIDTrainConfig
 
 
 def _v20_model_kwargs() -> dict[str, object]:

@@ -1,0 +1,84 @@
+{{- $fullname := include "boxmot.fullname" . -}}
+{{- $accounts := dict -}}
+{{- $components := dict "maintenance" .Values.maintenance -}}
+{{- if .Values.vllm.enabled -}}
+{{- $_ := set $components "vllm" .Values.vllm -}}
+{{- end -}}
+{{- if .Values.postgres.enabled -}}
+{{- $_ := set $components "postgres" .Values.postgres -}}
+{{- end -}}
+{{- range $camera, $overrides := .Values.cameras -}}
+{{- if or (has $camera (list "vllm" "postgres" "maintenance")) (not (regexMatch "^[a-z0-9]([-a-z0-9]{0,18}[a-z0-9])?$" $camera)) -}}
+{{- fail (printf "camera ID %q must be a DNS label <=20 characters and cannot be vllm, postgres or maintenance" $camera) -}}
+{{- end -}}
+{{- if gt (len (printf "%s-%s-out-gc" $fullname $camera)) 52 -}}
+{{- fail "release/fullname and camera ID lengths must total at most 44 characters (Kubernetes CronJob name limit)" -}}
+{{- end -}}
+{{- $settings := mergeOverwrite (deepCopy $.Values.cameraDefaults) $overrides -}}
+{{- if and $.Values.migration.enabled (not $settings.suspend) -}}
+{{- fail "migration.enabled requires every camera to be suspended; stop and verify clients before enabling migration" -}}
+{{- end -}}
+{{- if $.Values.vllm.enabled -}}
+{{- $attributes := $settings.config.attributes -}}
+{{- $message := printf "camera %s attributes must use backend vllm and model %s; select a matching attribute profile or full inline config" $camera $.Values.vllm.model -}}
+{{- if kindIs "map" $attributes -}}
+{{- if or (ne (toString (get $attributes "backend")) "vllm") (ne (toString (get $attributes "model")) $.Values.vllm.model) -}}
+{{- fail $message -}}
+{{- end -}}
+{{- else if not (contains "/" $attributes) -}}
+{{- $profile := trimSuffix ".yml" (trimSuffix ".yaml" (lower $attributes)) -}}
+{{- $models := dict "person-appearance-vllm-cpu" "Qwen/Qwen3.5-0.8B" "person-appearance-vllm" "Qwen/Qwen3.5-9B" -}}
+{{- if or (eq $profile "person-appearance-ollama") (and (hasKey $models $profile) (ne (get $models $profile) $.Values.vllm.model)) -}}
+{{- fail $message -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $_ := set $components $camera $settings -}}
+{{- end -}}
+{{- range $component, $settings := $components -}}
+{{- range $key, $reference := $settings.secretEnv -}}
+{{- if and (not (kindIs "invalid" $reference)) (hasKey $settings.env $key) (not (kindIs "invalid" (get $settings.env $key))) -}}
+{{- fail (printf "%s: environment variable %s cannot appear in both env and secretEnv" $component $key) -}}
+{{- end -}}
+{{- end -}}
+{{- if $settings.serviceAccount.create -}}
+{{- $account := include "boxmot.serviceAccountName" (dict "settings" $settings "name" (printf "%s-%s" $fullname $component)) -}}
+{{- if hasKey $accounts $account -}}
+{{- fail "each created ServiceAccount must have a unique name; use create=false to share an existing account" -}}
+{{- end -}}
+{{- $_ := set $accounts $account true -}}
+{{- end -}}
+{{- end -}}
+{{- if and .Values.migration.enabled (not .Values.maintenance.suspend) -}}
+{{- fail "migration.enabled requires maintenance.suspend=true; wait for existing Jobs to finish before migration" -}}
+{{- end -}}
+{{- range $arg := .Values.vllm.args -}}
+{{/* vLLM normalizes underscores and argparse accepts unambiguous abbreviations. */}}
+{{- $flag := first (splitList "=" (replace "_" "-" $arg)) -}}
+{{- if and (hasPrefix "--" $flag) (ne $flag "--tokenizer") -}}
+{{- range $owned := list "--revision" "--tokenizer-revision" "--model" "--served-model-name" "--host" "--port" -}}
+{{- if hasPrefix $flag $owned -}}
+{{- fail "vllm.args must not override the chart-owned model identity, model/tokenizer revision, host or port (including aliases)" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- if and .Values.monitoring.serviceMonitor.enabled (not .Values.vllm.enabled) -}}
+{{- fail "monitoring.serviceMonitor.enabled requires the bundled vllm.enabled=true" -}}
+{{- end -}}
+
+{{- if and .Values.monitoring.rules.enabled (not .Values.monitoring.podMonitor.enabled) -}}
+{{- fail "monitoring.rules.enabled requires monitoring.podMonitor.enabled=true" -}}
+{{- end -}}
+
+{{- range $name, $monitor := dict "serviceMonitor" .Values.monitoring.serviceMonitor "podMonitor" .Values.monitoring.podMonitor -}}
+{{- if $monitor.enabled -}}
+{{- $factors := dict "ms" 1 "s" 1000 "m" 60000 "h" 3600000 -}}
+{{- $interval := mul (int (regexFind "^[0-9]+" $monitor.interval)) (index $factors (regexFind "[a-z]+$" $monitor.interval)) -}}
+{{- $timeout := mul (int (regexFind "^[0-9]+" $monitor.scrapeTimeout)) (index $factors (regexFind "[a-z]+$" $monitor.scrapeTimeout)) -}}
+{{- if gt $timeout $interval -}}
+{{- fail (printf "monitoring.%s.scrapeTimeout must not exceed interval" $name) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}

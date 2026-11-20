@@ -2,6 +2,10 @@
 .venv
 .eggs/
 env/
+# Local deployment credentials; commit only the placeholder template.
+.env
+.env.*
+!.env.example
 *.DS_Store
 .coverage
 htmlcov/

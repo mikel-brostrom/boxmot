@@ -7,9 +7,10 @@ from click.testing import CliRunner
 
 from boxmot.engine.cli import boxmot
 from boxmot.engine.commands.reid import train as train_command
+from boxmot.engine.config.reid import trainer_kwargs_from_args
+from boxmot.engine.config.reid_presets import load_training_recipe
 from boxmot.reid.backbones.families.csl_tinyvit import csl_tinyvit_7m_v20
-from boxmot.reid.training.config import ReIDTrainConfig, trainer_kwargs_from_args
-from boxmot.reid.training.presets import load_training_recipe
+from boxmot.reid.training.config import ReIDTrainConfig
 from boxmot.reid.training.resume import contract_fingerprint
 from boxmot.reid.training.trainer import ReIDTrainer
 

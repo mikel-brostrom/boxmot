@@ -18,7 +18,6 @@ from boxmot.reid.core.runtime import ReID
 from boxmot.reid.exporters.config import resolve_export_weights
 from boxmot.reid.exporters.model_setup import prepare_export_model
 from boxmot.reid.exporters.registry import get_exporter_class
-from boxmot.utils import WEIGHTS
 
 if TYPE_CHECKING:
     from boxmot.reid.exporters.backends.base import BaseExporter
@@ -226,7 +225,6 @@ def perform_exports(export_tasks):
 
 
 def prepare_export(args):
-    WEIGHTS.mkdir(parents=True, exist_ok=True)
     args.weights = resolve_export_weights(args.weights)
 
     with suppress_export_noise(not args.verbose):

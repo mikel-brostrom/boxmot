@@ -11,6 +11,11 @@ on:
         description: 'Exact v-prefixed release tag to validate'
         required: true
         type: string
+      candidate_run_id:
+        description: 'Run containing smoke-tested image artifacts; required when publishing'
+        required: false
+        type: string
+        default: ''
       push_images:
         description: 'Push validated images to Docker Hub'
         required: false
@@ -36,6 +41,11 @@ on:
         description: 'Exact v-prefixed release tag being gated'
         required: true
         type: string
+      candidate_run_id:
+        description: 'Run containing smoke-tested image artifacts; required when publishing'
+        required: false
+        type: string
+        default: ''
       push_images:
         description: 'Push validated images to Docker Hub'
         required: false
@@ -48,8 +58,10 @@ on:
       DOCKERHUB_TOKEN:
         description: 'Docker Hub token; only required when push_images is true'
         required: false
-  release:
-    types: [published]
+
+permissions:
+  actions: read
+  contents: read
 
 jobs:
   build-and-push:
@@ -65,6 +77,10 @@ jobs:
           - target: service-cpu
             repository: boxmot/boxmot-service
             tag_suffix: ''
+    # Serialize publication per repository, including recovery of an older release.
+    concurrency:
+      group: ${{ inputs.push_images && format('docker-publish-{0}', matrix.target) || format('docker-test-{0}-{1}', github.run_id, matrix.target) }}
+      cancel-in-progress: false
 
     steps:
       # Bootstrap from workflow code, including when manually rebuilding older source.
@@ -73,18 +89,41 @@ jobs:
         with:
           ref: ${{ github.workflow_sha }}
 
+      - name: Preserve current image publication safeguards
+        run: |
+          cp tests/ci/deployment_release.py "$RUNNER_TEMP/deployment_release.py"
+          cp tests/ci/docker_artifact.py "$RUNNER_TEMP/docker_artifact.py"
+
       - name: Checkout repository
         uses: ./.github/actions/checkout-release-source
         with:
-          source_sha: ${{ inputs.source_base || inputs.source_ref || github.event.release.tag_name }}
+          source_sha: ${{ inputs.source_base || inputs.source_ref }}
           candidate_sha: ${{ inputs.source_bundle && inputs.source_ref || '' }}
           source_bundle: ${{ inputs.source_bundle }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Require tested artifacts for publication
+        if: inputs.push_images
+        env:
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! [[ "$CANDIDATE_RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "Publishing requires candidate_run_id from a successful image gate; images are never rebuilt for publication." >&2
+            exit 1
+          fi
+          # Never accept an archive uploaded by an unrelated or PR-triggered workflow.
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID" > "$RUNNER_TEMP/image-source-run.json"
+          jq --exit-status '
+            .event == "workflow_dispatch" and
+            ((.path | split("@")[0]) as $workflow |
+              $workflow == ".github/workflows/publish.yml" or $workflow == ".github/workflows/docker.yml")
+          ' "$RUNNER_TEMP/image-source-run.json" > /dev/null
+
       - name: Login to Docker Hub
-        if: github.event_name == 'release' || inputs.push_images
+        if: inputs.push_images
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -94,7 +133,7 @@ jobs:
         env:
           EXPECTED_SOURCE_SHA: ${{ inputs.source_ref }}
           PUSH_IMAGES: ${{ inputs.push_images }}
-          RELEASE_TAG: ${{ inputs.release_tag || github.event.release.tag_name }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           case "$RELEASE_TAG" in
             v*) ;;
@@ -111,7 +150,7 @@ jobs:
             echo "Checked out $source_sha instead of requested release commit $EXPECTED_SOURCE_SHA" >&2
             exit 1
           fi
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$PUSH_IMAGES" = "true" ]; then
+          if [ "$PUSH_IMAGES" = "true" ]; then
             if ! tag_sha=$(git rev-list -n 1 "$RELEASE_TAG" 2>/dev/null); then
               echo "Manual publishing requires the existing tag $RELEASE_TAG" >&2
               exit 1
@@ -124,7 +163,32 @@ jobs:
           echo "VERSION=$version" >> "$GITHUB_ENV"
           echo "SOURCE_SHA=$source_sha" >> "$GITHUB_ENV"
 
+      - name: Download the smoke-tested candidate image
+        if: inputs.candidate_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: boxmot-image-${{ matrix.target }}
+          path: ${{ runner.temp }}/candidate-image
+          run-id: ${{ inputs.candidate_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Verify and load the exact candidate image
+        if: inputs.candidate_run_id != ''
+        env:
+          IMAGE: ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }}
+          IMAGE_TARGET: ${{ matrix.target }}
+        run: |
+          expected_id=$(python3 "$RUNNER_TEMP/docker_artifact.py" verify \
+            --directory "$RUNNER_TEMP/candidate-image" --source-sha "$SOURCE_SHA" \
+            --version "$VERSION" --target "$IMAGE_TARGET" --image "$IMAGE")
+          docker load --input "$RUNNER_TEMP/candidate-image/image.tar.gz"
+          actual_id=$(docker image inspect --format '{{.Id}}' "$IMAGE")
+          test "$actual_id" = "$expected_id"
+          docker tag "$IMAGE" "${{ matrix.repository }}:sha-${SOURCE_SHA}${{ matrix.tag_suffix }}"
+          docker tag "$IMAGE" "${{ matrix.repository }}:latest${{ matrix.tag_suffix }}"
+
       - name: Build ${{ matrix.target }} image
+        if: inputs.candidate_run_id == ''
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -253,9 +317,39 @@ jobs:
         if: always() && matrix.target == 'service-cpu'
         run: docker rm --force boxmot-service-cpu-smoke || true
 
+      - name: Save the image that passed every smoke test
+        if: inputs.candidate_run_id == ''
+        env:
+          IMAGE: ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }}
+          IMAGE_TARGET: ${{ matrix.target }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/candidate-image"
+          docker image save "$IMAGE" | gzip > "$RUNNER_TEMP/candidate-image/image.tar.gz"
+          python3 "$RUNNER_TEMP/docker_artifact.py" record \
+            --directory "$RUNNER_TEMP/candidate-image" --source-sha "$SOURCE_SHA" \
+            --version "$VERSION" --target "$IMAGE_TARGET" --image "$IMAGE" \
+            --image-id "$(docker image inspect --format '{{.Id}}' "$IMAGE")"
+
+      - name: Upload the gated candidate image
+        if: inputs.candidate_run_id == ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: boxmot-image-${{ matrix.target }}
+          path: ${{ runner.temp }}/candidate-image/*
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+          retention-days: 30
+
       - name: Push ${{ matrix.target }} image tags
-        if: success() && (github.event_name == 'release' || inputs.push_images)
+        if: success() && inputs.push_images
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           docker push ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }}
-          docker push ${{ matrix.repository }}:latest${{ matrix.tag_suffix }}
           docker push ${{ matrix.repository }}:sha-${{ env.SOURCE_SHA }}${{ matrix.tag_suffix }}
+          # Fetch immediately before updating the moving alias, not before the build.
+          git fetch --tags --force
+          if [ "$(python3 "$RUNNER_TEMP/deployment_release.py" latest --release-tag "$RELEASE_TAG")" = true ]; then
+            docker push ${{ matrix.repository }}:latest${{ matrix.tag_suffix }}
+          fi

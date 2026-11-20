@@ -225,7 +225,7 @@ def test_reid_factory_resolves_every_pretrained_catalog_stem(
         destination.write_bytes(content)
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(resource_paths, "_default_weights_directory", lambda: weights)
+    monkeypatch.setattr(resource_paths, "default_weights_directory", lambda: weights)
     monkeypatch.setitem(sys.modules, "boxmot.resources.download", SimpleNamespace(download_file=download))
 
     encoder = create_reid_encoder(Path(filename).stem, device="cpu", options={"batch_size": 7})

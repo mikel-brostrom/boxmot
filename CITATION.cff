@@ -1,3 +1,4 @@
+# Project-level citation metadata. For a specific version, cite its repository tag.
 cff-version: 1.2.0
 
 message: >-
@@ -17,6 +18,7 @@ abstract: >-
 
 title: "BoxMOT: pluggable state-of-the-art multi-object tracking modules"
 repository-code: "https://github.com/mikel-brostrom/boxmot"
+url: "https://mikel-brostrom.github.io/boxmot/"
 license: AGPL-3.0
 date-released: "2023-06-01"
 type: software

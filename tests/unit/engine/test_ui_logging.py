@@ -19,11 +19,14 @@ def test_engine_logging_reuses_the_live_ui_console() -> None:
     previous_level = logger.level
     previous_propagate = logger.propagate
     try:
+        engine_logging.configure_engine_logging()
         configured = engine_logging.configure_engine_logging()
         rich_handlers = [handler for handler in configured.handlers if isinstance(handler, RichHandler)]
 
         assert len(rich_handlers) == 1
         assert rich_handlers[0].console is get_console(stderr=True)
+        assert configured.level == logging.INFO
+        assert configured.propagate is False
     finally:
         logger.handlers[:] = previous_handlers
         logger.setLevel(previous_level)

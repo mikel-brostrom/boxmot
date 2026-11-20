@@ -3,6 +3,35 @@
 from math import isfinite
 
 
+class LiveTimestamps:
+    """Resolve one live connection without trusting an advertised frame rate.
+
+    ``capture`` uses elapsed monotonic time at decoder receipt, independently of
+    detector speed and wall-clock corrections. ``media`` requires trustworthy,
+    strictly increasing PTS; invalid PTS ends the connection instead of silently
+    switching clocks. Create a new resolver with each tracking session.
+    """
+
+    def __init__(self, source: str = "capture") -> None:
+        if source not in {"capture", "media"}:
+            raise ValueError("Live timestamp source must be 'capture' or 'media'.")
+        self.source = source
+        self._origin_s: float | None = None
+        self._last_s: float | None = None
+
+    def resolve(self, *, captured_at: float, position_ms: float | None = None) -> float:
+        """Return connection-relative seconds, preserving skipped-frame gaps."""
+        value = captured_at if self.source == "capture" else None if position_ms is None else position_ms / 1000
+        if value is None or not isfinite(value) or value < 0:
+            raise ValueError(f"Live {self.source} timestamps must be finite and nonnegative.")
+        if self._last_s is not None and value <= self._last_s:
+            raise ValueError(f"Live {self.source} timestamps must increase strictly.")
+        if self._origin_s is None:
+            self._origin_s = value
+        self._last_s = value
+        return value - self._origin_s
+
+
 class SourceTimestamps:
     """Prefer media PTS and use nominal FPS when those timestamps are unusable.
 

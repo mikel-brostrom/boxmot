@@ -298,6 +298,10 @@ Advanced examples: [capture timing](docs/python/index.md#elapsed-time),
 
 ## Track Attributes with Ollama and vLLM
 
+For continuous network cameras, see the [Kubernetes deployment guide](docs/integrations/kubernetes.md)
+and `boxmot stream --config PATH`. CPU and GPU examples use shared model serving,
+PostgreSQL ownership leases, and durable JSON metadata with seven-day retention.
+
 <table>
   <thead>
     <tr>
@@ -342,11 +346,11 @@ Add clothing, footwear, and pose descriptions to person tracks with
 Display attributes alongside track IDs
 and export structured JSON results.
 Every attribute run requires PostgreSQL for its queue and retained results;
-the Compose workflow starts the database automatically.
+the Helm chart can start a local database or connect to managed PostgreSQL.
 
 See the [Track Attributes guide](docs/config/attributes.md) for setup,
 configuration, and examples. To run detection, ReID, and the VLM on NVIDIA GPUs,
-use the [GPU Compose setup](docs/integrations/docker.md#gpu-detection-reid-and-vlm-inference).
+use the [Helm GPU deployment settings](docs/integrations/kubernetes.md#storage-scheduling-and-cloud-deployment).
 
 ## License
 

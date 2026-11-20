@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import torch
 
+from boxmot.engine.config.reid_presets import build_training_namespace
 from boxmot.reid.backbones.anatomical_registry import (
     get_anatomical_target_spec,
 )
@@ -23,7 +24,6 @@ from boxmot.reid.training.model_options import (
     REID_MODEL_OPTION_GROUPS,
     build_reid_model_kwargs,
 )
-from boxmot.reid.training.presets import build_training_namespace
 from boxmot.reid.training.trainer import ReIDTrainer
 
 

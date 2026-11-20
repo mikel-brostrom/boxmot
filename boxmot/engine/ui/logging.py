@@ -3,8 +3,27 @@
 from __future__ import annotations
 
 import logging
+import multiprocessing as mp
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
+
+from rich.logging import RichHandler
+
+
+class _ProcessFilter(logging.Filter):
+    """Keep CLI output on the owning process and optionally its main thread."""
+
+    def __init__(self, *, main_thread_only: bool) -> None:
+        super().__init__()
+        self._main_thread_only = main_thread_only
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Return whether this process and thread own terminal output."""
+        is_main_process = mp.current_process().name == "MainProcess"
+        return is_main_process and (
+            not self._main_thread_only or threading.current_thread() is threading.main_thread()
+        )
 
 
 class _DashboardLogFilter(logging.Filter):
@@ -24,18 +43,32 @@ def configure_engine_logging(
     main_only: bool = True,
     main_thread_only: bool = False,
 ) -> logging.Logger:
-    """Route BoxMOT logs through the same stderr console as engine Live UIs."""
+    """Configure CLI logs on the stderr console shared by engine Live UIs.
+
+    This explicit application boundary replaces existing BoxMOT handlers. It
+    is never called by domain imports or standalone component construction.
+    """
 
     from boxmot.engine.ui.core.ui import get_console
-    from boxmot.utils import configure_logging
 
-    logger = configure_logging(
-        main_only=main_only,
-        main_thread_only=main_thread_only,
+    logger = logging.getLogger("boxmot")
+    logger.handlers.clear()
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+    handler = RichHandler(
+        level=logging.INFO,
         console=get_console(stderr=True),
+        show_time=False,
+        show_path=False,
+        rich_tracebacks=True,
+        markup=True,
     )
-    for handler in logger.handlers:
-        handler.addFilter(_DashboardLogFilter())
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    if main_only or main_thread_only:
+        handler.addFilter(_ProcessFilter(main_thread_only=main_thread_only))
+    handler.addFilter(_DashboardLogFilter())
+    logger.addHandler(handler)
     return logger
 
 

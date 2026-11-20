@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
 
@@ -129,7 +131,10 @@ class Window:
         self.closed = True
 
 
-def test_prompted_attributes_receive_visible_masks_and_sequence_resets(monkeypatch) -> None:
+@pytest.mark.parametrize("default_sinks", [False, True])
+def test_prompted_attributes_receive_visible_masks_and_sequence_resets(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, default_sinks: bool,
+) -> None:
     """Detector-free tracks remain eligible despite their absent detection indices."""
     window, tracker, sink = Window(), Tracker(), Sink()
     window.script = lambda _frame: window.controller.pending.update({1: ObjectPrompt(box=(2, 2, 8, 8))})
@@ -142,17 +147,24 @@ def test_prompted_attributes_receive_visible_masks_and_sequence_resets(monkeypat
         events.append(frame.sample_id)
         return {}
 
+    output_dir = tmp_path / "exp"
+    output_dir.mkdir()
     attribute_run = SimpleNamespace(
+        path=output_dir / "attributes.jsonl",
         enricher=SimpleNamespace(reset=lambda: events.append("reset"), update=update),
         poll=lambda: events.append("poll"),
     )
     run = prompted.run_prompted_track(
-        SimpleNamespace(), tracker=tracker,
-        source=Source([_frame(0), _frame(0, sequence="second")]), sinks=(sink,),
+        SimpleNamespace(project=tmp_path, name="exp", save_json=True), tracker=tracker,
+        source=Source([_frame(0), _frame(0, sequence="second")]), sinks=None if default_sinks else (sink,),
         attribute_run=attribute_run,
     )
     assert run.summary.frames == 2
     assert events == ["reset", "video/0", "poll", "reset", "second/0", "poll"]
+    if default_sinks:
+        assert run.json_path.parent == attribute_run.path.parent
+        assert len([json.loads(line) for line in run.json_path.read_text().splitlines()]) == 2
+        assert not (tmp_path / "exp2").exists()
 
 
 def test_prompts_precede_updates_and_correct_existing_ids(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -198,7 +198,8 @@ boxmot tune --experiment mot17/ablation-yolox-lmbn.yaml \
 
 The example selects an existing checkpoint at `models/edgetam.pt`. With just
 `--edgetam`, the default `edgetam.pt` resolver downloads or reuses the official
-checkpoint in `./models`. Weights alone do not enable guidance;
+checkpoint in the [model cache](../python/index.md#model-files-and-logging).
+Weights alone do not enable guidance;
 `--no-edgetam` disables it even with `--mask-guidance-weights`. To reuse a
 specific cached build, add `--build BUILD_ID` and select the experiment that
 created it. An existing `mot17/ablation-yolox-edgetam-lmbn.yaml` build can supply

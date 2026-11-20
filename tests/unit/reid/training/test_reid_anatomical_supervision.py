@@ -36,11 +36,8 @@ from boxmot.reid.datasets.transforms import (
 from boxmot.reid.training.augmentations import (
     _build_anatomical_target_provider,
 )
-from boxmot.reid.training.config import (
-    AugmentationConfig,
-    ReIDTrainConfig,
-    load_train_hparams,
-)
+from boxmot.reid.training.config import AugmentationConfig, ReIDTrainConfig
+from boxmot.reid.training.hparams import load_train_hparams
 from boxmot.reid.training.resume import contract_differences
 from boxmot.reid.training.trainer import (
     ReIDTrainer,
