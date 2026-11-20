@@ -1,0 +1,156 @@
+name: Helm integration
+
+on:
+  pull_request:
+    paths:
+      - 'deploy/helm/**'
+      - 'deploy/kubernetes/**'
+      - 'boxmot/engine/streaming/**'
+      - 'boxmot/engine/config/streams.py'
+      - 'boxmot/attributes/**'
+      - 'boxmot/configs/attributes/**'
+      - 'tests/ci/helm_contract.py'
+      - 'tests/ci/deployment_release.py'
+      - 'tests/unit/test_deployment_release.py'
+      - 'tests/unit/test_helm_streaming_harness.py'
+      - 'tests/e2e/helm_streaming.py'
+      - 'tests/e2e/compose_attributes.py'
+      - '.github/actions/setup-helm/**'
+      - '.github/workflows/helm*.yml'
+      - '.github/workflows/promote-images.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'deploy/helm/**'
+      - 'deploy/kubernetes/**'
+      - 'boxmot/engine/streaming/**'
+      - 'boxmot/engine/config/streams.py'
+      - 'boxmot/attributes/**'
+      - 'boxmot/configs/attributes/**'
+      - 'tests/ci/helm_contract.py'
+      - 'tests/ci/deployment_release.py'
+      - 'tests/unit/test_deployment_release.py'
+      - 'tests/unit/test_helm_streaming_harness.py'
+      - 'tests/e2e/helm_streaming.py'
+      - 'tests/e2e/compose_attributes.py'
+      - '.github/actions/setup-helm/**'
+      - '.github/workflows/helm*.yml'
+      - '.github/workflows/promote-images.yml'
+  schedule:
+    - cron: '37 4 * * 2'
+  workflow_dispatch:
+    inputs:
+      image:
+        description: 'Published CPU BoxMOT repository@sha256:digest; defaults to BOXMOT_HELM_IMAGE variable'
+        required: false
+        type: string
+      vllm_image:
+        description: 'CPU vLLM repository@sha256:digest; defaults to the validated CPU image'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: helm-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  configuration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: ./.github/actions/setup-helm
+      - name: Install chart validation dependencies
+        run: python -m pip install 'PyYAML==6.0.2' 'pytest==8.3.5'
+      - name: Lint and render CPU, GPU, external service, cloud and multi-camera configurations
+        run: python -m tests.ci.helm_contract
+      - name: Check publication, promotion and isolated-cluster safeguards
+        run: python -m pytest -q tests/unit/test_deployment_release.py tests/unit/test_helm_streaming_harness.py
+      - name: Report scheduled inference configuration
+        if: github.event_name == 'schedule' && vars.BOXMOT_HELM_IMAGE == ''
+        run: echo '::notice::Set BOXMOT_HELM_IMAGE to a published digest and BOXMOT_HELM_RUNNER to enable weekly CPU inference.'
+
+  cpu-inference:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && vars.BOXMOT_HELM_IMAGE != '')
+    needs: configuration
+    runs-on: ${{ vars.BOXMOT_HELM_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 150
+    env:
+      CAMERA_IMAGE: ${{ inputs.image || vars.BOXMOT_HELM_IMAGE }}
+      VLLM_IMAGE: ${{ inputs.vllm_image || vars.BOXMOT_HELM_VLLM_IMAGE || 'vllm/vllm-openai-cpu@sha256:4154467a886f8b7ffa9dbab32f873f5ca4528409d042a6ec866e8888223263d3' }}
+      KIND_CLUSTER: boxmot-helm-${{ github.run_id }}-${{ github.run_attempt }}
+      EVIDENCE_DIRECTORY: runs/boxmot-helm-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: ./.github/actions/setup-helm
+      - name: Install fixture preparation dependencies
+        run: python -m pip install 'PyYAML==6.0.2'
+      - name: Check immutable images and runner capacity
+        run: |
+          python - <<'PY'
+          import os
+          import shutil
+          from pathlib import Path
+          from tests.ci.deployment_release import IMAGE
+          for variable in ('CAMERA_IMAGE', 'VLLM_IMAGE'):
+              assert IMAGE.fullmatch(os.environ[variable]), f'{variable} must be repository@sha256:<64 hex characters>'
+          memory = int(Path('/proc/meminfo').read_text().split('MemTotal:')[1].split()[0]) * 1024
+          assert memory >= 15 * 1024**3, 'Configure BOXMOT_HELM_RUNNER with at least 16 GiB RAM'
+          assert (os.cpu_count() or 0) >= 8, 'Configure BOXMOT_HELM_RUNNER with at least 8 CPUs'
+          assert shutil.disk_usage('.').free >= 25 * 1024**3, 'Helm inference needs 25 GiB free disk'
+          PY
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+      - name: Install checksum-verified kind and kubectl
+        run: |
+          directory=$(mktemp -d "$RUNNER_TEMP/boxmot-kind.XXXXXX")
+          curl --fail --silent --show-error --location --retry 3 \
+            https://github.com/kubernetes-sigs/kind/releases/download/v0.30.0/kind-linux-amd64 \
+            --output "$directory/kind"
+          echo "517ab7fc89ddeed5fa65abf71530d90648d9638ef0c4cde22c2c11f8097b8889  $directory/kind" | sha256sum --check
+          curl --fail --silent --show-error --location --retry 3 \
+            https://dl.k8s.io/release/v1.34.0/bin/linux/amd64/kubectl \
+            --output "$directory/kubectl"
+          echo "cfda68cba5848bc3b6c6135ae2f20ba2c78de20059f68789c090166d6abc3e2c  $directory/kubectl" | sha256sum --check
+          chmod +x "$directory/kind" "$directory/kubectl"
+          echo "$directory" >> "$GITHUB_PATH"
+          echo "KUBECONFIG=$RUNNER_TEMP/$KIND_CLUSTER.kubeconfig" >> "$GITHUB_ENV"
+      - name: Create an isolated Kubernetes cluster
+        run: |
+          kind create cluster --name "$KIND_CLUSTER" --wait 120s \
+            --image kindest/node:v1.34.0@sha256:7416a61b42b1662ca6ca89f02028ac133a309a2a30ba309614e8ec94d976dc5a
+      - name: Exercise real tracking, attributes, upgrade and recovery
+        timeout-minutes: 120
+        run: |
+          python -m tests.e2e.helm_streaming \
+            --context "kind-$KIND_CLUSTER" \
+            --image "$CAMERA_IMAGE" \
+            --vllm-image "$VLLM_IMAGE" \
+            --output "$EVIDENCE_DIRECTORY"
+      - name: Retain test evidence and immutable deployment identities
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: helm-cpu-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.EVIDENCE_DIRECTORY }}/result.json
+            ${{ env.EVIDENCE_DIRECTORY }}/deployment-images.json
+            ${{ env.EVIDENCE_DIRECTORY }}/verification.json
+            ${{ env.EVIDENCE_DIRECTORY }}/*.log
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Delete only this job's cluster
+        if: always()
+        run: |
+          if command -v kind >/dev/null 2>&1; then
+            kind delete cluster --name "$KIND_CLUSTER"
+          fi

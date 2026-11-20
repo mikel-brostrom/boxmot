@@ -1,0 +1,37 @@
+# Apply after an environment values file. Set vllm.image to a tested CUDA
+# serving image digest via your release values or --set-string vllm.image=... .
+# The empty value deliberately prevents using the default CPU image on a GPU.
+# This overlay requests one GPU for vLLM; cameras still use CPU tracking.
+vllm:
+  image: ""
+  env:
+    VLLM_CPU_OMP_THREADS_BIND: null
+    VLLM_CPU_NUM_OF_RESERVED_CPU: null
+  args:
+    - --dtype
+    - auto
+    - --enforce-eager
+    - --disable-prefix-caching
+    - --gpu-memory-utilization
+    - "0.80"
+    - --max-model-len
+    - "2048"
+    - --max-num-batched-tokens
+    - "2048"
+    - --max-num-seqs
+    - "1"
+    - --mm-processor-cache-gb
+    - "0"
+    - --mm-processor-kwargs
+    - '{"images_kwargs":{"size":{"shortest_edge":65536,"longest_edge":262144}}}'
+    - --limit-mm-per-prompt
+    - '{"image":1,"video":0}'
+    - --reasoning-parser
+    - qwen3
+  resources:
+    requests: {cpu: "2", memory: 4Gi, nvidia.com/gpu: 1}
+    limits: {cpu: "4", memory: 8Gi, nvidia.com/gpu: 1}
+  # Set these to match your cluster's GPU pool and runtime configuration:
+  # nodeSelector: {boxmot.io/pool: vlm-gpu}
+  # tolerations: [{key: nvidia.com/gpu, operator: Exists, effect: NoSchedule}]
+  # runtimeClassName: nvidia

@@ -1,4 +1,6 @@
-# Real Compose smoke and recovery test
+# Real deployment integration tests
+
+## Compose smoke and recovery
 
 Run from the repository root with Docker daemon access and host `ffmpeg`:
 
@@ -56,7 +58,7 @@ responses after takeover, and bounded memory need their dedicated tests.
 Cold image builds, downloads, and CPU inference may take several minutes. Each
 stage has a timeout and retains its log on failure.
 
-## CI
+### Compose CI
 
 The `Compose integration` workflow checks all six assembled CPU, GPU and Ollama
 configurations, with and without the webcam overlay, on relevant PRs. Run this
@@ -74,3 +76,59 @@ larger runner label if needed. Each CI invocation uses its own model cache and
 removes its test volumes after collecting the evidence. Persistent runners
 should also reclaim resources left by forced job termination.
 GPU execution remains a manual check on a host with the required hardware.
+
+## Helm install, upgrade and recovery
+
+Use an existing single-node Kubernetes test cluster with Helm, `kubectl`,
+`ffmpeg`, a default dynamic storage class and immutable images accessible to
+its nodes. The BoxMOT CPU image must contain the code you intend to test; this
+harness does not build or publish it. Run from the repository root:
+
+```bash
+uv run --no-sync python -m tests.ci.helm_contract
+uv run --no-sync python -m tests.e2e.helm_streaming \
+  --context YOUR_TEST_CONTEXT \
+  --image 'your-registry/boxmot@sha256:YOUR_64_HEX_DIGEST' \
+  --output runs/helm-validation-001
+```
+
+The contract checks lint/render the chart, validate generated stream settings
+and exercise invalid configurations without connecting to Kubernetes. The real
+test creates an isolated `boxmot-helm-e2e-*` namespace, fresh PostgreSQL and a
+bundled fixture camera. It requires actual detector/tracker and VLM results,
+then checks:
+
+- tracking and completed attributes in PostgreSQL and synchronized JSONL;
+- configuration upgrade restarting the camera while retaining PVCs and history;
+- camera disconnect/reconnect, camera pod replacement and database restart;
+- fresh sessions and completed attributes after recovery;
+- maintenance Job completion and database/export correspondence;
+- PVC retention after Helm uninstall.
+
+Existing namespaces are refused. Commands always use the supplied Kubernetes
+context. Cleanup deletes only the namespace created and owned by that run,
+including its test data, after collecting evidence. PVC retention is checked
+before namespace deletion. Use a new output directory for each invocation.
+Logs, `result.json` and `deployment-images.json` identify completed checks and
+the tested artifacts. Test-created secrets are sent through stdin and excluded
+from command logs; treat collected application data as private.
+
+`--storage-class` selects the cluster's storage class. `--vllm-image` overrides
+the chart's pinned CPU image. `--detector-weights /path/to/yolo26n.pt` seeds the
+isolated model claim to avoid downloading an already available checkpoint.
+For a local chart check, `--external-vllm-url` can reuse a reachable serving
+endpoint; this does not validate bundled vLLM installation and cannot produce
+image-promotion evidence. `--prepare-only` generates the fixture and renders
+values without contacting Kubernetes; it does not establish inference works.
+
+The `Helm integration` workflow runs render checks on relevant PRs. Weekly CPU
+inference requires repository variable `BOXMOT_HELM_IMAGE`; use
+`BOXMOT_HELM_RUNNER` for a runner with 8 CPUs, at least 16 GiB RAM and 25 GiB
+free disk, Docker and sudo/apt access. A manual run accepts `image` and optional
+`vllm_image` inputs. Each CI run creates and removes its own kind cluster and
+retains evidence for 30 days. The promotion workflow only accepts successful
+scheduled/manual runs with bundled vLLM and matching immutable identities.
+
+This bounded fixture test does not validate GPU execution, AKS/EKS CSI storage,
+managed database failover, physical camera accuracy or 24-hour resource bounds.
+Test those on the target deployment before production use.

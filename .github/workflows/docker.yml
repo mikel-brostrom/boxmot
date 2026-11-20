@@ -65,6 +65,10 @@ jobs:
           - target: service-cpu
             repository: boxmot/boxmot-service
             tag_suffix: ''
+    # Serialize publication per repository, including manually rebuilding an old release.
+    concurrency:
+      group: ${{ (github.event_name == 'release' || inputs.push_images) && format('docker-publish-{0}', matrix.target) || format('docker-test-{0}-{1}', github.run_id, matrix.target) }}
+      cancel-in-progress: false
 
     steps:
       # Bootstrap from workflow code, including when manually rebuilding older source.
@@ -72,6 +76,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.workflow_sha }}
+
+      - name: Preserve current image publication safeguards
+        run: cp tests/ci/deployment_release.py "$RUNNER_TEMP/deployment_release.py"
 
       - name: Checkout repository
         uses: ./.github/actions/checkout-release-source
@@ -255,7 +262,13 @@ jobs:
 
       - name: Push ${{ matrix.target }} image tags
         if: success() && (github.event_name == 'release' || inputs.push_images)
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag || github.event.release.tag_name }}
         run: |
           docker push ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }}
-          docker push ${{ matrix.repository }}:latest${{ matrix.tag_suffix }}
           docker push ${{ matrix.repository }}:sha-${{ env.SOURCE_SHA }}${{ matrix.tag_suffix }}
+          # Fetch immediately before updating the moving alias, not before the build.
+          git fetch --tags --force
+          if [ "$(python3 "$RUNNER_TEMP/deployment_release.py" latest --release-tag "$RELEASE_TAG")" = true ]; then
+            docker push ${{ matrix.repository }}:latest${{ matrix.tag_suffix }}
+          fi

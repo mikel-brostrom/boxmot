@@ -1,0 +1,54 @@
+{{- $settings := .Values.maintenance }}
+{{- $account := printf "%s-maintenance" (include "boxmot.fullname" .) }}
+{{- $ctx := dict "root" . "settings" $settings "name" $account "component" "maintenance" }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "boxmot.fullname" . }}-db-gc
+  labels:
+    {{- include "boxmot.labels" $ctx | nindent 4 }}
+spec:
+  schedule: {{ $settings.schedule | quote }}
+  suspend: {{ $settings.suspend }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    metadata:
+      labels:
+        {{- include "boxmot.labels" $ctx | nindent 8 }}
+    spec:
+      activeDeadlineSeconds: {{ $settings.activeDeadlineSeconds }}
+      backoffLimit: 1
+      template:
+        {{- include "boxmot.maintenancePod" (merge (dict "command" (list "boxmot" "stream-db" "maintain" "--retention-days" ($settings.retentionDays | toString))) $ctx) | nindent 8 }}
+{{ include "boxmot.serviceAccount" $ctx }}
+{{- range $camera, $overrides := .Values.cameras }}
+{{- $cameraSettings := mergeOverwrite (deepCopy $.Values.cameraDefaults) $overrides }}
+{{- $cameraName := printf "%s-%s" (include "boxmot.fullname" $) $camera }}
+{{- $outputClaim := include "boxmot.claimName" (dict "name" (printf "%s-outputs" $cameraName) "persistence" $cameraSettings.outputs) }}
+{{- $outputCtx := merge (dict "camera" $camera "component" "output-maintenance" "outputClaim" $outputClaim "command" (list "boxmot" "stream-db" "maintain" "--retention-days" ($cameraSettings.config.retention_days | toString) "--output-dir" "/outputs" "--camera-id" $camera)) $ctx }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $cameraName }}-out-gc
+  labels:
+    {{- include "boxmot.labels" $outputCtx | nindent 4 }}
+spec:
+  schedule: {{ $settings.outputSchedule | quote }}
+  suspend: {{ $settings.suspend }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    metadata:
+      labels:
+        {{- include "boxmot.labels" $outputCtx | nindent 8 }}
+    spec:
+      activeDeadlineSeconds: {{ $settings.activeDeadlineSeconds }}
+      backoffLimit: 1
+      template:
+        {{- include "boxmot.maintenancePod" $outputCtx | nindent 8 }}
+{{- end }}

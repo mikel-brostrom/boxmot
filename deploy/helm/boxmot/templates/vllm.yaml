@@ -1,0 +1,129 @@
+{{- if .Values.vllm.enabled }}
+{{- $settings := .Values.vllm }}
+{{- $name := printf "%s-vllm" (include "boxmot.fullname" .) }}
+{{- $ctx := dict "root" . "settings" $settings "name" $name "component" "vllm" }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "boxmot.labels" $ctx | nindent 4 }}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels:
+      {{- include "boxmot.selectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "boxmot.selectorLabels" $ctx | nindent 8 }}
+        {{- with $settings.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        boxmot.io/secret-revision: {{ .Values.secretRevision | quote }}
+        {{- with $settings.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- include "boxmot.podSettings" $ctx | nindent 6 }}
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: vllm
+          image: {{ $settings.image | quote }}
+          imagePullPolicy: {{ $.Values.imagePullPolicy }}
+          command: [vllm, serve]
+          args:
+            - {{ $settings.model | quote }}
+            - --revision
+            - {{ $settings.revision | quote }}
+            - --tokenizer-revision
+            - {{ $settings.revision | quote }}
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8000"
+            {{- with $settings.args }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          env:
+            - {name: HF_HOME, value: /models/huggingface}
+            - {name: HOME, value: /models/huggingface}
+            - {name: VLLM_CACHE_ROOT, value: /models/huggingface/vllm}
+            {{- if $settings.hfTokenSecret.name }}
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $settings.hfTokenSecret.name | quote }}
+                  key: {{ $settings.hfTokenSecret.key | quote }}
+            {{- end }}
+            {{- range $key, $value := $settings.env }}
+            {{- if not (kindIs "invalid" $value) }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- end }}
+            {{- range $key, $reference := $settings.secretEnv }}
+            {{- if not (kindIs "invalid" $reference) }}
+            - name: {{ $key }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $reference.name | quote }}
+                  key: {{ $reference.key | quote }}
+            {{- end }}
+            {{- end }}
+          ports:
+            - {name: http, containerPort: 8000}
+          startupProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+            failureThreshold: 180
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            {{- toYaml $settings.resources | nindent 12 }}
+          volumeMounts:
+            - {name: models, mountPath: /models/huggingface}
+            - {name: shm, mountPath: /dev/shm}
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: {{ include "boxmot.claimName" (dict "name" (printf "%s-models" $name) "persistence" $settings.persistence) }}
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ $settings.shmSize | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "boxmot.labels" $ctx | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "boxmot.selectorLabels" $ctx | nindent 4 }}
+  ports:
+    - {name: http, port: 8000, targetPort: http}
+{{ include "boxmot.pvc" (merge (dict "name" (printf "%s-models" $name) "persistence" $settings.persistence) $ctx) }}
+{{ include "boxmot.serviceAccount" $ctx }}
+{{- end }}

@@ -1,0 +1,34 @@
+# Starting values for an existing AKS cluster; not a cluster provisioning recipe.
+# Supply the tested camera image digest separately. Secret attributes-database
+# must contain a TLS URL for your existing PostgreSQL server in key url.
+postgres:
+  enabled: false
+
+database:
+  existingSecret: attributes-database
+  urlKey: url
+
+cameraDefaults:
+  models:
+    storageClass: managed-csi-premium
+    size: 10Gi
+  # Use labels from your own CPU pool if restricting placement:
+  # nodeSelector: {boxmot.io/pool: camera-cpu}
+  # For a preconfigured Azure workload identity, set serviceAccount.name and
+  # podLabels: {azure.workload.identity/use: "true"}. Provision federation and
+  # identity permissions outside this chart; do not put credentials in values.
+
+cameras:
+  camera-01:
+    sourceSecret: {name: camera-01, key: url}
+    outputs:
+      # Precreate a RWX claim with tested fsync and atomic-rename behavior,
+      # for example using an appropriately configured Azure Files NFS share.
+      # Create a distinct claim for each additional camera.
+      existingClaim: boxmot-camera-01-outputs
+
+vllm:
+  persistence:
+    storageClass: managed-csi-premium
+    size: 20Gi
+  # Add gpu-vllm.yaml after this file to select GPU serving independently.

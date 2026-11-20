@@ -1,0 +1,96 @@
+name: Promote validated deployment images
+
+on:
+  workflow_dispatch:
+    inputs:
+      validation_run_id:
+        description: 'Successful Helm integration run with bundled CPU vLLM evidence'
+        required: true
+        type: string
+      environment:
+        description: 'Deployment channel to update using the tested digest'
+        required: true
+        type: choice
+        options: [staging, production]
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: boxmot-image-promotion-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify the successful validation run
+        id: validation
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VALIDATION_RUN_ID: ${{ inputs.validation_run_id }}
+        run: |
+          [[ "$VALIDATION_RUN_ID" =~ ^[0-9]+$ ]] || { echo 'validation_run_id must be numeric' >&2; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VALIDATION_RUN_ID" > "$RUNNER_TEMP/validation-run.json"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          run = json.loads((Path(os.environ['RUNNER_TEMP']) / 'validation-run.json').read_text())
+          assert run['conclusion'] == 'success' and run['status'] == 'completed', 'Validation run must have succeeded'
+          assert run['path'] == '.github/workflows/helm.yml', 'Only the Helm integration workflow supplies deployment evidence'
+          assert run['event'] in ('workflow_dispatch', 'schedule'), 'Validation must include CPU inference'
+          assert run['head_repository']['full_name'] == os.environ['GITHUB_REPOSITORY'], 'Fork evidence is not accepted'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f"source_sha={run['head_sha']}\nrun_attempt={run['run_attempt']}\n")
+          PY
+      - name: Download the tested immutable image identities
+        uses: actions/download-artifact@v4
+        with:
+          name: helm-cpu-${{ inputs.validation_run_id }}-${{ steps.validation.outputs.run_attempt }}
+          run-id: ${{ inputs.validation_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: promotion
+      - name: Validate image identity and test provenance
+        env:
+          VALIDATION_RUN_ID: ${{ inputs.validation_run_id }}
+          VALIDATION_RUN_ATTEMPT: ${{ steps.validation.outputs.run_attempt }}
+          SOURCE_SHA: ${{ steps.validation.outputs.source_sha }}
+        run: |
+          image=$(python -m tests.ci.deployment_release promotion \
+            --manifest promotion/deployment-images.json \
+            --run-id "$VALIDATION_RUN_ID" --run-attempt "$VALIDATION_RUN_ATTEMPT" --source-sha "$SOURCE_SHA")
+          echo "CAMERA_IMAGE=$image" >> "$GITHUB_ENV"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Promote the tested image without rebuilding it
+        env:
+          DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          destination="boxmot/boxmot:$DEPLOYMENT_ENVIRONMENT-cpu"
+          docker buildx imagetools create --prefer-index=false --tag "$destination" "$CAMERA_IMAGE"
+          promoted_digest=$(docker buildx imagetools inspect "$destination" --format '{{.Manifest.Digest}}')
+          if [ "$promoted_digest" != "${CAMERA_IMAGE#*@}" ]; then
+            echo 'The promoted manifest differs from the tested digest' >&2
+            exit 1
+          fi
+          {
+            echo "Promotion channel: $destination"
+            echo "Deploy this immutable image: $CAMERA_IMAGE"
+            echo "Validation run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/${{ inputs.validation_run_id }}"
+            echo 'The vLLM digest, model revision and chart source remain in deployment-images.json.'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve promotion evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-${{ inputs.environment }}-${{ github.run_id }}
+          path: promotion/deployment-images.json
+          if-no-files-found: error
+          retention-days: 90

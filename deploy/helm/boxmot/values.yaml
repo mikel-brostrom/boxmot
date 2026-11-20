@@ -1,0 +1,176 @@
+# Names are never truncated: use a release/fullname of at most 30 characters.
+fullnameOverride: ""
+# Required: immutable reference to a published BoxMOT image containing stream.
+image: ""
+imagePullPolicy: IfNotPresent
+imagePullSecrets: []
+# Increment after rotating externally managed Secrets to restart their clients.
+secretRevision: ""
+
+database:
+  existingSecret: attributes-database
+  urlKey: url
+
+# One Deployment per stable camera ID. IDs must be DNS labels <=20 characters.
+# Setting a camera to null removes it when layering values files.
+cameras:
+  camera-01:
+    sourceSecret: {name: camera-01, key: url}
+
+# Each camera may override these settings; maps merge recursively.
+cameraDefaults:
+  suspend: false
+  secretRevision: ""
+  config:
+    attributes: person-appearance-vllm-cpu
+    tracking:
+      detector: yolo26n
+      tracker: bytetrack
+      reid: osnet-x0-25-msmt17
+      device: cpu
+    retention_days: 7
+  env: {}
+  # Select individual keys; reference the variable through attributes.api_key_env.
+  secretEnv: {}
+  resources:
+    requests: {cpu: "2", memory: 2Gi}
+    limits: {cpu: "4", memory: 4Gi}
+  models:
+    existingClaim: ""
+    storageClass: ""
+    size: 10Gi
+    accessModes: [ReadWriteOnce]
+    retain: true
+  # Camera and maintenance Pods share this filesystem. Use RWO only on one node.
+  outputs:
+    existingClaim: ""
+    storageClass: ""
+    size: 20Gi
+    accessModes: [ReadWriteMany]
+    retain: true
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  runtimeClassName: ""
+  serviceAccount: {create: false, name: "", annotations: {}}
+  podAnnotations: {}
+  podLabels: {}
+
+vllm:
+  enabled: true
+  # Required when enabled=false; must be empty when using the bundled server.
+  externalEndpoint: ""
+  image: vllm/vllm-openai-cpu@sha256:4154467a886f8b7ffa9dbab32f873f5ca4528409d042a6ec866e8888223263d3
+  model: Qwen/Qwen3.5-0.8B
+  revision: 2fc06364715b967f1860aea9cf38778875588b17
+  # The chart adds model, model/tokenizer revision, host and port. Replace this list for GPU serving.
+  args:
+    - --dtype
+    - bfloat16
+    - --enforce-eager
+    - --disable-prefix-caching
+    - --kv-cache-memory-bytes
+    - "268435456"
+    - --max-model-len
+    - "2048"
+    - --max-num-batched-tokens
+    - "2048"
+    - --max-num-seqs
+    - "1"
+    - --mm-processor-cache-gb
+    - "0"
+    - --mm-processor-kwargs
+    - '{"images_kwargs":{"size":{"shortest_edge":65536,"longest_edge":262144}}}'
+    - --limit-mm-per-prompt
+    - '{"image":1,"video":0}'
+    - --reasoning-parser
+    - qwen3
+  env:
+    VLLM_CPU_OMP_THREADS_BIND: auto
+    VLLM_CPU_NUM_OF_RESERVED_CPU: "2"
+  # For example VLLM_API_KEY: {name: model-api, key: token}.
+  secretEnv: {}
+  hfTokenSecret: {name: "", key: token}
+  persistence:
+    existingClaim: ""
+    storageClass: ""
+    size: 20Gi
+    accessModes: [ReadWriteOnce]
+    retain: true
+  shmSize: 2Gi
+  resources:
+    requests: {cpu: "4", memory: 8Gi}
+    limits: {cpu: "8", memory: 16Gi}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  runtimeClassName: ""
+  serviceAccount: {create: false, name: "", annotations: {}}
+  podAnnotations: {}
+  podLabels: {}
+
+# Single-instance PostgreSQL for local validation, not managed database HA.
+# database.existingSecret needs both url and password keys. The URL must use
+# <release>-postgres:5432 and match this database/username/password.
+postgres:
+  enabled: false
+  image: postgres@sha256:0d938e975177bef9f1f61f3f9dbcf2e0aa0a139568f66d3415ed8892eb97f6ac
+  database: boxmot
+  username: boxmot
+  passwordKey: password
+  persistence:
+    existingClaim: ""
+    storageClass: ""
+    size: 10Gi
+    accessModes: [ReadWriteOnce]
+    retain: true
+  resources:
+    requests: {cpu: 500m, memory: 512Mi}
+    limits: {cpu: "1", memory: 2Gi}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  runtimeClassName: ""
+  serviceAccount: {create: false, name: "", annotations: {}}
+  podAnnotations: {}
+  podLabels: {}
+
+maintenance:
+  suspend: false
+  schedule: "*/5 * * * *"
+  outputSchedule: "17 * * * *"
+  # Shared retention policy: must match every camera config.retention_days.
+  retentionDays: 7
+  activeDeadlineSeconds: 240
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: "1", memory: 1Gi}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  runtimeClassName: ""
+  serviceAccount: {create: false, name: "", annotations: {}}
+  podAnnotations: {}
+  podLabels: {}
+
+# Explicit operation, never a Helm lifecycle hook. First suspend camera and
+# maintenance workloads, wait for all clients to stop, and back up PostgreSQL.
+migration:
+  enabled: false
+  id: v2
+  activeDeadlineSeconds: 900
+
+# Ingress-only protection of bundled services; requires a NetworkPolicy-aware CNI.
+# External database/camera/model connectivity is not restricted by this chart.
+networkPolicy:
+  enabled: false
+  # Kubernetes NetworkPolicy ingress rules, e.g. a monitoring namespace selector.
+  additionalVllmIngress: []
+
+monitoring:
+  serviceMonitor:
+    # Requires the Prometheus Operator CRD and the bundled vLLM service.
+    enabled: false
+    labels: {}
+    interval: 30s
+    scrapeTimeout: 10s

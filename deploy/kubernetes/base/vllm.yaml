@@ -12,6 +12,8 @@ spec:
       labels: {app: boxmot-vllm}
     spec:
       automountServiceAccountToken: false
+      # Service discovery must not inject a URI into vLLM's numeric VLLM_PORT setting.
+      enableServiceLinks: false
       terminationGracePeriodSeconds: 30
       containers:
         - name: vllm

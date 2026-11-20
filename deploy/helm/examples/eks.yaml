@@ -1,0 +1,33 @@
+# Starting values for an existing EKS cluster; not a cluster provisioning recipe.
+# Supply the tested camera image digest separately. Secret attributes-database
+# must contain a TLS URL for your existing PostgreSQL server in key url.
+# Provision the EBS CSI driver and a StorageClass named boxmot-ebs-gp3 first.
+postgres:
+  enabled: false
+
+database:
+  existingSecret: attributes-database
+  urlKey: url
+
+cameraDefaults:
+  models:
+    storageClass: boxmot-ebs-gp3
+    size: 10Gi
+  # Use labels from your own CPU pool if restricting placement:
+  # nodeSelector: {boxmot.io/pool: camera-cpu}
+  # Set serviceAccount.name to an existing account if using EKS Pod Identity
+  # or IRSA. Provision the association/trust and permissions outside this chart.
+
+cameras:
+  camera-01:
+    sourceSecret: {name: camera-01, key: url}
+    outputs:
+      # Precreate a RWX claim through your EFS CSI configuration and verify
+      # durable fsync and atomic rename. Use a distinct claim per camera.
+      existingClaim: boxmot-camera-01-outputs
+
+vllm:
+  persistence:
+    storageClass: boxmot-ebs-gp3
+    size: 20Gi
+  # Add gpu-vllm.yaml after this file to select GPU serving independently.

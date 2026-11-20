@@ -18,7 +18,8 @@ def test_renderer_rejects_mutable_images():
 
 @pytest.mark.skipif(shutil.which("kubectl") is None, reason="kubectl with Kustomize is required")
 @pytest.mark.parametrize("profile", ["cpu", "gpu"])
-def test_overlay_ownership_storage_images_and_gpu_isolation(profile):
+def test_overlay_ownership_storage_images_and_gpu_isolation(profile: str) -> None:
+    """Keep rendered workloads isolated from competing owners and service environment variables."""
     objects = list(yaml.safe_load_all(render(profile, DIGEST, VLM)))
     deployments = {obj["metadata"]["name"]: obj for obj in objects if obj["kind"] == "Deployment"}
     assert set(deployments) == {"camera-01", "vllm"}
@@ -33,8 +34,11 @@ def test_overlay_ownership_storage_images_and_gpu_isolation(profile):
         assert container["resources"]["limits"].get("nvidia.com/gpu", 0) == (1 if profile == "gpu" else 0)
         if name == "camera-01":
             assert pod["securityContext"]["runAsNonRoot"]
-        elif profile == "gpu":
-            assert not any(e["name"].startswith("VLLM_CPU") for e in container["env"])
+        else:
+            # The vllm Service otherwise sets VLLM_PORT=tcp://..., which prevents startup.
+            assert pod["enableServiceLinks"] is False
+            if profile == "gpu":
+                assert not any(e["name"].startswith("VLLM_CPU") for e in container["env"])
     assert len([o for o in objects if o["kind"] == "CronJob"]) == 2
     assert not any(o["kind"] in ("StatefulSet", "Secret") for o in objects)
     upgrade = list(yaml.safe_load_all(render(profile, DIGEST, VLM, upgrade=True)))

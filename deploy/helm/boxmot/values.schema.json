@@ -1,0 +1,1191 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "BoxMOT continuous camera deployment",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "fullnameOverride": {
+      "type": "string",
+      "pattern": "^$|^[a-z0-9]([-a-z0-9]{0,28}[a-z0-9])?$"
+    },
+    "image": {
+      "$ref": "#/definitions/image"
+    },
+    "imagePullPolicy": {
+      "enum": [
+        "Always",
+        "IfNotPresent",
+        "Never"
+      ]
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "$ref": "#/definitions/resourceName"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    "secretRevision": {
+      "type": "string"
+    },
+    "database": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "existingSecret": {
+          "$ref": "#/definitions/resourceName"
+        },
+        "urlKey": {
+          "$ref": "#/definitions/secretKey"
+        }
+      },
+      "required": [
+        "existingSecret",
+        "urlKey"
+      ]
+    },
+    "cameraDefaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "resources": {
+          "$ref": "#/definitions/resources"
+        },
+        "nodeSelector": {
+          "$ref": "#/definitions/stringMap"
+        },
+        "tolerations": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "affinity": {
+          "type": "object"
+        },
+        "runtimeClassName": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/resourceName"
+            },
+            {
+              "const": ""
+            }
+          ]
+        },
+        "serviceAccount": {
+          "$ref": "#/definitions/serviceAccount"
+        },
+        "podLabels": {
+          "$ref": "#/definitions/podLabels"
+        },
+        "podAnnotations": {
+          "$ref": "#/definitions/podAnnotations"
+        },
+        "suspend": {
+          "type": "boolean"
+        },
+        "secretRevision": {
+          "type": "string"
+        },
+        "config": {
+          "$ref": "#/definitions/streamConfig"
+        },
+        "env": {
+          "$ref": "#/definitions/cameraEnv"
+        },
+        "models": {
+          "$ref": "#/definitions/persistence"
+        },
+        "outputs": {
+          "$ref": "#/definitions/persistence"
+        },
+        "secretEnv": {
+          "$ref": "#/definitions/cameraSecretEnv"
+        }
+      },
+      "required": [
+        "resources",
+        "nodeSelector",
+        "tolerations",
+        "affinity",
+        "runtimeClassName",
+        "serviceAccount",
+        "podLabels",
+        "podAnnotations",
+        "suspend",
+        "secretRevision",
+        "config",
+        "env",
+        "models",
+        "outputs",
+        "secretEnv"
+      ]
+    },
+    "cameras": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z0-9]([-a-z0-9]{0,18}[a-z0-9])?$",
+        "not": {
+          "enum": [
+            "vllm",
+            "postgres",
+            "maintenance"
+          ]
+        }
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "resources": {
+            "$ref": "#/definitions/resourceOverrides"
+          },
+          "nodeSelector": {
+            "$ref": "#/definitions/stringMap"
+          },
+          "tolerations": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "affinity": {
+            "type": "object"
+          },
+          "runtimeClassName": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/resourceName"
+              },
+              {
+                "const": ""
+              }
+            ]
+          },
+          "serviceAccount": {
+            "$ref": "#/definitions/serviceAccountOverrides"
+          },
+          "podLabels": {
+            "$ref": "#/definitions/podLabels"
+          },
+          "podAnnotations": {
+            "$ref": "#/definitions/podAnnotations"
+          },
+          "suspend": {
+            "type": "boolean"
+          },
+          "secretRevision": {
+            "type": "string"
+          },
+          "config": {
+            "$ref": "#/definitions/streamConfigOverrides"
+          },
+          "env": {
+            "$ref": "#/definitions/cameraEnv"
+          },
+          "models": {
+            "$ref": "#/definitions/persistenceOverrides"
+          },
+          "outputs": {
+            "$ref": "#/definitions/persistenceOverrides"
+          },
+          "sourceSecret": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "$ref": "#/definitions/resourceName"
+              },
+              "key": {
+                "$ref": "#/definitions/secretKey"
+              }
+            },
+            "required": [
+              "name",
+              "key"
+            ]
+          },
+          "secretEnv": {
+            "$ref": "#/definitions/cameraSecretEnv"
+          }
+        },
+        "required": [
+          "sourceSecret"
+        ]
+      }
+    },
+    "vllm": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "resources": {
+          "$ref": "#/definitions/resources"
+        },
+        "nodeSelector": {
+          "$ref": "#/definitions/stringMap"
+        },
+        "tolerations": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "affinity": {
+          "type": "object"
+        },
+        "runtimeClassName": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/resourceName"
+            },
+            {
+              "const": ""
+            }
+          ]
+        },
+        "serviceAccount": {
+          "$ref": "#/definitions/serviceAccount"
+        },
+        "podLabels": {
+          "$ref": "#/definitions/podLabels"
+        },
+        "podAnnotations": {
+          "$ref": "#/definitions/podAnnotations"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "externalEndpoint": {
+          "type": "string"
+        },
+        "image": {
+          "$ref": "#/definitions/image"
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "revision": {
+          "type": "string",
+          "pattern": "^[a-fA-F0-9]{40}$"
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "env": {
+          "$ref": "#/definitions/vllmEnv"
+        },
+        "hfTokenSecret": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/resourceName"
+                },
+                {
+                  "const": ""
+                }
+              ]
+            },
+            "key": {
+              "$ref": "#/definitions/secretKey"
+            }
+          },
+          "required": [
+            "name",
+            "key"
+          ]
+        },
+        "persistence": {
+          "$ref": "#/definitions/persistence"
+        },
+        "shmSize": {
+          "$ref": "#/definitions/quantity"
+        },
+        "secretEnv": {
+          "$ref": "#/definitions/vllmSecretEnv"
+        }
+      },
+      "required": [
+        "resources",
+        "nodeSelector",
+        "tolerations",
+        "affinity",
+        "runtimeClassName",
+        "serviceAccount",
+        "podLabels",
+        "podAnnotations",
+        "enabled",
+        "externalEndpoint",
+        "image",
+        "model",
+        "revision",
+        "args",
+        "env",
+        "hfTokenSecret",
+        "persistence",
+        "shmSize",
+        "secretEnv"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "externalEndpoint": {
+                "const": ""
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "externalEndpoint": {
+                "type": "string",
+                "pattern": "^https?://[^\\s]+$"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "postgres": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "resources": {
+          "$ref": "#/definitions/resources"
+        },
+        "nodeSelector": {
+          "$ref": "#/definitions/stringMap"
+        },
+        "tolerations": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "affinity": {
+          "type": "object"
+        },
+        "runtimeClassName": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/resourceName"
+            },
+            {
+              "const": ""
+            }
+          ]
+        },
+        "serviceAccount": {
+          "$ref": "#/definitions/serviceAccount"
+        },
+        "podLabels": {
+          "$ref": "#/definitions/podLabels"
+        },
+        "podAnnotations": {
+          "$ref": "#/definitions/podAnnotations"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "image": {
+          "$ref": "#/definitions/image"
+        },
+        "database": {
+          "type": "string",
+          "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$"
+        },
+        "username": {
+          "type": "string",
+          "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$"
+        },
+        "passwordKey": {
+          "$ref": "#/definitions/secretKey"
+        },
+        "persistence": {
+          "$ref": "#/definitions/persistence"
+        }
+      },
+      "required": [
+        "resources",
+        "nodeSelector",
+        "tolerations",
+        "affinity",
+        "runtimeClassName",
+        "serviceAccount",
+        "podLabels",
+        "podAnnotations",
+        "enabled",
+        "image",
+        "database",
+        "username",
+        "passwordKey",
+        "persistence"
+      ]
+    },
+    "maintenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "resources": {
+          "$ref": "#/definitions/resources"
+        },
+        "nodeSelector": {
+          "$ref": "#/definitions/stringMap"
+        },
+        "tolerations": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "affinity": {
+          "type": "object"
+        },
+        "runtimeClassName": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/resourceName"
+            },
+            {
+              "const": ""
+            }
+          ]
+        },
+        "serviceAccount": {
+          "$ref": "#/definitions/serviceAccount"
+        },
+        "podLabels": {
+          "$ref": "#/definitions/podLabels"
+        },
+        "podAnnotations": {
+          "$ref": "#/definitions/podAnnotations"
+        },
+        "suspend": {
+          "type": "boolean"
+        },
+        "schedule": {
+          "type": "string",
+          "minLength": 9
+        },
+        "outputSchedule": {
+          "type": "string",
+          "minLength": 9
+        },
+        "retentionDays": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "activeDeadlineSeconds": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "resources",
+        "nodeSelector",
+        "tolerations",
+        "affinity",
+        "runtimeClassName",
+        "serviceAccount",
+        "podLabels",
+        "podAnnotations",
+        "suspend",
+        "schedule",
+        "outputSchedule",
+        "retentionDays",
+        "activeDeadlineSeconds"
+      ]
+    },
+    "migration": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]([-a-z0-9]{0,10}[a-z0-9])?$"
+        },
+        "activeDeadlineSeconds": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "enabled",
+        "id",
+        "activeDeadlineSeconds"
+      ]
+    },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "additionalVllmIngress": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      },
+      "required": [
+        "enabled",
+        "additionalVllmIngress"
+      ]
+    },
+    "monitoring": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "serviceMonitor": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "labels": {
+              "$ref": "#/definitions/podLabels"
+            },
+            "interval": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*(ms|s|m|h)$"
+            },
+            "scrapeTimeout": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*(ms|s|m|h)$"
+            }
+          },
+          "required": [
+            "enabled",
+            "labels",
+            "interval",
+            "scrapeTimeout"
+          ]
+        }
+      },
+      "required": [
+        "serviceMonitor"
+      ]
+    }
+  },
+  "required": [
+    "fullnameOverride",
+    "image",
+    "imagePullPolicy",
+    "imagePullSecrets",
+    "secretRevision",
+    "database",
+    "cameraDefaults",
+    "cameras",
+    "vllm",
+    "postgres",
+    "maintenance",
+    "migration",
+    "networkPolicy",
+    "monitoring"
+  ],
+  "definitions": {
+    "quantity": {
+      "oneOf": [
+        {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        {
+          "type": "string",
+          "pattern": "^(?:[1-9][0-9]*(?:\\.[0-9]+)?|0?\\.[0-9]*[1-9][0-9]*)(?:[EPTGMK]i|[EPTGMkKmun]|[eE][+-]?[0-9]+)?$"
+        }
+      ]
+    },
+    "image": {
+      "type": "string",
+      "pattern": "^[^\\s@]+@sha256:[a-fA-F0-9]{64}$"
+    },
+    "resourceName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 253,
+      "pattern": "^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$"
+    },
+    "secretKey": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "stringMap": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requests": {
+          "type": "object",
+          "properties": {
+            "cpu": {
+              "$ref": "#/definitions/quantity"
+            },
+            "memory": {
+              "$ref": "#/definitions/quantity"
+            }
+          },
+          "required": [
+            "cpu",
+            "memory"
+          ],
+          "additionalProperties": {
+            "$ref": "#/definitions/quantity"
+          }
+        },
+        "limits": {
+          "type": "object",
+          "properties": {
+            "cpu": {
+              "$ref": "#/definitions/quantity"
+            },
+            "memory": {
+              "$ref": "#/definitions/quantity"
+            }
+          },
+          "required": [
+            "cpu",
+            "memory"
+          ],
+          "additionalProperties": {
+            "$ref": "#/definitions/quantity"
+          }
+        }
+      },
+      "required": [
+        "requests",
+        "limits"
+      ]
+    },
+    "resourceOverrides": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requests": {
+          "type": "object",
+          "properties": {
+            "cpu": {
+              "$ref": "#/definitions/quantity"
+            },
+            "memory": {
+              "$ref": "#/definitions/quantity"
+            }
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/quantity"
+          }
+        },
+        "limits": {
+          "type": "object",
+          "properties": {
+            "cpu": {
+              "$ref": "#/definitions/quantity"
+            },
+            "memory": {
+              "$ref": "#/definitions/quantity"
+            }
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/quantity"
+          }
+        }
+      }
+    },
+    "persistence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "existingClaim": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/resourceName"
+            },
+            {
+              "const": ""
+            }
+          ]
+        },
+        "storageClass": {
+          "type": "string"
+        },
+        "size": {
+          "$ref": "#/definitions/quantity"
+        },
+        "accessModes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "ReadWriteOnce",
+              "ReadWriteMany",
+              "ReadOnlyMany",
+              "ReadWriteOncePod"
+            ]
+          }
+        },
+        "retain": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "existingClaim",
+        "storageClass",
+        "size",
+        "accessModes",
+        "retain"
+      ]
+    },
+    "persistenceOverrides": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "existingClaim": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/resourceName"
+            },
+            {
+              "const": ""
+            }
+          ]
+        },
+        "storageClass": {
+          "type": "string"
+        },
+        "size": {
+          "$ref": "#/definitions/quantity"
+        },
+        "accessModes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "ReadWriteOnce",
+              "ReadWriteMany",
+              "ReadOnlyMany",
+              "ReadWriteOncePod"
+            ]
+          }
+        },
+        "retain": {
+          "type": "boolean"
+        }
+      }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "create": {
+          "type": "boolean"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/resourceName"
+            },
+            {
+              "const": ""
+            }
+          ]
+        },
+        "annotations": {
+          "$ref": "#/definitions/stringMap"
+        }
+      },
+      "required": [
+        "create",
+        "name",
+        "annotations"
+      ]
+    },
+    "serviceAccountOverrides": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "create": {
+          "type": "boolean"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/resourceName"
+            },
+            {
+              "const": ""
+            }
+          ]
+        },
+        "annotations": {
+          "$ref": "#/definitions/stringMap"
+        }
+      }
+    },
+    "podLabels": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "propertyNames": {
+        "not": {
+          "pattern": "^(app\\.kubernetes\\.io/|helm\\.sh/chart$|boxmot\\.io/camera$)"
+        }
+      }
+    },
+    "podAnnotations": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "propertyNames": {
+        "not": {
+          "pattern": "^(checksum/config$|boxmot\\.io/(camera-)?secret-revision$)"
+        }
+      }
+    },
+    "cameraEnv": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+        "not": {
+          "enum": [
+            "BOXMOT_CAMERA_URL",
+            "BOXMOT_ATTRIBUTES_DATABASE_URL",
+            "USER",
+            "HOME",
+            "XDG_CACHE_HOME",
+            "YOLO_CONFIG_DIR",
+            "MPLCONFIGDIR",
+            "TORCHINDUCTOR_CACHE_DIR"
+          ]
+        }
+      },
+      "additionalProperties": {
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "vllmEnv": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+        "not": {
+          "enum": [
+            "HF_HOME",
+            "HOME",
+            "VLLM_CACHE_ROOT",
+            "HF_TOKEN"
+          ]
+        }
+      },
+      "additionalProperties": {
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "tracking": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "detector": {
+          "type": "string"
+        },
+        "tracker": {
+          "type": "string",
+          "not": {
+            "const": "edgetam"
+          }
+        },
+        "reid": {
+          "type": "string"
+        },
+        "device": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "half": {
+          "type": "boolean"
+        },
+        "conf": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "iou": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "imgsz": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          ]
+        },
+        "classes": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "geometry": {
+          "type": "string"
+        },
+        "tracker_config": {
+          "type": [
+            "object",
+            "string"
+          ]
+        },
+        "tracker_backend": {
+          "type": "string"
+        },
+        "per_class": {
+          "type": "boolean"
+        },
+        "variable_dt": {
+          "type": "boolean"
+        }
+      }
+    },
+    "streamConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "attributes": {
+          "type": [
+            "string",
+            "object"
+          ]
+        },
+        "tracking": {
+          "$ref": "#/definitions/tracking"
+        },
+        "retention_days": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "rotation_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_pending_jobs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_crop_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_frame_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "capture_timeout_s": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "reconnect_max_s": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "ready_timeout_s": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "rotation_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      },
+      "required": [
+        "attributes",
+        "retention_days",
+        "tracking"
+      ]
+    },
+    "streamConfigOverrides": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "attributes": {
+          "type": [
+            "string",
+            "object"
+          ]
+        },
+        "tracking": {
+          "$ref": "#/definitions/tracking"
+        },
+        "retention_days": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "rotation_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_pending_jobs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_crop_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_frame_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "capture_timeout_s": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "reconnect_max_s": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "ready_timeout_s": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "rotation_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "cameraSecretEnv": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+        "not": {
+          "enum": [
+            "BOXMOT_CAMERA_URL",
+            "BOXMOT_ATTRIBUTES_DATABASE_URL",
+            "USER",
+            "HOME",
+            "XDG_CACHE_HOME",
+            "YOLO_CONFIG_DIR",
+            "MPLCONFIGDIR",
+            "TORCHINDUCTOR_CACHE_DIR"
+          ]
+        }
+      },
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "$ref": "#/definitions/resourceName"
+              },
+              "key": {
+                "$ref": "#/definitions/secretKey"
+              }
+            },
+            "required": [
+              "name",
+              "key"
+            ]
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    "vllmSecretEnv": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+        "not": {
+          "enum": [
+            "HF_HOME",
+            "HOME",
+            "VLLM_CACHE_ROOT",
+            "HF_TOKEN"
+          ]
+        }
+      },
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "$ref": "#/definitions/resourceName"
+              },
+              "key": {
+                "$ref": "#/definitions/secretKey"
+              }
+            },
+            "required": [
+              "name",
+              "key"
+            ]
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    }
+  }
+}

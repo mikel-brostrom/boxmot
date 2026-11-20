@@ -1,0 +1,15 @@
+{{- if .Values.migration.enabled }}
+{{- $settings := .Values.maintenance }}
+{{- $ctx := dict "root" . "settings" $settings "name" (printf "%s-maintenance" (include "boxmot.fullname" .)) "component" "migration" "command" (list "boxmot" "stream-db" "upgrade") }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "boxmot.fullname" . }}-db-upgrade-{{ .Values.migration.id }}
+  labels:
+    {{- include "boxmot.labels" $ctx | nindent 4 }}
+spec:
+  activeDeadlineSeconds: {{ .Values.migration.activeDeadlineSeconds }}
+  backoffLimit: 0
+  template:
+    {{- include "boxmot.maintenancePod" $ctx | nindent 4 }}
+{{- end }}

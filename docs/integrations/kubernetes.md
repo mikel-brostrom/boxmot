@@ -1,182 +1,410 @@
 # Continuous cameras on Kubernetes
 
 `boxmot stream` runs one network camera with embedded attribute extraction,
-shared model serving, and an existing PostgreSQL database. The examples in
-`deploy/kubernetes` provide CPU and GPU profiles and save JSON metadata only.
-The finite `boxmot track` workflow remains available for files and previews.
+shared model serving, and PostgreSQL. The Helm chart in `deploy/helm/boxmot`
+generates one worker and output-maintenance job per camera, with optional vLLM
+and local PostgreSQL. It saves JSON metadata only. The finite `boxmot track`
+workflow remains available for files and previews.
+
+Use Helm for new deployments. The existing Kustomize examples remain available
+for installations already using them; see [Existing Kustomize deployments](#existing-kustomize-deployments).
 
 ## Requirements
 
-- Kubernetes, `kubectl` with [Kustomize](https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/), and a registry accessible to the nodes.
-- PostgreSQL 16 or newer, reachable from camera and maintenance pods. The examples **do not install PostgreSQL**.
-- A storage class supporting `ReadWriteMany` for outputs, and `ReadWriteOnce` for model caches. Set `storageClassName` explicitly for your cluster.
-- Network routes from pods to the cameras and model server, and access to model repositories during preparation.
-- Images containing this change, pinned by digest. Published older BoxMOT images do not contain `stream`.
+- Kubernetes, `kubectl`, Helm with OCI registry support, and a registry accessible to the nodes.
+- PostgreSQL 16 or newer, reachable from camera and maintenance pods. Use the optional bundled database for local validation, and an externally managed database for production.
+- RWX output storage with durable file and directory `fsync` and atomic rename; RWO model caches. The single-node Minikube example uses RWO outputs.
+- Network routes from pods to cameras and the model server, plus model-repository access during preparation.
+- Images from this implementation, pinned by digest. Older BoxMOT images may not contain `stream`.
 
-The CPU example uses the `cli-cpu` BoxMOT target and an x86-64 vLLM CPU image
-supporting `Qwen/Qwen3.5-0.8B`. Confirm the serving image supports the model and
-BF16 on your CPU; use the image provider's CPU requirements when selecting nodes.
-CPU inference is useful for low frame rates and functional validation; measure
-your camera workload before choosing resources.
+The CPU defaults use the `cli-cpu` BoxMOT target, a pinned x86-64 vLLM CPU
+image, and a pinned revision of `Qwen/Qwen3.5-0.8B`. Verify the serving image's
+CPU instruction requirements on your nodes. CPU inference is useful for
+functional validation and low frame rates; measure your workload before sizing
+production resources.
 
-The GPU example uses `cli-gpu` (CUDA 13.0 PyTorch) and a compatible vLLM CUDA
-image. Install a compatible NVIDIA driver, container runtime integration, and
-the [NVIDIA device plugin](https://kubernetes.io/docs/tasks/manage-gpus/scheduling-gpus/).
-Each camera requests one GPU and vLLM requests another: one camera needs **two
-allocatable GPUs**. They may occupy different nodes. Disable GPU time slicing
-for this resource pool if physically separate devices are required. Configure
-GPU node selectors, tolerations, and `runtimeClassName` for your cluster.
+## Build once and identify a release
 
-## Build and publish
-
-Run from the repository root, replacing the registry and release name:
+Build the camera image from the code you intend to deploy. Replace the registry
+and candidate tag, then record the resulting digest:
 
 ```bash
 docker buildx build -f docker/Dockerfile --target cli-cpu \
-  -t registry.example.com/boxmot:stream-cpu --push .
-docker buildx build -f docker/Dockerfile --target cli-gpu \
-  -t registry.example.com/boxmot:stream-gpu --push .
-docker buildx imagetools inspect registry.example.com/boxmot:stream-cpu
+  -t registry.example.com/boxmot:stream-candidate --push .
+docker buildx imagetools inspect registry.example.com/boxmot:stream-candidate
 ```
 
-Record the resulting digest. Select and test a vLLM CPU or CUDA image with the
-same small-model arguments used by the existing [Compose setup](docker.md).
-Mirror that image to your registry if needed and record its digest as well.
-Supply registry credentials through your cluster's image-pull configuration.
-
-The base deliberately contains unresolved image names. Use the renderer, which
-rejects mutable tags, to produce deployable manifests:
-
-```bash
-export CAMERA_IMAGE='registry.example.com/boxmot@sha256:REPLACE_WITH_REAL_DIGEST'
-export VLM_IMAGE='registry.example.com/vllm@sha256:REPLACE_WITH_REAL_DIGEST'
-uv run --no-sync python -m deploy.kubernetes.render --profile cpu \
-  --camera-image "$CAMERA_IMAGE" --vlm-image "$VLM_IMAGE" > /tmp/boxmot.yaml
-```
-
-Choose `--profile gpu` with GPU image digests for the GPU overlay. The digest
-must contain 64 hexadecimal characters. Keep the rendered manifests with your
-release configuration. Raw `kubectl kustomize deploy/kubernetes/overlays/cpu`
-and `.../gpu` are also useful for structural review, but still contain image
-placeholders.
-
-## Configure cameras, storage, and Secrets
-
-Edit the overlay's `stream.yaml` (the CPU overlay uses `base/stream.yaml`).
-Secrets supply URLs; keep credentials out of ConfigMaps:
+The chart requires `image: repository@sha256:<64 hex digits>`; it has no default
+camera image. Save that reference in a release values file:
 
 ```yaml
-camera_id: camera-01
-source_url_env: BOXMOT_CAMERA_URL
-attributes: person-appearance-vllm-cpu
-attributes_host: http://vllm:8000
-output_dir: /outputs
-health_port: 8080
-retention_days: 7
-tracking:
-  detector: yolo26n
-  tracker: bytetrack
-  reid: osnet-x0-25-msmt17
-  device: cpu
+# release-images.yaml: replace this placeholder with your published digest.
+image: registry.example.com/boxmot@sha256:YOUR_64_HEX_DIGEST
 ```
 
-The GPU profile selects BoT-SORT and `device: "0"`, the GPU exposed inside the
-camera container. The small attribute profile works with either server device.
-For external Ollama, set `attributes: person-appearance-ollama` and
-`attributes_host` to its reachable URL, prepare that profile's model on Ollama,
-and omit the vLLM Deployment, Service, and PVC from your customized deployment.
+Record any overrides to `vllm.image`, `vllm.model`, `vllm.revision` and
+`postgres.image` in the same file. The chart pins its default serving/database
+images and model revision. An image digest does not pin downloaded weights.
+Keep these five identities with each deployment:
 
-The initial workflow accepts network URLs such as RTSP and HTTP. Local video
-files and USB camera indices belong to `track`. Camera IDs allow letters,
-digits, underscores and hyphens, up to 63 characters. Unknown stream settings
-are rejected. Detector/ReID profiles and tracker options use the existing
-engine configuration resolution; custom profile paths must exist inside the
-container, usually through another ConfigMap mount.
+| Identity | Purpose |
+| --- | --- |
+| Chart version | Kubernetes templates and values interface; versioned independently. |
+| `appVersion` | Informational BoxMOT application version; never substitutes for an image digest. |
+| Image digests | Exact camera, serving and optional database container artifacts. |
+| Model revision | Exact Hugging Face model snapshot served by vLLM. |
+| Environment values commit | Camera IDs, resources, storage, scheduling and Secret references. |
 
-Create the namespace and pre-existing Secrets. The files below should contain
-only the corresponding URL, without a trailing newline. Use your secret manager
-or a protected temporary directory, and remove the local files afterward:
+Promote the same tested digests from local validation to staging and production.
+Environment tags are convenient pointers; keep digest references in Helm values.
+The image-promotion workflow retags the BoxMOT image from a successful
+integration run and retains the serving/model identities without rebuilding.
+It does not apply a Helm release to a cloud cluster.
+
+Maintainers can start CPU validation and then promote its successful run:
 
 ```bash
-kubectl apply -f deploy/kubernetes/base/namespace.yaml
-kubectl -n boxmot-streams create secret generic attributes-database \
-  --from-file=url=/secure/postgres-url
-kubectl -n boxmot-streams create secret generic camera-01 \
-  --from-file=url=/secure/camera-url
+gh workflow run helm.yml -f image='boxmot/boxmot@sha256:YOUR_64_HEX_DIGEST'
+gh workflow run promote-images.yml -f validation_run_id=SUCCESSFUL_RUN_ID \
+  -f environment=staging
 ```
 
-The PostgreSQL role needs permission to create/upgrade `boxmot_attributes` and
-read/write its tables and sequences. Use a TLS PostgreSQL URL appropriate to
-your deployment. The database must preserve state across pod replacements.
+Use `environment=production` for the subsequent promotion. The workflow records
+the tested image/model identities and chart source commit, and verifies that
+the promoted image digest matches. The chart commit does not establish the
+source commit of an independently supplied image; retain its build provenance
+as well. Promotion requires the repository's Docker Hub credentials; configure
+GitHub environments if deployment approval gates are required.
 
-Default PVC requests are 20 GiB per camera for output, 10 GiB for its detector
-and ReID cache, and 20 GiB for the shared VLM cache. Output storage must implement
-durable file and directory `fsync` and atomic rename. Camera workers run as
-UID/GID 10001; ensure volumes are writable by that identity. The output
-maintenance Job shares the output claim, so it requires RWX across nodes.
-RWO-only installations need their own maintenance scheduling/storage design.
+Scheduled validation needs repository variable `BOXMOT_HELM_IMAGE`, with optional
+`BOXMOT_HELM_VLLM_IMAGE` and `BOXMOT_HELM_RUNNER`. Its runner must have Docker,
+8 CPUs, at least 16 GiB RAM and 25 GiB free disk for the isolated cluster and
+model downloads. GPU execution remains a hardware-specific check.
 
-Size output storage as measured JSON bytes/second × 604800 seconds plus
-headroom for open segments and replay. Seven-day retention is a minimum age
-for deletion, not a hard disk quota: unacknowledged work is protected. PostgreSQL
-needs room for at most 256 MiB of queued crops per camera, retained events,
-indexes and WAL. Monitor both database and PVC free space.
+Chart releases use tags `boxmot-chart-X.Y.Z` and publish to
+`oci://ghcr.io/<repository-owner>/charts/boxmot`. Select an explicit chart
+version when consuming a published package:
+
+```bash
+helm upgrade --install boxmot oci://ghcr.io/YOUR_OWNER/charts/boxmot \
+  --version X.Y.Z --namespace boxmot-streams --create-namespace \
+  -f environment.yaml -f release-images.yaml --wait --timeout 30m
+```
+
+Do not assume a chart package exists until its release workflow has succeeded.
+The publishing workflow requires the tag to match `Chart.yaml` and a commit on
+the default branch; it refuses to replace an existing chart version. Increase
+the chart version when releasing template or default-value changes.
+The source-chart commands below work before publication. Registry credentials
+belong in the cluster's image-pull configuration, referenced with
+`imagePullSecrets` when necessary.
+
+## Start on Minikube
+
+Use an existing cluster or create a separate development profile. The example
+budgets suit an initial one-camera trial on an 8-CPU, 10-GiB node; reserve host
+memory and disk for the cluster, downloaded weights and retained metadata.
+
+```bash
+minikube start -p boxmot-helm --cpus 8 --memory 10240
+kubectl create namespace boxmot-helm
+cp deploy/helm/examples/minikube.yaml environment.yaml
+```
+
+Create the Secrets outside Helm. In a protected local directory, prepare files
+containing only the camera URL, PostgreSQL password, and PostgreSQL URL, without
+trailing newlines. For release `boxmot`, the bundled database URL is
+`postgresql://boxmot:PERCENT_ENCODED_PASSWORD@boxmot-postgres:5432/boxmot`; the
+password must match the separate password file. Use your secret manager in
+production, and remove local secret files after creation.
+
+```bash
+kubectl -n boxmot-helm create secret generic attributes-database \
+  --from-file=url=/secure/postgres-url --from-file=password=/secure/postgres-password
+kubectl -n boxmot-helm create secret generic camera-01 \
+  --from-file=url=/secure/camera-url
+helm lint deploy/helm/boxmot -f environment.yaml -f release-images.yaml
+helm template boxmot deploy/helm/boxmot --namespace boxmot-helm \
+  -f environment.yaml -f release-images.yaml > /tmp/boxmot-helm.yaml
+kubectl -n boxmot-helm apply --dry-run=server -f /tmp/boxmot-helm.yaml
+helm upgrade --install boxmot deploy/helm/boxmot --namespace boxmot-helm \
+  -f environment.yaml -f release-images.yaml --wait --timeout 30m
+kubectl -n boxmot-helm rollout status deployment/boxmot-camera-01 --timeout=1800s
+```
+
+An existing schema version 1 database needs the [explicit upgrade](#upgrade-the-schema-and-install)
+before camera clients start. A new database initializes automatically. The
+PostgreSQL role must be able to create the `boxmot_attributes` schema and
+read/write its tables and sequences.
+
+Network camera URLs include RTSP and HTTP. USB camera indices and local files
+belong to `track`; publish a built-in webcam as a network stream reachable from
+the cluster before using it here. The CPU integration harness supplies its own
+bundled fixture camera for repeatable validation.
+
+## Configure cameras and dependencies
+
+Camera map keys are stable IDs, using lowercase DNS labels of at most 20
+characters. Release names or `fullnameOverride` must be DNS labels of at most
+30 characters; the release/fullname and camera ID lengths combined must not
+exceed 44, so generated CronJob names fit Kubernetes limits. The chart rejects
+invalid IDs instead of truncating them. A
+second camera requires a Secret and another map entry:
+
+```yaml
+cameras:
+  camera-01:
+    sourceSecret: {name: camera-01, key: url}
+  loading-bay:
+    sourceSecret: {name: loading-bay-camera, key: stream-url}
+    config:
+      tracking:
+        detector: yolo26n
+        tracker: bytetrack
+        device: cpu
+        classes: [0]
+      retention_days: 7
+    resources:
+      requests: {cpu: "2", memory: 2Gi}
+      limits: {cpu: "4", memory: 4Gi}
+```
+
+Each entry produces its Deployment, ConfigMap, output/model claim references
+and output-maintenance CronJob. Settings merge over `cameraDefaults`; set an
+unwanted default camera entry to `null` when layering values. The chart owns
+`camera_id`, `source_url_env`, `attributes_host`, `output_dir` and `health_port`.
+Other supported stream settings belong in `config`. Detector/ReID profiles and
+tracker settings use the normal engine configuration resolution; custom paths
+must already exist in the selected image.
+
+Keep each camera at one replica with `Recreate`. Stable IDs identify PostgreSQL
+leases across releases and namespaces: two releases sharing a database and
+camera ID compete for the same camera. Use a separate database for staging or
+validation. Do not attach an HPA to camera Deployments.
+
+The default vLLM service is internal. For a separately operated server, omit the
+bundled deployment and supply its reachable endpoint:
+
+```yaml
+vllm:
+  enabled: false
+  externalEndpoint: https://vlm.internal.example
+postgres:
+  enabled: false
+database:
+  existingSecret: production-attributes-database
+  urlKey: url
+```
+
+Selecting both bundled vLLM and an external endpoint is rejected. For external
+Ollama, additionally set `cameraDefaults.config.attributes` to
+`person-appearance-ollama` and prepare that profile's model on the server. The
+external server operator owns its image and model revision. Camera credentials
+and database URLs are injected by individual Secret keys; the chart does not
+store them in Helm values or ConfigMaps.
+
+For authenticated model serving, `cameraDefaults.secretEnv` (or a per-camera
+`secretEnv`) injects individual Secret keys. The attribute configuration must
+also select that environment variable through `api_key_env`; the built-in
+profiles do not enable API-key authentication. This complete inline example
+uses the existing Secret `model-api`, key `token`, for both client and bundled
+vLLM server, and extracts one clothing field:
+
+```yaml
+cameraDefaults:
+  secretEnv:
+    ATTRIBUTE_API_TOKEN: {name: model-api, key: token}
+  config:
+    attributes:
+      backend: vllm
+      model: Qwen/Qwen3.5-0.8B
+      api_key_env: ATTRIBUTE_API_TOKEN
+      class_ids: [0]
+      sample_every: 30
+      batch_size: 1
+      request_timeout_s: 600
+      prompt: Describe visible upper-body clothing and its main color. Use Unknown if unclear.
+      schema:
+        type: object
+        additionalProperties: false
+        required: [upper_body_clothing]
+        properties:
+          upper_body_clothing: {type: string, minLength: 1, maxLength: 80}
+vllm:
+  secretEnv:
+    VLLM_API_KEY: {name: model-api, key: token}
+```
+
+`VLLM_API_KEY` enables [vLLM API-key authentication](https://docs.vllm.ai/en/stable/getting_started/quickstart/).
+For an external server, apply the client portion and configure authentication
+on that server separately. Keep literal secrets out of `env`, values files and
+command arguments. `env` and `secretEnv` cannot define the same variable;
+chart-owned variables cannot be overridden. Set an inherited `secretEnv` entry
+to `null` to remove it.
+
+With bundled vLLM, the camera's attribute model must match `vllm.model`.
+The default `person-appearance-vllm-cpu` profile expects `Qwen/Qwen3.5-0.8B`;
+`person-appearance-vllm` expects `Qwen/Qwen3.5-9B`. Changing the served model
+requires a matching profile or complete inline attribute configuration, a
+real revision belonging to that model, and suitable serving resources.
+The chart rejects known profile/backend mismatches and model-name overrides in
+`vllm.args`. A custom attribute file must already exist in the image and contain
+the matching model/backend and, when needed, `api_key_env`; Helm cannot inspect
+that file's contents.
+
+Config changes update a checksum and restart the affected camera. External
+Secret content is not visible to Helm: after rotation, increment
+`cameras.<id>.secretRevision` for a camera URL, or root `secretRevision` for
+shared database/model credentials, then upgrade. Coordinate PostgreSQL password
+rotation with the database itself; changing a Secret does not change the
+password in an already initialized database.
+
+## Storage, scheduling and cloud deployment
+
+Every persistence block supports `storageClass`, `size`, `accessModes`,
+`existingClaim` and `retain`. Empty `storageClass` uses the cluster default;
+`"-"` explicitly requests no class. Default capacities are 20 GiB of output
+and 10 GiB of models per camera, plus 20 GiB for vLLM. A pre-existing claim is
+referenced without being created or deleted. Chart-created PVCs default to
+`retain: true` and are kept on uninstall; changing that policy requires an
+explicit data-lifecycle decision. Retained claims remain your responsibility
+and should be deliberately reused with `existingClaim` when reinstalling.
+
+Camera workers use UID/GID 10001. Ensure their volumes are writable and support
+durable file/directory `fsync` and atomic rename. Output maintenance shares the
+camera claim, so production output storage needs RWX across nodes. RWO output
+claims are suitable for the single-node Minikube example; multi-node RWO use
+requires an explicit placement/storage design for both workloads. PVC access
+modes alone do not establish filesystem durability.
+
+Camera, vLLM, PostgreSQL and maintenance each accept independent `resources`,
+`nodeSelector`, `tolerations`, `affinity`, `runtimeClassName`, `serviceAccount`,
+`podLabels` and `podAnnotations`. Service-account tokens are not automatically
+mounted. Create or reference accounts and add provider annotations/labels as
+needed; cloud identity associations and permissions are provisioned separately.
+
+Start an AKS or EKS environment from `deploy/helm/examples/aks.yaml` or
+`eks.yaml`, replacing the referenced storage and Secrets with provisioned
+resources. Those examples use an external PostgreSQL URL and existing RWX
+output claims. Set up node pools, CSI drivers, managed database backups, TLS,
+private camera connectivity and cloud identity outside Helm. Check actual
+storage-class names and availability in your cluster before installation. The
+AKS example uses [Azure Disk model caches](https://learn.microsoft.com/en-us/azure/aks/create-volume-azure-disk)
+and an operator-provisioned [Azure Files output claim](https://learn.microsoft.com/azure/aks/create-volume-azure-files).
+The EKS example uses [EBS model caches](https://docs.aws.amazon.com/eks/latest/userguide/ebs-csi.html)
+and an existing [EFS output claim](https://docs.aws.amazon.com/eks/latest/userguide/efs-csi.html).
+EKS Auto Mode uses a different EBS provisioner from the standard CSI driver;
+configure the referenced storage class for your node type.
+Remote cameras need a reachable private route or an appropriately secured
+publisher; a laptop's device path cannot be mounted into a cloud node.
+
+GPU serving and GPU tracking are independent. Add
+`deploy/helm/examples/gpu-vllm.yaml` after your environment values and supply a
+compatible CUDA `vllm.image` digest to keep camera tracking on CPU while vLLM
+requests one GPU. For GPU tracking, use a `cli-gpu` BoxMOT image, set the camera's
+`config.tracking.device: "0"`, and add `nvidia.com/gpu: 1` to that camera's
+resource requests and limits. One GPU camera plus one GPU vLLM server needs
+two allocatable GPUs. Configure NVIDIA drivers, runtime/device plugin,
+selectors and tolerations for the chosen pools; verify device assignment on
+real hardware.
+
+The chart can enable ingress policies with `networkPolicy.enabled: true` on a
+cluster whose CNI enforces NetworkPolicy. They restrict bundled PostgreSQL to
+this release's database clients and bundled vLLM to its camera workers.
+`networkPolicy.additionalVllmIngress` admits explicitly selected extra clients,
+such as a metrics scraper. These policies do not restrict egress, secure an
+external server, or establish private cloud connectivity.
+
+If Prometheus Operator and its `ServiceMonitor` CRD already exist, set
+`monitoring.serviceMonitor.enabled: true` to scrape bundled vLLM's `/metrics`.
+Configure `monitoring.serviceMonitor.labels` for your Prometheus selector, and
+allow the scraper through `additionalVllmIngress` when ingress policies are
+enabled. This provides serving metrics; camera readiness and end-to-end
+attribute age still need separate observation. Prometheus itself is not
+installed by this chart.
 
 ## Prepare models
 
-The camera profiles download missing detector/ReID checkpoints into
-`/opt/boxmot/models`; vLLM uses `HF_HOME=/models/huggingface`. Persist these caches
-before admitting production traffic. The startup probes allow up to thirty
-minutes for loading, including initial downloads. Increase this deliberately
-if preparation needs longer.
+Camera profiles download detector/ReID checkpoints into `/opt/boxmot/models`;
+vLLM uses `HF_HOME=/models/huggingface`. Persist these caches before admitting
+production traffic. Startup probes allow thirty minutes for loading and first
+downloads. Prepare caches using the exact images and hardware being deployed.
 
-For restricted networks, stage the checkpoints named by
+In restricted networks, stage the checkpoints named in
 `boxmot/configs/detectors/yolo26n.yaml` and
-`boxmot/configs/reid/osnet-x0-25-msmt17.yaml` into the camera model PVC using a
-temporary preparation pod. Stage a complete Hugging Face snapshot of
-`Qwen/Qwen3.5-0.8B` into the VLM cache PVC using the selected serving image's
-`hf download Qwen/Qwen3.5-0.8B` command with that `HF_HOME`. Mount the same claims
-and use the camera UID for camera files. Stop the preparation pods before
-starting Deployments using RWO caches. Pin the model revision when preparing
-your release; the image digest alone does not pin downloaded model weights.
-
-For private model repositories, provide `HF_TOKEN` through a separate Secret.
-Prepare caches and verify inference using the exact images and hardware you
-will deploy. No model weights or credentials are included in the repository.
+`boxmot/configs/reid/osnet-x0-25-msmt17.yaml` using a temporary preparation pod.
+Stage the complete Hugging Face snapshot selected by `vllm.model` and
+`vllm.revision` into its cache with the serving image's `hf download` command
+and `--revision`. Use UID 10001 for camera files, and stop preparation pods
+before starting Deployments that use the same RWO claims. Private repositories
+can use `vllm.hfTokenSecret: {name: model-token, key: token}`. The chart passes the
+pinned revision as both model and tokenizer revisions to `vllm serve`; weights
+and credentials are not in the chart.
 
 ## Upgrade the schema and install
 
-The additive schema version 2 preserves version 1 runs, crops and outcomes. New
-databases can initialize automatically. An existing version 1 schema requires
-an explicit upgrade; application startup will not reset or silently migrate it.
+Schema version 2 preserves version 1 runs, crops and outcomes. New databases
+initialize automatically; an existing version 1 database requires an explicit
+upgrade. Helm never runs migrations as an install/upgrade hook.
 
-1. Back up PostgreSQL and stop all existing attribute clients, including finite `track` jobs. Suspend maintenance during the upgrade.
-2. Create the namespace and Secrets, then render the dedicated upgrade Job.
-3. Wait for the Job to succeed before starting the new camera and maintenance workloads.
+1. Stop every attribute client using this database, including finite `track` jobs and other releases. Suspend camera Deployments and maintenance schedules first. Suspending a CronJob does not stop a Job already running; wait for those Jobs and camera pods to finish.
+2. Back up PostgreSQL using your managed database's backup procedure or `pg_dump`. Verify the backup is restorable before proceeding.
+3. Enable the one-off migration with a unique operation ID and wait for completion.
+4. Archive its logs, disable migration, and restore the camera/maintenance settings.
+
+For the one-camera example, use the same environment and release-image files
+for every phase. Explicitly suspend any additional camera with a per-camera
+`suspend: false` override as well:
 
 ```bash
-uv run --no-sync python -m deploy.kubernetes.render --profile cpu \
-  --camera-image "$CAMERA_IMAGE" --vlm-image "$VLM_IMAGE" --upgrade > /tmp/boxmot-upgrade.yaml
-kubectl apply -f /tmp/boxmot-upgrade.yaml
-kubectl -n boxmot-streams wait --for=condition=complete \
-  job/attribute-schema-upgrade --timeout=900s
-kubectl apply --dry-run=server -f /tmp/boxmot.yaml
-kubectl apply -f /tmp/boxmot.yaml
-kubectl -n boxmot-streams rollout status deployment/vllm --timeout=1800s
-kubectl -n boxmot-streams rollout status deployment/camera-01 --timeout=1800s
+helm upgrade --install boxmot deploy/helm/boxmot --namespace boxmot-helm \
+  -f environment.yaml -f release-images.yaml \
+  --set cameraDefaults.suspend=true --set maintenance.suspend=true
+kubectl -n boxmot-helm get pods,jobs
 ```
 
-The upgrade can also run directly with `boxmot stream-db upgrade`. It is
-idempotent. Before another upgrade, archive the previous Job's logs and delete
-that completed Job so Kubernetes can create a new one with changed images.
-The upgrade allows ten minutes per SQL statement and thirty seconds to acquire
-locks; the Job has a fifteen-minute deadline. Plan a longer maintenance window
-and adjust these limits before upgrading unusually large histories.
+After all clients stop, back up the bundled local database; store backups
+outside the cluster and protect them as application data:
 
-Keep previous image digests and configuration for rollback. Version 1 clients
-reject the version 2 schema: rolling back to them requires restoring the
-matching database backup, not deleting or downgrading the live schema. Rollbacks
-between releases that both support version 2 can retain the database.
+```bash
+umask 077
+kubectl -n boxmot-helm exec deployment/boxmot-postgres -- \
+  pg_dump -U boxmot -d boxmot --format=custom > boxmot-before-upgrade.dump
+helm upgrade boxmot deploy/helm/boxmot --namespace boxmot-helm \
+  -f environment.yaml -f release-images.yaml \
+  --set cameraDefaults.suspend=true --set maintenance.suspend=true \
+  --set migration.enabled=true --set-string migration.id=v2-001
+kubectl -n boxmot-helm wait --for=condition=complete \
+  job/boxmot-db-upgrade-v2-001 --timeout=900s
+kubectl -n boxmot-helm logs job/boxmot-db-upgrade-v2-001 > schema-upgrade.log
+helm upgrade boxmot deploy/helm/boxmot --namespace boxmot-helm \
+  -f environment.yaml -f release-images.yaml \
+  --set migration.enabled=false --wait --timeout 30m
+```
+
+The chart rejects migration mode if any configured camera or maintenance
+schedule is not suspended. This validates desired configuration; it cannot
+prove other clients have stopped. The Job runs `boxmot stream-db upgrade`, which
+is idempotent, with a fifteen-minute deadline. SQL statements allow ten minutes
+and lock acquisition thirty seconds. Plan larger histories explicitly; use a
+new migration ID for each operation so immutable Job templates do not block it.
+
+Keep the previous chart, values and image digests for rollback. `helm rollback`
+restores Kubernetes configuration; it cannot reverse a database migration.
+Version 1 clients reject version 2 and need their matching database backup
+restored before application rollback. Releases supporting the same schema can
+retain the database. Avoid automatic rollback during an explicit migration.
+
+## Existing Kustomize deployments
+
+The existing `deploy/kubernetes` overlays remain usable while Helm parity and
+cluster behavior are validated. Their rendering and upgrade commands are in
+[the Kustomize README](https://github.com/mikel-brostrom/boxmot/blob/master/deploy/kubernetes/README.md).
+Do not run both installations against the same camera/database during a
+cutover. Validate Helm in an isolated namespace and database first; then stop
+old clients and maintenance, back up the database, and reference the intended
+existing claims and Secrets in Helm values. Helm does not automatically adopt
+resources created by Kustomize. Keep the previous configuration for recovery.
 
 ## Ownership and failure behavior
 
@@ -240,9 +468,20 @@ pending batches with an explicit capacity reason. Accepted work is never
 silently dropped. These limits bound the inference backlog; events waiting for
 successful export remain durable.
 
-`attribute-maintenance` runs every five minutes. It abandons expired sessions
+Size output storage as measured JSON bytes/second × 604800 seconds plus
+headroom for open segments and replay. Seven-day retention is a minimum age
+for deletion, not a hard disk quota: unacknowledged work is protected.
+PostgreSQL also needs space for queued crops, retained events, indexes and WAL.
+Monitor both database and PVC free space.
+
+`maintenance.retentionDays` and every camera's `config.retention_days` must
+match: output-maintenance also runs database cleanup. Agree on one policy for
+all clients sharing the database, or use separate databases for different
+retention requirements.
+
+`<release>-db-gc` runs every five minutes. It abandons expired sessions
 and removes acknowledged history older than seven days, preserving active track
-state, pending jobs and unacknowledged events. `camera-01-output-maintenance`
+state, pending jobs and unacknowledged events. `<release>-<camera>-out-gc`
 runs hourly, including when that camera never restarts. For an offline camera,
 it briefly acquires ownership and exports abandoned outcomes, so cleanup does
 not depend on another camera connection. A worker restarting during that short
@@ -251,14 +490,12 @@ deletion while any camera event remains unacknowledged and protects open files
 while a session is active. The running camera also prunes closed historical
 segments hourly. Monitor failed maintenance Jobs.
 
-## Add cameras and validate capacity
+## Validate capacity and recovery
 
-Create a separate Deployment, ConfigMap, camera Secret, output claim, model
-claim, and output-maintenance CronJob for each camera. Change names, selectors,
-`camera_id`, Secret references and claim references consistently. Keep one
-replica per camera; scaling that Deployment creates competing owners. Share the
-vLLM Service and database, and retain one global database-maintenance CronJob.
 Increase serving capacity based on measured backlog age before adding cameras.
+Tracking FPS and attribute requests per second are separate measurements: the
+attribute worker samples tracks and completes requests asynchronously. Camera
+readiness does not establish attribute generation latency or accuracy.
 
 The health JSON and thirty-second status logs include processed/dropped frames,
 reconnects, pending batches, queued crop bytes, oldest batch age, and mean frame
@@ -275,10 +512,21 @@ Test competing owners and storage failures. Check that queues stay within their
 caps and memory stabilizes after warmup. Test retention against aged fixtures
 before relying on seven-day cleanup.
 
-Render and schema-validate both overlays, then use server dry-run against the
-target cluster. On GPU hardware verify that camera and vLLM receive distinct
-devices and both models start. Unit tests use synthetic frames, real PostgreSQL
-transactions and injected models; they do not replace these cluster checks.
+Chart contract tests render CPU, GPU and external-service configurations and
+reject invalid values. Use server dry-run against the target cluster as well.
+The real CPU integration harness installs a fixture camera, checks persisted
+attributes and metadata, upgrades the release and checks recovery. Run it with
+a tested image from this checkout:
+
+```bash
+uv run --no-sync python -m tests.e2e.helm_streaming --help
+```
+
+On GPU hardware verify that requested devices are available and both models
+start. Cluster provisioning, managed database failover, network routes and the
+monitoring stack remain operator responsibilities. Validate the chart's
+optional ingress policies and ServiceMonitor against your CNI and Prometheus
+configuration before production traffic.
 
 ## Command reference
 

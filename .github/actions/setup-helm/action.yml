@@ -1,0 +1,16 @@
+name: Set up Helm
+description: Install the checksum-verified Helm version used by chart validation and publication.
+runs:
+  using: composite
+  steps:
+    - name: Install Helm 3.19.2
+      shell: bash
+      run: |
+        directory=$(mktemp -d "$RUNNER_TEMP/boxmot-helm.XXXXXX")
+        curl --fail --silent --show-error --location --retry 3 \
+          https://get.helm.sh/helm-v3.19.2-linux-amd64.tar.gz \
+          --output "$directory/helm.tar.gz"
+        echo "2114c9dea2844dce6d0ee2d792a9aae846be8cf53d5b19dc2988b5a0e8fec26e  $directory/helm.tar.gz" | sha256sum --check
+        tar --extract --gzip --file "$directory/helm.tar.gz" --directory "$directory" linux-amd64/helm
+        echo "$directory/linux-amd64" >> "$GITHUB_PATH"
+        "$directory/linux-amd64/helm" version --short

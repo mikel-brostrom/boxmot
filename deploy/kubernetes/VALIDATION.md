@@ -1,5 +1,252 @@
 # Local validation
 
+The newer [Helm validation record](../helm/VALIDATION.md) covers chart rendering,
+an isolated installation and upgrade, recovery, and persistent-volume retention.
+
+## Built-in webcam on Minikube — 2026-11-20
+
+The existing `boxmot-local` profile was restarted and tested with the host's
+integrated `/dev/video0` camera. FFmpeg captured 640 × 480 MJPEG at 30 FPS and
+supplied a temporary HTTP MJPEG relay at **5 FPS**. The relay bound only the
+private Minikube Docker bridge address, `192.168.49.1:18090`; the camera pod
+successfully reached it. No audio or video recording was enabled. BoxMOT wrote
+its usual track/attribute metadata and temporarily stored queued person crops.
+
+Only the `camera-01` source Secret and its rollout were changed. Images, model
+revision, detector settings, attribute profile, CPU limits and PVCs were the
+same as the November 18 deployment below. The original source was backed up
+privately before switching. DNS and database startup failures during cluster
+resume recovered before the measurement windows.
+
+Two separate windows were measured: approximately **09:26:57–09:31:59 UTC**,
+including the first attribute request, then **09:37:38–09:39:40 UTC**
+after repeated attribute completions. Capture continued between the windows.
+
+| Measurement | Initial five-minute window | Warm two-minute window |
+| --- | --- | --- |
+| Tracking throughput | 1,161 frames / 300.00 seconds: **3.87 FPS** | 392 frames / 119.94 seconds: **3.27 FPS** |
+| Capture frames dropped | 339, **22.6%** | 208, **34.7%** |
+| Ready samples | 61/61 | 25/25 |
+| Reconnects / workload restarts / OOM events | 0 / 0 / 0 | 0 / 0 / 0 |
+| Completed attributes during window | 1 | 2 |
+| Mean vLLM request latency | **280.16 seconds**, first request | **61.64 seconds**, two requests |
+| Mean capture-to-persist latency | **284.96 seconds**, first result | **63.91 seconds**, two results |
+| Camera mean CPU use | 2.00 cores | 2.00 cores |
+| vLLM mean CPU use | 2.11 cores | 3.85 cores |
+
+The webcam session produced **nine successful attribute results for one tracked
+identity** by the final database snapshot. All nine contained attribute values,
+all nine exactly matched their exported JSONL payloads, and none was awaiting
+export. The session export contained 2,727 frame records with one track per
+record, without duplicate samples or conflicting payloads. Counts are scoped
+to the webcam session; the database also contains earlier fixture runs. The
+broader consistency check matched all 45 historical-plus-webcam snapshot events.
+This verifies persistence and export, not the semantic accuracy of the model's
+descriptions or general tracking accuracy.
+
+After the first result, the next eight results arrived roughly once per minute;
+their mean capture-to-persist latency was **67.68 seconds**, range
+**62.01–74.97 seconds**. Mean database-to-export delay across all nine results
+was 0.199 seconds. Attributes are asynchronous per-track analyses, not generated
+for every processed frame. Warm vLLM requests spent 42.53 seconds in prefill and
+19.10 seconds in decode on average.
+
+CPU means use cgroup deltas. In the warm window, camera and vLLM used about
+439.8 MiB and 5.97 GiB of sampled memory respectively, from three metrics-server
+samples. The camera exhausted its two-core quota and was throttled in 99.7% of
+active CFS periods; vLLM was throttled in 42.1%. These are scheduling-period
+fractions, not wall-time fractions. The deployment therefore did not sustain
+the 5 FPS input under concurrent inference. This webcam workload differs from
+the repeated 200 × 360 fixture, so the FPS difference is not evidence of an
+optimization.
+
+After verification, the original fixture URL was restored, `camera-01` rolled
+out successfully, and all four deployments were available. The webcam session
+closed, with its completed attributes preserved. The host webcam relay,
+FFmpeg process and both temporary port forwards were stopped. Minikube remains
+running on the fixture source.
+
+Ignored local artifacts are under `runs/webcam-20261120/`: `measurements/` holds
+the first window; `warm-measurements/` holds the second window, the session-only
+summary and output verification. The relay, reversible source switch, cleanup
+wrapper and reproduction notes are retained there. The source Secret backup
+and actual webcam metadata remain local; no images or attribute values are
+included in this validation record. This check covers one built-in camera on
+one local CPU node, not GPU execution, cloud networking or a long-running soak.
+
+## CPU tuning experiments — 2026-11-20
+
+These are **host-only detector measurements**, not a new Kubernetes deployment
+benchmark. The `boxmot-local` API returned `no route to host`, and Docker socket
+access was denied. No deployment settings were changed. The missing Python
+3.11.15 interpreter was restored with uv 0.12.4 into its original `/tmp` location,
+reusing the existing locked CPU environment without resynchronizing packages.
+
+The canonical BoxMOT detector used the same cached YOLO26n model and 200 × 360
+fixture as the deployment. Each configuration ran three randomized rounds of
+20 measured predictions after five warm-up predictions per round. Timing
+excludes capture, tracking, PostgreSQL, vLLM, output synchronization and startup.
+Normal execution mode was retained. The environment was Python 3.11.15,
+Torch 2.12.1+cpu, Ultralytics 8.4.58 and OpenCV 4.11.0.
+
+With process affinity restricted to logical CPUs `0,2` (two distinct physical
+cores), the focused six-versus-two-thread comparison produced:
+
+| Detector size | Torch threads | Mean prediction time | Mean CPU time per prediction |
+| --- | --- | --- | --- |
+| 640 | 6 | 94.72 ms | 138.63 ms |
+| 640 | 2 | 61.47 ms | 122.86 ms |
+| 480 | 6 | 61.61 ms | 89.75 ms |
+| 480 | 2 | 35.17 ms | 70.32 ms |
+
+Affinity is not a Kubernetes CFS quota and does not reproduce concurrent VLM
+load. In a separate unrestricted-host comparison, six threads were faster at
+640 pixels (39.87 ms versus 58.08 ms for two threads), but consumed substantially
+more CPU time (239.19 ms versus 116.14 ms). Thread allocation therefore needs
+validation against the actual container budget; these timings must not be
+reported as improved streaming FPS.
+
+The focused comparison preserved detector outputs exactly across thread counts
+at each size. At 480 pixels, all five person detections in this fixture remained;
+the highest-confidence person's box had 0.975 IoU with the 640-pixel reference
+and confidence 0.849 versus 0.844. These detector counts include low-confidence
+background people and are different from the single confirmed track in the
+deployment. An initial 320-pixel experiment reduced detections from five to
+three, so it is not the preferred first size change. One repeated image cannot
+establish production recall or tracking accuracy.
+
+The source-level hypothesis that Ultralytics forces eight threads was rejected:
+BoxMOT passes a `torch.device`, which takes an early return before that setting.
+Fresh detector initialization retained six Torch threads on the unrestricted
+host and two with two-core affinity. The actual deployed thread count remains
+unmeasured. Explicit `OMP_NUM_THREADS=2` and `MKL_NUM_THREADS=2` also retained two
+Torch threads after detector initialization in a separate local smoke check.
+
+Further analysis of the November 18 Prometheus snapshots separated the six
+completed warm attribute requests: **32.89 seconds prefill**, **22.52 seconds
+decode**, and **0.00135 seconds server queue** on average, with 625 input and 149
+output tokens per completed request. These use completed-request histogram
+deltas; token-counter and first-token deltas have different boundary semantics.
+The measurements prioritize model compute over server-queue tuning.
+
+The next live experiments should change one factor at a time: camera thread
+allocation, then detector size 480; separately test a shorter attribute prompt
+while retaining structured-output validation, a lower vision minimum pixel
+budget, or vLLM CPU quota 4 → 5 with existing binding unchanged. These VLM changes
+are hypotheses, not measured improvements. Check attribute correctness as well
+as latency, and keep database/export consistency checks in each live run.
+
+The ignored `runs/deployment_tuning_20261120/` directory contains the benchmark,
+logs, raw timings, input hashes and candidate camera patches. All **1,020 timed
+predictions** across the three experiments completed. Reproduction commands:
+
+```bash
+UV_CACHE_DIR=/tmp/boxmot-review-uv uv run --no-sync python \
+  -m runs.deployment_tuning_20261120.detector_benchmark \
+  --cpus 0,2 --samples 20 --output /tmp/boxmot-detector-grid.json
+UV_CACHE_DIR=/tmp/boxmot-review-uv uv run --no-sync python \
+  -m runs.deployment_tuning_20261120.detector_benchmark \
+  --sizes 640 480 --threads 6 2 --samples 20 \
+  --output /tmp/boxmot-detector-host.json
+UV_CACHE_DIR=/tmp/boxmot-review-uv uv run --no-sync python \
+  -m runs.deployment_tuning_20261120.detector_benchmark \
+  --cpus 0,2 --sizes 640 480 --threads 6 2 --samples 20 \
+  --output /tmp/boxmot-detector-two-cores.json
+```
+
+## Minikube CPU deployment — 2026-11-18
+
+The solution was deployed to the isolated `boxmot-local` Minikube profile,
+namespace `boxmot-streams`, with real detector, attribute-model and PostgreSQL
+execution. This supersedes the earlier limitation that no Kubernetes cluster
+had been exercised. Existing application databases were not used.
+
+The host is an AMD Ryzen 5 4600H with 6 cores/12 threads and approximately
+15 GiB RAM. Minikube 1.39.0 runs Kubernetes/kubectl 1.37.2 using Docker and
+containerd, with local container limits of 8 CPU and 10000 MB memory. The local
+deployment uses a dedicated PostgreSQL 17 database and four `standard`
+ReadWriteOnce hostPath PVCs. These are single-node storage, and their requested
+capacities are not enforced filesystem quotas.
+
+The BoxMOT image is the previously validated Compose build; its application
+code has not changed. Images were imported locally and selected by digest:
+
+- BoxMOT: `boxmot/boxmot@sha256:66df3468dfa1b707f442491de7250893b2eca929889bcfb5d5764ebacd82e268`.
+- vLLM: `vllm/vllm-openai-cpu@sha256:4154467a886f8b7ffa9dbab32f873f5ca4528409d042a6ec866e8888223263d3`.
+- PostgreSQL: `postgres@sha256:0d938e975177bef9f1f61f3f9dbcf2e0aa0a139568f66d3415ed8892eb97f6ac`.
+
+Tracking uses YOLO26n and ByteTrack on CPU. vLLM serves
+`Qwen/Qwen3.5-0.8B` in BF16 at model revision
+`2fc06364715b967f1860aea9cf38778875588b17`. The camera fixture repeats one
+200 × 360 JPEG over HTTP MJPEG at a nominal 5 FPS. This is a functional workload,
+not an accuracy evaluation or a representative camera-capacity benchmark.
+The camera requests 1 CPU/1 GiB and is limited to 2 CPU/2 GiB; vLLM requests
+2 CPU/4 GiB and is limited to 4 CPU/8 GiB.
+
+The first vLLM startup exposed a Kubernetes-specific defect: the Service named
+`vllm` injected `VLLM_PORT=tcp://...`, while vLLM expects a numeric port. The
+worker exited with a configuration error, not an OOM kill. The shared pod
+template now sets `enableServiceLinks: false`; both CPU and GPU rendered
+contracts verify it. The focused Kubernetes tests passed **3 tests**. Separately,
+the local vLLM memory limit was raised from 6 to 8 GiB after startup diagnostics
+reported no headroom at the lower limit.
+
+With images and models cached, the corrected vLLM pod reached Ready **81 seconds**
+after creation; the camera pod reached Ready after **16 seconds**. These are pod
+creation-to-readiness intervals, not first attribute-result latency.
+
+The five-minute measurement ran from approximately **19:30:07 to 19:35:09 UTC**
+while tracking and attribute inference were both active:
+
+| Measurement | Observed result |
+| --- | --- |
+| Tracking throughput | 905 frames over 299.97 seconds: **3.02 FPS** |
+| Capture frames dropped | 593, or **39.6%** of processed plus dropped frames |
+| Availability | 61/61 ready samples; zero reconnects or workload restarts |
+| Successful attributes | Six during the window; seven total at the database snapshot |
+| vLLM request latency | **55.43 seconds mean**, six completed requests |
+| Capture-to-persisted attribute latency | **62.21 seconds mean**, range 58.75–67.34 seconds, six window results |
+| First attribute result | **263.51 seconds** after its source capture, before the measurement window |
+| Camera CPU and memory | 1.99 CPU cores mean; 422.9 MiB sampled mean memory |
+| vLLM CPU and memory | 3.96 CPU cores mean; 5.98 GiB sampled mean memory |
+| Container lifetime memory peaks | Camera 704.9 MiB; vLLM 6.19 GiB, including startup |
+| Database/export consistency | All seven snapshot events matched exported JSONL payloads; none awaiting export |
+| Backlog at final database snapshot | One running batch, age 53.11 seconds; 6,048 bytes of crops; no pending batches |
+
+CPU means come from cgroup counter deltas; memory means use six distinct
+metrics-server samples. Neither worker had an OOM event during the window.
+The camera and vLLM were throttled in 97.4% and 58.1% of active CFS scheduling
+periods respectively. Those percentages describe scheduling periods. Both
+workers used nearly their full CPU quotas, and this configuration did not
+sustain the fixture's nominal 5 FPS. Capture-to-result latency includes
+application scheduling and inference; the database-to-export delay averaged
+0.184 seconds across all seven completed events.
+
+The standalone local measurement and verification scripts were run as follows,
+with loopback port forwards already active:
+
+```bash
+.venv/bin/python runs/minikube-20261118T191126Z/collect_metrics.py \
+  --duration 300 --interval 5 \
+  --camera-url http://127.0.0.1:18080 --vlm-url http://127.0.0.1:18000 \
+  > runs/minikube-20261118T191126Z/measurement.log 2>&1
+.venv/bin/python runs/minikube-20261118T191126Z/verify_outputs.py
+kubectl --context boxmot-local -n boxmot-streams get pods -o json
+```
+
+Local manifests, startup logs, model references and measurement tools are
+retained under `runs/minikube-20261118T191126Z/`. These ignored artifacts are not
+committed. In particular, `vllm-startup-failure.log` preserves the original error,
+and `deployment-summary.json` records the local configuration. Measurements are
+in `measurements/report.json`; raw health/resource samples, PostgreSQL snapshots
+and vLLM metrics are retained alongside it. The export check in
+`measurements/output-snapshot/verification.json` has `verified: true`, with seven
+matching events and no missing acknowledged events or payload mismatches.
+
+This run does not cover GPU inference, a physical camera, multiple Kubernetes
+nodes, or a 24-hour soak. The earlier remaining checks still apply to those
+areas.
+
 ## Compose reliability follow-up — 2026-11-18
 
 The Compose defaults now pin the previously validated CPU vLLM image and
